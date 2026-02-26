@@ -28,3 +28,10 @@ model Product {
 
   @@index([category])
 }
+model MlToken {
+  id           String   @id @default("main")
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  updatedAt    DateTime @updatedAt
+}
