@@ -11,10 +11,13 @@ export async function GET(req: Request) {
 
   try {
     await exchangeCodeForToken(code);
-  } catch (error) {
-    console.error(error);
+  } catch (error: any) {
+    console.error("Erro no callback do Mercado Livre:", error);
     return NextResponse.json(
-      { error: "Erro ao conectar com o Mercado Livre." },
+      {
+        error: "Erro ao conectar com o Mercado Livre.",
+        details: error?.message ?? String(error),
+      },
       { status: 500 }
     );
   }
