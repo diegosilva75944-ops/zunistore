@@ -17,7 +17,7 @@ export default function Home() {
     setAffiliateUrl(null);
 
     try {
-      const res = await fetch("/api/ml/products/sync", {
+      const res = await fetch("/api/affiliate/link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ item: itemInput }),
@@ -26,11 +26,11 @@ export default function Home() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || "Falha ao sincronizar produto.");
+        throw new Error(data.error || "Falha ao gerar link de afiliado.");
       }
 
-      setMessage("Produto sincronizado com sucesso.");
-      setAffiliateUrl(data.product?.affiliateUrl ?? null);
+      setMessage("Link de afiliado gerado com sucesso.");
+      setAffiliateUrl(data.affiliateUrl ?? null);
     } catch (err: any) {
       setError(err.message ?? "Erro inesperado.");
     } finally {
@@ -51,29 +51,10 @@ export default function Home() {
             ZuniStore · Afiliados Mercado Livre
           </h1>
           <p className="text-zinc-400 text-sm">
-            Conecte sua conta do Mercado Livre, informe o ID ou URL de um anúncio
-            e gere o link de afiliado automaticamente.
+            Informe o ID ou URL de um anúncio do Mercado Livre e gere o link de
+            afiliado com seu código automaticamente.
           </p>
         </header>
-
-        <section className="space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-zinc-100">
-                Conexão com o Mercado Livre
-              </p>
-              <p className="text-xs text-zinc-400">
-                Clique para autorizar o acesso via OAuth e salvar o token.
-              </p>
-            </div>
-            <a
-              href="/api/ml/auth"
-              className="inline-flex items-center justify-center rounded-full bg-amber-400 px-4 py-1.5 text-sm font-semibold text-zinc-950 hover:bg-amber-300 transition-colors"
-            >
-              Conectar conta
-            </a>
-          </div>
-        </section>
 
         <section className="space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
           <form onSubmit={handleSync} className="space-y-4">
