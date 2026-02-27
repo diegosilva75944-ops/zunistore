@@ -17,6 +17,10 @@ export async function GET(req: Request) {
       {
         error: "Erro ao conectar com o Mercado Livre.",
         details: error?.message ?? String(error),
+        debug: {
+          clientId: process.env.ML_CLIENT_ID,
+          redirectUri: process.env.ML_REDIRECT_URI,
+        },
       },
       { status: 500 }
     );
