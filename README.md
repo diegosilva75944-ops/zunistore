@@ -1,39 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ZuniStore
 
-## Getting Started
+Marketplace afiliado profissional (inspirado em grandes marketplaces), com **SEO, performance e escalabilidade** como prioridade.
 
-First, run the development server:
+Importante: o ZuniStore **não vende**. O botão **Comprar** sempre abre em **nova aba** e redireciona para o produto original usando **link afiliado**.
 
+## Stack
+
+- Next.js (App Router) + TypeScript
+- TailwindCSS
+- Supabase (PostgreSQL)
+- `@supabase/supabase-js`
+- Admin com autenticação própria (bcrypt) e sessão via cookie **httpOnly**
+- Importação de produtos **exclusivamente via Extensão Chrome** (sem API oficial do Mercado Livre; sem scraping backend por padrão)
+
+## Setup (Supabase)
+
+- **1) Criar projeto no Supabase**
+- **2) Aplicar schema**
+  - Execute `supabase/schema.sql` no SQL Editor
+- **3) Aplicar seed**
+  - Execute `supabase/seed.sql` no SQL Editor
+
+## Variáveis de ambiente
+
+Crie um `.env.local` baseado em `.env.example`.
+
+## Rodar local
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- Site: `http://localhost:3000`
+- Admin: `http://localhost:3000/admin`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Extensão Chrome (Importador)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Código da extensão em `zunistore-importer/`.
 
-## Learn More
+- Em `Admin -> Tokens`, crie um token (ele aparece 1 vez)
+- Em `Admin -> Importação`, copie a Base URL
+- Abra a extensão e configure em `Opções`
+- No popup, informe:
+  - **URL da página do produto** (Mercado Livre) — ou use "Usar página atual" se estiver na aba do produto
+  - **Link de afiliado** (o que aparecerá no botão Comprar)
+  - Clique em **Importar**
 
-To learn more about Next.js, take a look at the following resources:
+## Observações
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Para o `next/image` carregar imagens externas, ajuste `next.config.ts` se necessário (domínios).
+- O tema é via CSS Variables e pode ser editado no Admin (`site_settings.colors`).
 
 

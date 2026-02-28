@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "ZuniStore Importer",
+  "version": "1.0.0",
+  "description": "Importa produtos do Mercado Livre para o ZuniStore (via JSON-LD + fallback DOM).",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://*.mercadolivre.com.br/*"],
+  "action": {
+    "default_title": "ZuniStore Importer",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://*.mercadolivre.com.br/*"],
+      "js": ["content_script.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+

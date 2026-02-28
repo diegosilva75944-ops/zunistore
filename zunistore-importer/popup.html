@@ -1,0 +1,45 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ZuniStore Importer</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 12px; width: 380px; }
+      h1 { font-size: 14px; margin: 0 0 10px; }
+      label { font-size: 12px; font-weight: 600; display: block; margin: 10px 0 4px; }
+      input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #ddd; border-radius: 10px; font-size: 12px; }
+      button { width: 100%; margin-top: 12px; padding: 10px; border: 0; border-radius: 999px; background: #6D28D9; color: white; font-weight: 700; cursor: pointer; }
+      button:disabled { opacity: .6; cursor: not-allowed; }
+      .hint { margin-top: 8px; font-size: 11px; color: #666; }
+      .link-btn { font-size: 11px; color: #6D28D9; cursor: pointer; margin-top: 4px; }
+      .link-btn:hover { text-decoration: underline; }
+      .status { margin-top: 10px; font-size: 12px; padding: 8px; border-radius: 10px; background: #f4f4f5; border: 1px solid #e4e4e7; }
+      .error { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+      a { color: #6D28D9; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <h1>ZuniStore Importer</h1>
+
+    <div id="productUrlSection" style="display:none;">
+      <label for="productUrl">URL da página do produto</label>
+      <input id="productUrl" type="url" placeholder="https://www.mercadolivre.com.br/..." readonly />
+      <div class="link-btn" id="changeUrl">Alterar URL</div>
+    </div>
+
+    <label for="affiliateUrl">Link de afiliado (botão Comprar)</label>
+    <input id="affiliateUrl" type="url" placeholder="https://..." />
+
+    <button id="importBtn">Importar</button>
+
+    <div class="hint">
+      Configure Base URL e Token em <a href="#" id="openOptions">Opções</a>.
+    </div>
+
+    <div id="status" class="status" style="display:none;"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

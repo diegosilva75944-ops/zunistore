@@ -6,17 +6,23 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "postinstall": "prisma generate"
+    "lint": "eslint"
   },
   "dependencies": {
-    "@prisma/client": "^6.0.0",
+    "@supabase/supabase-js": "^2",
+    "bcryptjs": "^3",
+    "clsx": "^2",
+    "jose": "^6",
     "next": "16.1.6",
-    "prisma": "^6.0.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3",
+    "zod": "^4"
   },
   "devDependencies": {
+    "@dnd-kit/core": "^6",
+    "@dnd-kit/sortable": "^10",
+    "@dnd-kit/utilities": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

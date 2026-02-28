@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ZuniStore Importer — Opções</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; padding: 16px; max-width: 720px; }
+      h1 { font-size: 16px; margin: 0 0 10px; }
+      label { font-size: 12px; font-weight: 600; display: block; margin: 12px 0 4px; }
+      input { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid #ddd; border-radius: 10px; font-size: 12px; }
+      button { margin-top: 12px; padding: 10px 16px; border: 0; border-radius: 999px; background: #6D28D9; color: white; font-weight: 700; cursor: pointer; }
+      .status { margin-top: 10px; font-size: 12px; padding: 8px; border-radius: 10px; background: #f4f4f5; border: 1px solid #e4e4e7; display:none; }
+    </style>
+  </head>
+  <body>
+    <h1>ZuniStore Importer — Opções</h1>
+    <p style="font-size:12px;color:#666;margin:0;">
+      Configure a URL do seu ZuniStore e o Token criado no Admin.
+    </p>
+
+    <label for="baseUrl">Base URL do ZuniStore</label>
+    <input id="baseUrl" placeholder="http://localhost:3000" />
+
+    <label for="token">Import Token</label>
+    <input id="token" placeholder="Cole o token aqui" />
+
+    <button id="saveBtn">Salvar</button>
+
+    <div id="status" class="status"></div>
+
+    <script src="options.js"></script>
+  </body>
+</html>
+
