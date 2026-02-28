@@ -35,18 +35,7 @@ async function fetchMlSalePrice(itemId: string): Promise<MlSalePrice | null> {
   };
 }
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const key = url.searchParams.get("key") ?? "";
-  const secret = process.env.CRON_SECRET;
-
-  if (!secret || key !== secret) {
-    return NextResponse.json(
-      { ok: false, error: "Unauthorized" },
-      { status: 401 },
-    );
-  }
-
+export async function GET(_req: Request) {
   const supabase = getSupabaseServiceRoleClient();
 
   const { data: products, error } = await supabase
