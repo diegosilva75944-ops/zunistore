@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "replace": "node scripts/replace-all.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2",
