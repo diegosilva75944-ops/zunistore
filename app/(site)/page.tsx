@@ -76,7 +76,9 @@ export default async function Home(props: {
                   </div>
 
                   <div className="p-4 flex-1 space-y-2">
-                    <div className="text-xs text-zinc-500">Destaque</div>
+                    <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
+                      Destaque
+                    </div>
                     <div className="font-semibold leading-snug line-clamp-2">
                       {c.product.title}
                     </div>
