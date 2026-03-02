@@ -15,35 +15,47 @@ export async function generateMetadata(props: {
   const product = await getProductByCode6(code6);
   if (!product) return { title: "Produto não encontrado" };
 
-  const title = `${product.title} (${product.code6})`;
-  const description =
-    product.description?.slice(0, 155) ||
-    "Veja detalhes do produto e compre no site original (nova aba).";
+  const hasPromo = product.promo_price != null && product.promo_price < product.price;
+  const finalPrice = hasPromo ? (product.promo_price as number) : product.price;
+  const priceStr = formatBRL(finalPrice);
 
   const env = getOptionalEnv();
-  const url =
-    env?.NEXT_PUBLIC_SITE_URL
-      ? `${env.NEXT_PUBLIC_SITE_URL}/produto/${product.code6}/${product.slug}`
+  const baseUrl = env?.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "";
+  const productUrl = baseUrl
+    ? `${baseUrl}/produto/${product.code6}/${product.slug}`
+    : undefined;
+
+  // Ordem no compartilhamento: link → nome → preço → imagem (meta OG na ordem que o FB/WhatsApp exibem)
+  const title = product.title;
+  const shortTitle = title.length > 60 ? title.slice(0, 57) + "…" : title;
+  const description = [productUrl, shortTitle, priceStr, "Compre na loja original."]
+    .filter(Boolean)
+    .join(" · ");
+
+  // Imagem servida no nosso domínio para o crawler do Facebook/WhatsApp conseguir carregar
+  const ogImageUrl =
+    baseUrl && product.images?.[0]
+      ? `${baseUrl}/api/og-image/${product.code6}`
       : undefined;
 
-  const ogImage = product.images?.[0] ?? undefined;
-
   return {
-    title,
+    title: `${title} (${product.code6})`,
     description,
-    alternates: url ? { canonical: url } : undefined,
+    alternates: productUrl ? { canonical: productUrl } : undefined,
     openGraph: {
       title,
       description,
-      url,
-      images: ogImage ? [{ url: ogImage }] : undefined,
+      url: productUrl,
+      images: ogImageUrl
+        ? [{ url: ogImageUrl, width: 1200, height: 630, alt: title }]
+        : undefined,
       type: "website",
     },
     twitter: {
-      card: ogImage ? "summary_large_image" : "summary",
+      card: ogImageUrl ? "summary_large_image" : "summary",
       title,
       description,
-      images: ogImage ? [ogImage] : undefined,
+      images: ogImageUrl ? [ogImageUrl] : undefined,
     },
   };
 }
