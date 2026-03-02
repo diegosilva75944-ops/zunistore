@@ -31,6 +31,15 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
     setLens((l) => ({ ...l, show: false }));
   }, []);
 
+  const handleClickMain = useCallback(() => {
+    if (!mainSrc) return;
+    try {
+      window.open(mainSrc, "_blank", "noopener,noreferrer");
+    } catch {
+      // ignore
+    }
+  }, [mainSrc]);
+
   return (
     <div className="space-y-3">
       {/* Foto principal com lupa ao passar o mouse */}
@@ -39,6 +48,7 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
         className="relative aspect-square rounded-2xl bg-white ring-1 ring-zinc-200 overflow-hidden cursor-zoom-in"
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onClick={handleClickMain}
       >
         {mainSrc ? (
           <>

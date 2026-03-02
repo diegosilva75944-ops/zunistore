@@ -79,51 +79,197 @@ function extractDescriptionFromMl(doc) {
 }
 
 function extractImagesFromMlDom(doc) {
-  const urls = [];
-  const seen = new Set();
   const isMlImage = (u) => u && (u.includes("mlstatic.com") || u.includes("mercadolivre"));
-  const addUrl = (u) => {
-    if (!u || !isMlImage(u) || u.includes("data:") || !u.startsWith("http")) return;
-    const normalized = u.split("?")[0];
-    if (seen.has(normalized)) return;
-    seen.add(normalized);
-    urls.push(u);
+  const normalizeUrl = (u) => {
+    if (!u || typeof u !== "string") return u;
+    u = u.trim();
+    if (u.startsWith("//")) u = "https:" + u;
+    if (u.startsWith("http://http") || u.startsWith("https://http")) {
+      u = u.replace(/^https?:\/\/http/, "https://http");
+    }
+    return u;
   };
-  const figures = doc.querySelectorAll(".ui-pdp-gallery__figure");
-  if (figures.length > 0) {
-    for (const fig of figures) {
-      const img = fig.querySelector("img");
-      if (img) {
-        const src = img.src || img.getAttribute("data-src") || img.getAttribute("data-lazy");
-        if (src) {
-          addUrl(src);
-        } else {
-          const srcset = img.getAttribute("srcset");
-          if (srcset) {
-            const first = srcset.split(",")[0]?.trim().split(/\s+/)[0];
-            if (first) addUrl(first);
-          }
+  const isValidUrl = (u) => {
+    u = normalizeUrl(u);
+    return u && isMlImage(u) && !u.includes("data:") && u.startsWith("http");
+  };
+
+  const getMlImageId = (url) => {
+    const m = String(url || "").match(/\/(\d+-[A-Z0-9]+_\d+)(?:[-.]|[-.a-z0-9]*\.(webp|jpg|jpeg|png))/i);
+    return m ? m[1] : null;
+  };
+  const resolutionScore = (url) => {
+    const u = String(url || "");
+    if (/2X|2x/i.test(u)) return 1000;
+    if (/-F[.-]/i.test(u)) return 500;
+    if (/-L[.-]/i.test(u)) return 400;
+    if (/-B[.-]/i.test(u)) return 350;
+    if (/-C[.-]/i.test(u)) return 300;
+    if (/-V[.-]/i.test(u)) return 200;
+    if (/-O[.-]/i.test(u)) return 100;
+    return 50;
+  };
+
+  const pickBestFromSrcset = (srcset) => {
+    if (!srcset) return null;
+    let best = null;
+    let bestScore = -1;
+    for (const part of srcset.split(",")) {
+      const seg = part.trim();
+      if (!seg) continue;
+      const [url, descriptor] = seg.split(/\s+/, 2);
+      if (!url) continue;
+      let score = 0;
+      if (descriptor) {
+        const d = descriptor.trim();
+        if (d.endsWith("x")) {
+          const n = parseFloat(d.slice(0, -1));
+          if (Number.isFinite(n)) score = 10000 * n;
+        } else if (d.endsWith("w")) {
+          const n = parseInt(d.slice(0, -1), 10);
+          if (Number.isFinite(n)) score = n;
         }
       }
+      if (score > bestScore) {
+        bestScore = score;
+        best = url;
+      }
     }
+    return best;
+  };
+
+  const orderedFromFigures = [];
+  const allCandidatesById = {};
+  const orderedIdsFromHtml = [];
+
+  const addCandidate = (u) => {
+    u = normalizeUrl(u);
+    if (!isValidUrl(u)) return;
+    const id = getMlImageId(u);
+    if (!id) return;
+    const score = resolutionScore(u);
+    if (!allCandidatesById[id] || score > resolutionScore(allCandidatesById[id])) {
+      allCandidatesById[id] = u;
+    }
+  };
+
+  const collectOrderedFromFigures = () => {
+    const gallery = doc.querySelector(".ui-pdp-gallery");
+    const figures = gallery ? gallery.querySelectorAll(".ui-pdp-gallery__figure") : doc.querySelectorAll(".ui-pdp-gallery__figure");
+    for (const fig of figures) {
+      let best = null;
+      const fromFigure = fig.getAttribute("data-zoom") || fig.getAttribute("data-src") || fig.getAttribute("data-url");
+      if (fromFigure && isValidUrl(fromFigure)) best = fromFigure;
+      const img = fig.querySelector("img");
+      if (img) {
+        const zoom = img.getAttribute("data-zoom");
+        const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-lazy");
+        const src = img.src || img.currentSrc;
+        const srcset = img.getAttribute("srcset");
+        const fromSrcset = pickBestFromSrcset(srcset);
+        if (!best && zoom && isValidUrl(zoom)) best = zoom;
+        if (!best && fromSrcset && isValidUrl(fromSrcset)) best = fromSrcset;
+        if (!best && dataSrc && isValidUrl(dataSrc)) best = dataSrc;
+        if (!best && src && isValidUrl(src)) best = src;
+      }
+      const source = fig.querySelector("source");
+      if (source && !best) {
+        const s = source.getAttribute("srcset") || source.getAttribute("src");
+        if (s) best = (s.split(",")[0]?.trim().split(/\s+/)[0] || s).trim();
+        if (best && !isValidUrl(best)) best = null;
+      }
+      if (best) {
+        orderedFromFigures.push(best);
+        addCandidate(best);
+      }
+    }
+  };
+
+  const collectFromGalleryHtml = () => {
+    const gallery = doc.querySelector(".ui-pdp-gallery");
+    if (!gallery) return;
+    const html = gallery.innerHTML;
+    const re = /(?:data-zoom|data-src|data-url)=["'](https?:\/\/[^"']*mlstatic\.com\/[^"']+)["']/gi;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const url = normalizeUrl(m[1]);
+      if (!isValidUrl(url)) continue;
+      addCandidate(url);
+      const id = getMlImageId(url);
+      if (id && orderedIdsFromHtml.indexOf(id) === -1) orderedIdsFromHtml.push(id);
+    }
+  };
+
+  collectOrderedFromFigures();
+  collectFromGalleryHtml();
+
+  const result = [];
+  if (orderedIdsFromHtml.length > 0) {
+    for (const id of orderedIdsFromHtml) {
+      if (allCandidatesById[id]) result.push(allCandidatesById[id]);
+    }
+  } else {
+    const seenIds = new Set();
+    for (const url of orderedFromFigures) {
+      const id = getMlImageId(url);
+      if (id && !seenIds.has(id)) {
+        seenIds.add(id);
+        result.push(allCandidatesById[id] || url);
+      }
+    }
+    Object.keys(allCandidatesById).filter((id) => !seenIds.has(id)).forEach((id) => result.push(allCandidatesById[id]));
   }
-  if (urls.length === 0) {
+
+  if (result.length > 0) {
+    return result.length > 30 ? result.slice(0, 30) : result;
+  }
+
+  if (orderedFromFigures.length === 0 && Object.keys(allCandidatesById).length === 0) {
     const gallery = doc.querySelector(".ui-pdp-gallery");
     if (gallery) {
       const imgs = gallery.querySelectorAll("img");
       for (const img of imgs) {
-        const src = img.src || img.getAttribute("data-src") || img.getAttribute("data-lazy");
-        if (src) addUrl(src);
+        const zoom = img.getAttribute("data-zoom");
+        const src = img.src || img.currentSrc || img.getAttribute("data-src");
+        if (zoom) addCandidate(zoom);
+        if (src) addCandidate(src);
       }
     }
   }
-  if (urls.length === 0) {
+
+  if (Object.keys(allCandidatesById).length === 0) {
     Array.from(doc.images || []).forEach((img) => {
       const src = img.src || img.currentSrc;
-      if (src && isMlImage(src)) addUrl(src);
+      if (src && isMlImage(src)) addCandidate(src);
     });
   }
-  return urls.length > 30 ? urls.slice(0, 30) : urls;
+
+  if (Object.keys(allCandidatesById).length === 0 && doc.documentElement) {
+    const raw = doc.documentElement.outerHTML;
+    const re = /https?:\/\/[^"'\s]*mlstatic\.com\/[^"'\s]+\.(webp|jpg|jpeg|png)/gi;
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+      addCandidate(m[0]);
+    }
+  }
+
+  if (orderedIdsFromHtml.length > 0) {
+    for (const id of orderedIdsFromHtml) {
+      if (allCandidatesById[id]) result.push(allCandidatesById[id]);
+    }
+  } else {
+    const seenIds2 = new Set();
+    for (const url of orderedFromFigures) {
+      const id = getMlImageId(url);
+      if (id && !seenIds2.has(id)) {
+        seenIds2.add(id);
+        result.push(allCandidatesById[id] || url);
+      }
+    }
+    Object.keys(allCandidatesById).filter((id) => !seenIds2.has(id)).forEach((id) => result.push(allCandidatesById[id]));
+  }
+
+  return result.length > 30 ? result.slice(0, 30) : result;
 }
 
 function parseReviewsNumber(str) {

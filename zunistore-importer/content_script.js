@@ -79,6 +79,147 @@
     return null;
   }
 
+  function extractImagesFromMlDom(doc) {
+    const d = doc || document;
+    const isMlImage = (u) => u && (u.includes("mlstatic.com") || u.includes("mercadolivre"));
+    const normalizeUrl = (u) => {
+      if (!u || typeof u !== "string") return u;
+      u = String(u).trim();
+      if (u.startsWith("//")) u = "https:" + u;
+      if (u.startsWith("http://http") || u.startsWith("https://http")) {
+        u = u.replace(/^https?:\/\/http/, "https://http");
+      }
+      return u;
+    };
+    const isValidUrl = (u) => {
+      u = normalizeUrl(u);
+      return u && isMlImage(u) && !u.includes("data:") && u.startsWith("http");
+    };
+
+    /** Maior = melhor resolução; prioriza 2X, depois F, L, B, C, O */
+    const resolutionScore = (url) => {
+      const u = String(url || "");
+      if (/2X|2x/i.test(u)) return 1000;
+      if (/-F[.-]/i.test(u)) return 500;
+      if (/-L[.-]/i.test(u)) return 400;
+      if (/-B[.-]/i.test(u)) return 350;
+      if (/-C[.-]/i.test(u)) return 300;
+      if (/-V[.-]/i.test(u)) return 200;
+      if (/-O[.-]/i.test(u)) return 100;
+      return 50;
+    };
+
+    const pickBestFromSrcset = (srcset) => {
+      if (!srcset) return null;
+      let best = null;
+      let bestScore = -1;
+      for (const part of srcset.split(",")) {
+        const seg = part.trim();
+        if (!seg) continue;
+        const [url, descriptor] = seg.split(/\s+/, 2);
+        if (!url) continue;
+        let score = 0;
+        if (descriptor) {
+          const dsc = descriptor.trim();
+          if (dsc.endsWith("x")) {
+            const n = parseFloat(dsc.slice(0, -1));
+            if (Number.isFinite(n)) score = 10000 * n;
+          } else if (dsc.endsWith("w")) {
+            const n = parseInt(dsc.slice(0, -1), 10);
+            if (Number.isFinite(n)) score = n;
+          }
+        }
+        if (score > bestScore) {
+          bestScore = score;
+          best = url;
+        }
+      }
+      return best;
+    };
+
+    /** Uma URL de maior resolução por .ui-pdp-gallery__figure, na ordem da galeria */
+    const figures = d.querySelectorAll(".ui-pdp-gallery__figure");
+    const result = [];
+
+    for (const fig of figures) {
+      const candidates = [];
+
+      const add = (u) => {
+        u = normalizeUrl(u);
+        if (isValidUrl(u)) candidates.push(u);
+      };
+
+      // Atributos do próprio figure (data-zoom costuma ser a maior resolução no ML)
+      const dataZoom = fig.getAttribute("data-zoom") || fig.getAttribute("data-src") || fig.getAttribute("data-url");
+      if (dataZoom) add(dataZoom);
+
+      // img dentro do figure
+      const img = fig.querySelector("img");
+      if (img) {
+        add(img.getAttribute("data-zoom"));
+        add(img.getAttribute("data-src") || img.getAttribute("data-lazy"));
+        add(img.currentSrc || img.src);
+        const srcset = img.getAttribute("srcset");
+        const fromSrcset = pickBestFromSrcset(srcset);
+        if (fromSrcset) add(fromSrcset);
+      }
+
+      // source dentro do figure
+      const source = fig.querySelector("source");
+      if (source) {
+        const s = source.getAttribute("srcset") || source.getAttribute("src");
+        if (s) {
+          for (const part of s.split(",")) {
+            const seg = part.trim();
+            if (!seg) continue;
+            const url = seg.split(/\s+/)[0];
+            if (url) add(url);
+          }
+        }
+      }
+
+      // Escolhe a URL de maior resolução entre os candidatos deste figure
+      if (candidates.length > 0) {
+        let bestUrl = candidates[0];
+        let bestScore = resolutionScore(bestUrl);
+        for (let i = 1; i < candidates.length; i++) {
+          const u = normalizeUrl(candidates[i]);
+          const score = resolutionScore(u);
+          if (score > bestScore) {
+            bestScore = score;
+            bestUrl = u;
+          }
+        }
+        result.push(normalizeUrl(bestUrl));
+      }
+    }
+
+    if (result.length > 0) {
+      return result.length > 30 ? result.slice(0, 30) : result;
+    }
+
+    // Fallback: se não houver .ui-pdp-gallery__figure, tenta galeria genérica
+    const gallery = d.querySelector(".ui-pdp-gallery");
+    if (gallery) {
+      const imgs = gallery.querySelectorAll("img");
+      for (const img of imgs) {
+        const zoom = img.getAttribute("data-zoom");
+        const src = img.currentSrc || img.src || img.getAttribute("data-src");
+        if (zoom && isValidUrl(normalizeUrl(zoom))) result.push(normalizeUrl(zoom));
+        else if (src && isValidUrl(normalizeUrl(src))) result.push(normalizeUrl(src));
+      }
+    }
+
+    if (result.length === 0) {
+      Array.from(d.images || []).forEach((img) => {
+        const src = img.currentSrc || img.src;
+        if (src && isMlImage(src)) result.push(normalizeUrl(src));
+      });
+    }
+
+    return result.length > 30 ? result.slice(0, 30) : result;
+  }
+
   function extractFromJsonLd() {
     const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
     for (const s of scripts) {
@@ -101,6 +242,9 @@
         let images = [];
         if (typeof product.image === "string") images = [product.image];
         else if (Array.isArray(product.image)) images = product.image.filter(Boolean);
+
+        const domImages = extractImagesFromMlDom(document);
+        if (domImages.length > images.length) images = domImages;
 
         const offers = Array.isArray(product.offers) ? product.offers[0] : product.offers;
         let jsonLdPrice = offers && offers.price ? Number(offers.price) : null;
@@ -248,11 +392,14 @@
       promo = findPromoAndPrice(bodyText);
     }
 
-    const imgs = Array.from(document.images || [])
-      .map((i) => i.currentSrc || i.src)
-      .filter((u) => u && /^https?:\/\//.test(u))
-      .filter((u) => !u.includes("data:"))
-      .slice(0, 12);
+    let imgs = extractImagesFromMlDom(document);
+    if (!imgs.length) {
+      imgs = Array.from(document.images || [])
+        .map((i) => i.currentSrc || i.src)
+        .filter((u) => u && /^https?:\/\//.test(u))
+        .filter((u) => !u.includes("data:"))
+        .slice(0, 12);
+    }
 
     const reviewsCount = extractReviewsCountFromMl(document);
 
