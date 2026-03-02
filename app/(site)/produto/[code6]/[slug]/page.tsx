@@ -23,15 +23,8 @@ export async function generateMetadata(props: {
   const productUrl = `${baseUrl}/produto/${product.code6}/${product.slug}`;
 
   const title = product.title;
-  const shortTitle = title.length > 55 ? title.slice(0, 52) + "…" : title;
-  const description = [
-    "🔗",
-    productUrl,
-    "🛒",
-    shortTitle,
-    "💰 " + priceStr + " 💰",
-    "🛍️ Compre na loja original.",
-  ].join(" · ");
+  // Sem descrição longa no preview do link — só preço destacado
+  const description = `💰 ${priceStr}`;
 
   // Imagem principal do banco (URL já armazenada) para o preview no compartilhamento
   const mainImage = product.images?.[0];
@@ -82,7 +75,7 @@ export default async function ProdutoPage(props: {
   const pageUrl = `${baseUrl}/produto/${product.code6}/${product.slug}`;
 
   const wa = `https://wa.me/?text=${encodeURIComponent(
-    `Confira: ${product.title} por ${formatBRL(finalPrice)} — ${pageUrl}`,
+    `🛒 ${product.title} — 💰 ${formatBRL(finalPrice)} 💰 — ${pageUrl}`,
   )}`;
   const fb = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`;
 
