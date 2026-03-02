@@ -219,8 +219,9 @@ function parseAndesMoney(el) {
   const fraction = el.querySelector(".andes-money-amount__fraction")?.textContent?.trim();
   const cents = el.querySelector(".andes-money-amount__cents")?.textContent?.trim();
   if (!fraction) return null;
+  const fractionNum = fraction.replace(/\./g, "");
   const dec = cents && /^\d{1,2}$/.test(cents) ? cents.padStart(2, "0") : "00";
-  const n = parseFloat(`${fraction}.${dec}`);
+  const n = parseFloat(`${fractionNum}.${dec}`);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -228,13 +229,24 @@ function extractPricesFromMlDom(doc) {
   let originalPrice = null;
   let promoPrice = null;
 
-  const originalEl = doc.querySelector("s.ui-pdp-price__original-value, .ui-pdp-price__original-value, s.andes-money-amount--previous");
+  const originalEl = doc.querySelector("s.ui-pdp-price__original-value") ||
+    doc.querySelector(".ui-pdp-price__original-value") ||
+    doc.querySelector("s.andes-money-amount--previous") ||
+    doc.querySelector(".andes-money-amount--previous");
+  
   if (originalEl) {
     originalPrice = parseAndesMoney(originalEl);
     if (originalPrice == null) {
       const label = originalEl.getAttribute("aria-label") || "";
-      const m = label.match(/(\d+)\s*reais?/i) || label.match(/(\d+)/);
-      if (m) originalPrice = parseFloat(m[1]);
+      const m = label.match(/(\d+)\s*reais?\s*(?:com\s*)?(\d+)?\s*centavos?/i);
+      if (m) {
+        const reais = parseInt(m[1], 10);
+        const centavos = m[2] ? parseInt(m[2], 10) : 0;
+        originalPrice = reais + centavos / 100;
+      } else {
+        const simpleMatch = label.match(/(\d+)/);
+        if (simpleMatch) originalPrice = parseFloat(simpleMatch[1]);
+      }
     }
   }
 
@@ -243,8 +255,17 @@ function extractPricesFromMlDom(doc) {
     const content = promoMeta.getAttribute("content");
     if (content) promoPrice = parseFloat(content);
   }
+
   if (promoPrice == null) {
-    const promoEl = doc.querySelector('[itemprop="offers"] .andes-money-amount, .ui-pdp-price__second-line .andes-money-amount');
+    const secondLine = doc.querySelector(".ui-pdp-price__second-line");
+    if (secondLine) {
+      const promoEl = secondLine.querySelector(".andes-money-amount:not(.andes-money-amount--previous)");
+      if (promoEl) promoPrice = parseAndesMoney(promoEl);
+    }
+  }
+
+  if (promoPrice == null) {
+    const promoEl = doc.querySelector('[itemprop="offers"] .andes-money-amount');
     if (promoEl) promoPrice = parseAndesMoney(promoEl);
   }
 
@@ -393,11 +414,18 @@ function extractFromDocument(doc, sourceUrl) {
 
   const jsonResult = fromJsonLd();
   if (jsonResult) {
-    if (jsonResult.price != null && jsonResult.promoPrice == null) {
-      const domPrices = extractPricesFromMlDom(doc) || findPromoAndPrice(doc.body?.innerText || "");
-      if (domPrices && domPrices.price != null && domPrices.promoPrice != null) {
-        jsonResult.price = domPrices.price;
-        jsonResult.promoPrice = domPrices.promoPrice;
+    const domPrices = extractPricesFromMlDom(doc);
+    if (domPrices && domPrices.price != null && domPrices.promoPrice != null) {
+      jsonResult.price = domPrices.price;
+      jsonResult.promoPrice = domPrices.promoPrice;
+    } else if (domPrices && domPrices.price != null && jsonResult.price != null && domPrices.price > jsonResult.price) {
+      jsonResult.promoPrice = jsonResult.price;
+      jsonResult.price = domPrices.price;
+    } else if (jsonResult.price != null && jsonResult.promoPrice == null) {
+      const textPrices = findPromoAndPrice(doc.body?.innerText || "");
+      if (textPrices && textPrices.price != null && textPrices.promoPrice != null) {
+        jsonResult.price = textPrices.price;
+        jsonResult.promoPrice = textPrices.promoPrice;
       }
     }
     return jsonResult;

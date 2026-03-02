@@ -1,7 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
 import { listCarouselProducts, listProducts, listSeedCategories } from "@/lib/store";
 import { ProductCard } from "@/components/ProductCard";
+import { HeroSlider } from "@/components/HeroSlider";
 
 export const revalidate = 60;
 
@@ -46,60 +46,7 @@ export default async function Home(props: {
           </Link>
         </div>
 
-        {carousel.length ? (
-          <div className="grid gap-4 md:grid-cols-3">
-            {carousel.slice(0, 6).map((c) => {
-              const img = c.product.images?.[0] ?? null;
-              return (
-                <Link
-                  key={c.id}
-                  href={`/produto/${c.product.code6}/${c.product.slug}`}
-                  className="rounded-2xl bg-white ring-1 ring-zinc-200 hover:ring-zinc-300 transition overflow-hidden flex flex-col"
-                >
-                  <div className="relative h-36 bg-zinc-50">
-                    {img ? (
-                      <Image
-                        src={img}
-                        alt={c.product.title}
-                        fill
-                        className="object-contain p-3"
-                        sizes="(max-width: 768px) 100vw, 33vw"
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center text-xs text-zinc-500">
-                        Sem imagem
-                      </div>
-                    )}
-                    <div className="absolute right-3 top-3 rounded-full bg-zuni-purple-light text-xs font-semibold text-zuni-primary px-3 py-1">
-                      {c.size}
-                    </div>
-                  </div>
-
-                  <div className="p-4 flex-1 space-y-2">
-                    <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wide">
-                      Destaque
-                    </div>
-                    <div className="font-semibold leading-snug line-clamp-2">
-                      {c.product.title}
-                    </div>
-                    <div className="mt-1 text-sm font-semibold text-zuni-green">
-                      {formatBRL(c.product.promo_price ?? c.product.price)}
-                    </div>
-                    {c.product.promo_price != null && c.product.promo_price < c.product.price ? (
-                      <div className="text-xs text-zuni-red font-semibold">
-                        OFF {c.product.off_percent}%
-                      </div>
-                    ) : null}
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-6 text-sm text-zinc-600">
-            Sem destaques no carrossel ainda.
-          </div>
-        )}
+        <HeroSlider items={carousel} />
       </section>
 
       <section className="space-y-4">

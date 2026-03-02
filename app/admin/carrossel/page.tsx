@@ -10,11 +10,11 @@ export default async function AdminCarrosselPage() {
   const [{ data: carousel }, { data: products }] = await Promise.all([
     supabase
       .from("carousel_items")
-      .select("id, product_id, sort_order, size, products:product_id (id, code6, slug, title, images)")
+      .select("id, product_id, sort_order, size, products:product_id (id, code6, slug, title, images, price, promo_price, off_percent)")
       .order("sort_order", { ascending: true }),
     supabase
       .from("products")
-      .select("id, code6, slug, title, images")
+      .select("id, code6, slug, title, images, price, promo_price, off_percent")
       .order("created_at", { ascending: false })
       .limit(200),
   ]);
@@ -24,7 +24,7 @@ export default async function AdminCarrosselPage() {
       <div>
         <h1 className="text-xl font-semibold">Carrossel</h1>
         <p className="text-sm text-zinc-600">
-          Selecione produtos, ordene por drag & drop e defina o tamanho (S/M/G).
+          Selecione produtos e ordene por drag & drop. O carrossel será exibido como slider na home.
         </p>
       </div>
 

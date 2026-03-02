@@ -11,6 +11,74 @@
     return Number.isFinite(n) ? n : null;
   }
 
+  function parseAndesMoney(el) {
+    if (!el) return null;
+    const fraction = el.querySelector(".andes-money-amount__fraction")?.textContent?.trim();
+    const cents = el.querySelector(".andes-money-amount__cents")?.textContent?.trim();
+    if (!fraction) return null;
+    const fractionNum = fraction.replace(/\./g, "");
+    const dec = cents && /^\d{1,2}$/.test(cents) ? cents.padStart(2, "0") : "00";
+    const n = parseFloat(`${fractionNum}.${dec}`);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function extractPricesFromMlDom(doc) {
+    let originalPrice = null;
+    let promoPrice = null;
+
+    const originalEl = doc.querySelector("s.ui-pdp-price__original-value") ||
+      doc.querySelector(".ui-pdp-price__original-value") ||
+      doc.querySelector("s.andes-money-amount--previous") ||
+      doc.querySelector(".andes-money-amount--previous");
+    
+    if (originalEl) {
+      originalPrice = parseAndesMoney(originalEl);
+      if (originalPrice == null) {
+        const label = originalEl.getAttribute("aria-label") || "";
+        const m = label.match(/(\d+)\s*reais?\s*(?:com\s*)?(\d+)?\s*centavos?/i);
+        if (m) {
+          const reais = parseInt(m[1], 10);
+          const centavos = m[2] ? parseInt(m[2], 10) : 0;
+          originalPrice = reais + centavos / 100;
+        } else {
+          const simpleMatch = label.match(/(\d+)/);
+          if (simpleMatch) originalPrice = parseFloat(simpleMatch[1]);
+        }
+      }
+    }
+
+    const promoMeta = doc.querySelector('meta[itemprop="price"]');
+    if (promoMeta) {
+      const content = promoMeta.getAttribute("content");
+      if (content) promoPrice = parseFloat(content);
+    }
+
+    if (promoPrice == null) {
+      const secondLine = doc.querySelector(".ui-pdp-price__second-line");
+      if (secondLine) {
+        const promoEl = secondLine.querySelector(".andes-money-amount:not(.andes-money-amount--previous)");
+        if (promoEl) promoPrice = parseAndesMoney(promoEl);
+      }
+    }
+
+    if (promoPrice == null) {
+      const promoEl = doc.querySelector('[itemprop="offers"] .andes-money-amount');
+      if (promoEl) promoPrice = parseAndesMoney(promoEl);
+    }
+
+    if (originalPrice != null && promoPrice != null && promoPrice < originalPrice) {
+      return { price: originalPrice, promoPrice };
+    }
+    if (originalPrice != null && promoPrice == null) {
+      return { price: originalPrice, promoPrice: null };
+    }
+    if (promoPrice != null && originalPrice == null) {
+      return { price: promoPrice, promoPrice: null };
+    }
+
+    return null;
+  }
+
   function extractFromJsonLd() {
     const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
     for (const s of scripts) {
@@ -35,19 +103,31 @@
         else if (Array.isArray(product.image)) images = product.image.filter(Boolean);
 
         const offers = Array.isArray(product.offers) ? product.offers[0] : product.offers;
-        const price = offers && offers.price ? Number(offers.price) : null;
+        let jsonLdPrice = offers && offers.price ? Number(offers.price) : null;
 
         const aggregate = product.aggregateRating || null;
         let rating = aggregate && aggregate.ratingValue != null ? Number(aggregate.ratingValue) : null;
         let reviewsCount = aggregate && aggregate.reviewCount != null ? Number(aggregate.reviewCount) : null;
         if (reviewsCount == null) reviewsCount = extractReviewsCountFromMl(document);
 
+        const domPrices = extractPricesFromMlDom(document);
+        let finalPrice = jsonLdPrice;
+        let finalPromoPrice = null;
+
+        if (domPrices && domPrices.price != null && domPrices.promoPrice != null) {
+          finalPrice = domPrices.price;
+          finalPromoPrice = domPrices.promoPrice;
+        } else if (domPrices && domPrices.price != null && jsonLdPrice != null && domPrices.price > jsonLdPrice) {
+          finalPrice = domPrices.price;
+          finalPromoPrice = jsonLdPrice;
+        }
+
         return {
           title,
           description,
           images,
-          price,
-          promoPrice: null,
+          price: finalPrice,
+          promoPrice: finalPromoPrice,
           rating,
           reviewsCount,
           categoryPath: [],
@@ -162,8 +242,11 @@
     const categoryPath = breadcrumb;
     const categoryName = breadcrumb.length ? breadcrumb[breadcrumb.length - 1] : "";
 
-    const bodyText = document.body ? document.body.innerText : "";
-    const promo = findPromoAndPrice(bodyText);
+    let promo = extractPricesFromMlDom(document);
+    if (!promo || promo.price == null) {
+      const bodyText = document.body ? document.body.innerText : "";
+      promo = findPromoAndPrice(bodyText);
+    }
 
     const imgs = Array.from(document.images || [])
       .map((i) => i.currentSrc || i.src)
@@ -177,8 +260,8 @@
       title: title || null,
       description: null,
       images: imgs,
-      price: promo.price,
-      promoPrice: promo.promoPrice,
+      price: promo?.price ?? null,
+      promoPrice: promo?.promoPrice ?? null,
       rating: null,
       reviewsCount,
       categoryPath,

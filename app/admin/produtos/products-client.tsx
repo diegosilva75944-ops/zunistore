@@ -4,6 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+function formatBRL(value: number) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
 type Category = { id: string; name: string };
 
 type ProductRow = {
@@ -12,6 +16,8 @@ type ProductRow = {
   slug: string;
   title: string;
   images: string[] | null;
+  price: number | null;
+  promo_price: number | null;
   off_percent: number | null;
   affiliate_url: string;
   needs_update: boolean;
@@ -32,6 +38,8 @@ export function ProductsClient({
   >("mark_needs_update");
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const selectedIds = useMemo(
     () => Object.entries(selected).filter(([, v]) => v).map(([k]) => k),
@@ -61,10 +69,69 @@ export function ProductsClient({
     window.location.reload();
   }
 
+  async function syncAllPrices() {
+    if (!confirm("Sincronizar preços de TODOS os produtos? Isso pode levar alguns segundos.")) return;
+    
+    setSyncing(true);
+    setSyncResult(null);
+    
+    try {
+      const res = await fetch("/api/cron/sync-prices", {
+        method: "POST",
+      });
+      
+      const data = await res.json().catch(() => null);
+      
+      if (!res.ok || !data?.ok) {
+        setSyncResult(`Erro: ${data?.error || "Falha na sincronização"}`);
+        return;
+      }
+      
+      setSyncResult(`Sincronizado! Total: ${data.total}, Atualizados: ${data.updated}, Ignorados: ${data.skipped}, Falhas: ${data.failed}`);
+      
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    } catch (e) {
+      setSyncResult("Erro ao conectar com o servidor.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const allChecked = items.length > 0 && items.every((p) => selected[p.id]);
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap rounded-2xl bg-zuni-green/10 ring-1 ring-zuni-green/30 p-3">
+        <button
+          disabled={syncing}
+          onClick={syncAllPrices}
+          className="rounded-full bg-zuni-green px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 flex items-center gap-2"
+        >
+          {syncing ? (
+            <>
+              <span className="animate-spin">⏳</span>
+              Sincronizando...
+            </>
+          ) : (
+            <>
+              🔄 Sincronizar Todos os Preços
+            </>
+          )}
+        </button>
+        
+        {syncResult && (
+          <span className={`text-sm ${syncResult.startsWith("Erro") ? "text-zuni-red" : "text-zuni-green"}`}>
+            {syncResult}
+          </span>
+        )}
+        
+        <span className="text-xs text-zinc-600 ml-auto">
+          Atualização automática: diariamente às 3h
+        </span>
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-3">
         <select
           value={action}
@@ -105,7 +172,7 @@ export function ProductsClient({
       </div>
 
       <div className="overflow-auto rounded-2xl ring-1 ring-zinc-200">
-        <table className="min-w-[900px] w-full text-sm">
+        <table className="min-w-[1100px] w-full text-sm">
           <thead className="bg-zinc-50 text-zinc-700">
             <tr>
               <th className="p-3 text-left w-10">
@@ -123,15 +190,17 @@ export function ProductsClient({
               <th className="p-3 text-left">Foto</th>
               <th className="p-3 text-left">Nome</th>
               <th className="p-3 text-left">Categoria</th>
+              <th className="p-3 text-left">Preço</th>
+              <th className="p-3 text-left">Promo</th>
               <th className="p-3 text-left">OFF%</th>
               <th className="p-3 text-left">Editar</th>
-              <th className="p-3 text-left">Abrir afiliado</th>
-              <th className="p-3 text-left">needs_update</th>
+              <th className="p-3 text-left">Abrir</th>
             </tr>
           </thead>
           <tbody>
             {items.map((p) => {
               const img = p.images?.[0] ?? null;
+              const hasPromo = p.promo_price != null && p.promo_price < (p.price ?? 0);
               return (
                 <tr key={p.id} className="border-t border-zinc-100">
                   <td className="p-3">
@@ -152,10 +221,24 @@ export function ProductsClient({
                     <div className="font-semibold line-clamp-2">{p.title}</div>
                     <div className="text-xs text-zinc-500 font-mono">{p.code6}</div>
                   </td>
-                  <td className="p-3">{p.categories?.name ?? "—"}</td>
+                  <td className="p-3 text-xs">{p.categories?.name ?? "—"}</td>
+                  <td className="p-3">
+                    <span className={`font-medium ${hasPromo ? "text-zinc-400 line-through" : "text-zinc-900"}`}>
+                      {p.price != null ? formatBRL(p.price) : "—"}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    {hasPromo ? (
+                      <span className="font-semibold text-zuni-green">
+                        {formatBRL(p.promo_price!)}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-400">—</span>
+                    )}
+                  </td>
                   <td className="p-3">
                     {p.off_percent ? (
-                      <span className="inline-flex rounded-full bg-zuni-red text-white text-xs font-semibold px-3 py-1">
+                      <span className="inline-flex rounded-full bg-zuni-red text-white text-xs font-semibold px-2 py-0.5">
                         {p.off_percent}%
                       </span>
                     ) : (
@@ -179,13 +262,6 @@ export function ProductsClient({
                     >
                       Abrir
                     </a>
-                  </td>
-                  <td className="p-3">
-                    {p.needs_update ? (
-                      <span className="text-xs font-semibold text-zuni-orange">SIM</span>
-                    ) : (
-                      <span className="text-xs text-zinc-500">não</span>
-                    )}
                   </td>
                 </tr>
               );
