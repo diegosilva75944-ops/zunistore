@@ -23,8 +23,15 @@ export async function generateMetadata(props: {
   const productUrl = `${baseUrl}/produto/${product.code6}/${product.slug}`;
 
   const title = product.title;
-  const shortTitle = title.length > 60 ? title.slice(0, 57) + "…" : title;
-  const description = [productUrl, shortTitle, priceStr, "Compre na loja original."].join(" · ");
+  const shortTitle = title.length > 55 ? title.slice(0, 52) + "…" : title;
+  const description = [
+    "🔗",
+    productUrl,
+    "🛒",
+    shortTitle,
+    "💰 " + priceStr + " 💰",
+    "🛍️ Compre na loja original.",
+  ].join(" · ");
 
   // Imagem principal do banco (URL já armazenada) para o preview no compartilhamento
   const mainImage = product.images?.[0];
