@@ -26,8 +26,10 @@ export async function generateMetadata(props: {
   const shortTitle = title.length > 60 ? title.slice(0, 57) + "…" : title;
   const description = [productUrl, shortTitle, priceStr, "Compre na loja original."].join(" · ");
 
+  // Imagem principal do banco (URL já armazenada) para o preview no compartilhamento
+  const mainImage = product.images?.[0];
   const ogImageUrl =
-    product.images?.[0] ? `${baseUrl}/api/og-image/${product.code6}` : undefined;
+    typeof mainImage === "string" && mainImage.startsWith("http") ? mainImage : undefined;
 
   return {
     title: `${title} (${product.code6})`,
