@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { getOptionalEnv } from "@/lib/env";
+import { getBaseUrl } from "@/lib/site-url";
 import { getCategoryById, getProductByCode6, listRelatedProducts } from "@/lib/store";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductGallery } from "@/components/ProductGallery";
@@ -19,29 +19,20 @@ export async function generateMetadata(props: {
   const finalPrice = hasPromo ? (product.promo_price as number) : product.price;
   const priceStr = formatBRL(finalPrice);
 
-  const env = getOptionalEnv();
-  const baseUrl = env?.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ?? "";
-  const productUrl = baseUrl
-    ? `${baseUrl}/produto/${product.code6}/${product.slug}`
-    : undefined;
+  const baseUrl = await getBaseUrl();
+  const productUrl = `${baseUrl}/produto/${product.code6}/${product.slug}`;
 
-  // Ordem no compartilhamento: link → nome → preço → imagem (meta OG na ordem que o FB/WhatsApp exibem)
   const title = product.title;
   const shortTitle = title.length > 60 ? title.slice(0, 57) + "…" : title;
-  const description = [productUrl, shortTitle, priceStr, "Compre na loja original."]
-    .filter(Boolean)
-    .join(" · ");
+  const description = [productUrl, shortTitle, priceStr, "Compre na loja original."].join(" · ");
 
-  // Imagem servida no nosso domínio para o crawler do Facebook/WhatsApp conseguir carregar
   const ogImageUrl =
-    baseUrl && product.images?.[0]
-      ? `${baseUrl}/api/og-image/${product.code6}`
-      : undefined;
+    product.images?.[0] ? `${baseUrl}/api/og-image/${product.code6}` : undefined;
 
   return {
     title: `${title} (${product.code6})`,
     description,
-    alternates: productUrl ? { canonical: productUrl } : undefined,
+    alternates: { canonical: productUrl },
     openGraph: {
       title,
       description,
@@ -78,11 +69,8 @@ export default async function ProdutoPage(props: {
   const hasPromo = product.promo_price != null && product.promo_price < product.price;
   const finalPrice = hasPromo ? (product.promo_price as number) : product.price;
 
-  const env = getOptionalEnv();
-  const pageUrl =
-    env?.NEXT_PUBLIC_SITE_URL
-      ? `${env.NEXT_PUBLIC_SITE_URL}/produto/${product.code6}/${product.slug}`
-      : `/produto/${product.code6}/${product.slug}`;
+  const baseUrl = await getBaseUrl();
+  const pageUrl = `${baseUrl}/produto/${product.code6}/${product.slug}`;
 
   const wa = `https://wa.me/?text=${encodeURIComponent(
     `Confira: ${product.title} por ${formatBRL(finalPrice)} — ${pageUrl}`,
