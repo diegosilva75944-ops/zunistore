@@ -24,10 +24,6 @@ export const metadata: Metadata = {
   },
   description:
     "ZuniStore é um marketplace afiliado: ao comprar, você é redirecionado para o produto original em nova aba.",
-  icons: {
-    icon: "/logo-zunistore.png",
-    apple: "/logo-zunistore.png",
-  },
 };
 
 export default async function RootLayout({
