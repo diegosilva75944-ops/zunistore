@@ -8,7 +8,7 @@ function setStatus(text) {
 
 async function load() {
   const { baseUrl, token } = await chrome.storage.sync.get(["baseUrl", "token"]);
-  $("baseUrl").value = baseUrl || "";
+  $("baseUrl").value = baseUrl || "http://www.zunistore.com.br";
   $("token").value = token || "";
 }
 

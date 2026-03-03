@@ -92,6 +92,26 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
     window.location.reload();
   }
 
+  async function runBulkChangeCategory() {
+    if (!selectedIds.length) return;
+    setBusy(true);
+    const res = await fetch("/api/admin/products/bulk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ids: selectedIds,
+        action: "change_category",
+        categoryId,
+      }),
+    }).catch(() => null);
+    setBusy(false);
+    if (!res || !res.ok) {
+      alert("Falha ao alterar categoria.");
+      return;
+    }
+    window.location.reload();
+  }
+
   async function syncAllPrices() {
     if (!confirm("Sincronizar preços de TODOS os produtos? Isso pode levar alguns segundos.")) return;
     
@@ -236,43 +256,58 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         </div>
       </div>
 
+      <div className="rounded-2xl bg-zuni-purple-light/50 ring-1 ring-zuni-primary/20 p-4 space-y-3">
+        <div className="text-sm font-semibold text-zinc-800">
+          Alterar categoria em lote
+        </div>
+        <p className="text-xs text-zinc-600">
+          Marque os produtos na tabela (checkbox) que deseja alterar e escolha a nova categoria abaixo. Depois clique em &quot;Alterar categoria dos selecionados&quot;.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Nova categoria</label>
+            <select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm min-w-[180px]"
+            >
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+              disabled={busy || selectedIds.length === 0}
+              onClick={runBulkChangeCategory}
+              className="rounded-full bg-zuni-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-95"
+            >
+              Alterar categoria dos selecionados
+              {selectedIds.length > 0 && ` (${selectedIds.length})`}
+            </button>
+        </div>
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-3">
+        <span className="text-xs font-medium text-zinc-600">Outras ações em lote:</span>
         <select
           value={action}
           onChange={(e) => setAction(e.target.value as any)}
           className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
         >
-          <option value="change_category">Mudar categoria</option>
           <option value="mark_needs_update">Marcar needs_update</option>
           <option value="unmark_needs_update">Desmarcar needs_update</option>
           <option value="remove">Remover</option>
         </select>
-
-        {action === "change_category" ? (
-          <select
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-          >
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        ) : null}
-
         <button
           disabled={busy || selectedIds.length === 0}
           onClick={runBulk}
-          className="rounded-full bg-zuni-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="rounded-full bg-zinc-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 hover:bg-zinc-800"
         >
           Aplicar ({selectedIds.length})
         </button>
-
-        <div className="text-xs text-zinc-600">
-          Dica: use a extensão para importar (aba Importação).
-        </div>
+        <span className="text-xs text-zinc-500 ml-auto">Use a extensão para importar (aba Importação).</span>
       </div>
 
       {loading ? (
