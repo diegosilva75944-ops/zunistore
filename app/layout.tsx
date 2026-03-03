@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { getSiteSettings } from "@/lib/store";
 import { getOptionalEnv } from "@/lib/env";
@@ -51,6 +52,7 @@ export default async function RootLayout({
       >
         {cssVars ? <style>{`:root{${cssVars}}`}</style> : null}
         {children}
+        <Analytics />
       </body>
     </html>
   );
