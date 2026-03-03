@@ -31,10 +31,10 @@ function SlideContent({ item }: { item: SlideItem }) {
   const finalPrice = hasPromo ? slide.product.promo_price! : slide.product.price;
 
   return (
-    <div className="flex flex-col md:flex-row flex-1 min-w-full">
+    <div className="flex flex-col md:flex-row w-full min-h-[320px] md:min-h-[280px]">
       <Link
         href={`/produto/${slide.product.code6}/${slide.product.slug}`}
-        className="relative w-full md:w-1/2 aspect-square md:aspect-auto md:h-80 bg-white/50 shrink-0"
+        className="relative w-full md:w-1/2 aspect-square md:aspect-auto md:h-72 md:min-h-[200px] bg-white/50 shrink-0 flex items-center justify-center"
       >
         {img ? (
           <Image
@@ -133,13 +133,16 @@ export function HeroSlider({ items }: { items: SlideItem[] }) {
       onMouseEnter={() => setIsAutoPlaying(false)}
       onMouseLeave={() => setIsAutoPlaying(true)}
     >
-      <div className="overflow-hidden">
+      <div className="overflow-hidden w-full">
         <div
           className="flex transition-transform duration-500 ease-in-out"
-          style={{ transform: `translateX(-${current * 100}%)` }}
+          style={{
+            width: `${total * 100}%`,
+            transform: `translateX(-${(current / total) * 100}%)`,
+          }}
         >
           {items.map((item) => (
-            <div key={item.id} className="min-w-full shrink-0">
+            <div key={item.id} className="shrink-0" style={{ width: `${100 / total}%` }}>
               <SlideContent item={item} />
             </div>
           ))}
