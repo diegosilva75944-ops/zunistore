@@ -12,20 +12,17 @@ export async function Header() {
       <div className="mx-auto max-w-6xl px-4">
         <div className="flex items-center gap-4 py-3">
           <Link href="/" className="flex items-center gap-2 shrink-0">
-            {logoUrl ? (
-              <Image
-                src={logoUrl}
-                alt="ZuniStore"
-                width={140}
-                height={32}
-                className="h-8 w-auto"
-                priority
-              />
-            ) : (
-              <span className="font-semibold tracking-tight text-lg">
-                Zuni<span className="text-zuni-yellow">Store</span>
-              </span>
-            )}
+            <Image
+              src={logoUrl ?? "/logo-zunistore.png"}
+              alt="ZuniStore"
+              width={36}
+              height={36}
+              className="h-9 w-9 shrink-0 rounded-lg"
+              priority
+            />
+            <span className="font-semibold tracking-tight text-lg">
+              Zuni<span className="text-zuni-yellow">Store</span>
+            </span>
           </Link>
 
           <div className="flex-1">

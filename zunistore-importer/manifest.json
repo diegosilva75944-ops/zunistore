@@ -7,7 +7,12 @@
   "host_permissions": ["https://*.mercadolivre.com.br/*"],
   "action": {
     "default_title": "ZuniStore Importer",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "options_page": "options.html",
   "content_scripts": [

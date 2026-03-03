@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 export function AdminLoginClient({ nextPath }: { nextPath: string }) {
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,17 +69,22 @@ export function AdminLoginClient({ nextPath }: { nextPath: string }) {
             </div>
           ) : null}
 
-          <button
-            disabled={loading}
-            className="w-full rounded-full bg-zuni-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-          >
-            {loading ? "Entrando…" : "Entrar"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 rounded-full bg-zuni-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+            >
+              {loading ? "Entrando…" : "Entrar"}
+            </button>
+            <a
+              href="/"
+              className="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 text-center"
+            >
+              Sair
+            </a>
+          </div>
         </form>
-
-        <div className="text-xs text-zinc-500">
-          Senha inicial (seed): <span className="font-mono">Diego6412@</span>
-        </div>
       </div>
     </div>
   );

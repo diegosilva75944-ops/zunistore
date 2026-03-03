@@ -24,6 +24,82 @@ function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
+function SlideContent({ item }: { item: SlideItem }) {
+  const slide = item;
+  const img = slide.product.images?.[0] ?? null;
+  const hasPromo = slide.product.promo_price != null && slide.product.promo_price < slide.product.price;
+  const finalPrice = hasPromo ? slide.product.promo_price! : slide.product.price;
+
+  return (
+    <div className="flex flex-col md:flex-row flex-1 min-w-full">
+      <Link
+        href={`/produto/${slide.product.code6}/${slide.product.slug}`}
+        className="relative w-full md:w-1/2 aspect-square md:aspect-auto md:h-80 bg-white/50 shrink-0"
+      >
+        {img ? (
+          <Image
+            src={img}
+            alt={slide.product.title}
+            fill
+            className="object-contain p-6"
+            sizes="(max-width: 768px) 100vw, 50vw"
+            priority
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-zinc-400">
+            Sem imagem
+          </div>
+        )}
+        {hasPromo && slide.product.off_percent > 0 && (
+          <div className="absolute top-4 left-4 bg-zuni-red text-white text-sm font-bold px-3 py-1.5 rounded-full">
+            {slide.product.off_percent}% OFF
+          </div>
+        )}
+      </Link>
+
+      <div className="flex-1 p-6 md:p-8 flex flex-col justify-center">
+        <div className="text-xs font-semibold text-zuni-primary uppercase tracking-wider mb-2">
+          Destaque
+        </div>
+        <Link
+          href={`/produto/${slide.product.code6}/${slide.product.slug}`}
+          className="block"
+        >
+          <h2 className="text-xl md:text-2xl font-bold text-zinc-900 leading-tight line-clamp-3 hover:text-zuni-primary transition">
+            {slide.product.title}
+          </h2>
+        </Link>
+        <div className="mt-4 space-y-1">
+          {hasPromo && (
+            <div className="text-sm text-zinc-500 line-through">
+              {formatBRL(slide.product.price)}
+            </div>
+          )}
+          <div className={`text-2xl md:text-3xl font-bold ${hasPromo ? "text-zuni-green" : "text-zinc-900"}`}>
+            {formatBRL(finalPrice)}
+          </div>
+        </div>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <a
+            href={slide.product.affiliate_url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center justify-center rounded-full bg-zuni-primary px-6 py-3 text-sm font-semibold text-white hover:opacity-90 transition"
+          >
+            Comprar agora
+          </a>
+          <Link
+            href={`/produto/${slide.product.code6}/${slide.product.slug}`}
+            className="inline-flex items-center justify-center rounded-full border-2 border-zuni-primary px-6 py-3 text-sm font-semibold text-zuni-primary hover:bg-zuni-primary hover:text-white transition"
+          >
+            Ver detalhes
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function HeroSlider({ items }: { items: SlideItem[] }) {
   const [current, setCurrent] = useState(0);
   const [isAutoPlaying, setIsAutoPlaying] = useState(true);
@@ -51,85 +127,22 @@ export function HeroSlider({ items }: { items: SlideItem[] }) {
     );
   }
 
-  const slide = items[current];
-  const img = slide.product.images?.[0] ?? null;
-  const hasPromo = slide.product.promo_price != null && slide.product.promo_price < slide.product.price;
-  const finalPrice = hasPromo ? slide.product.promo_price! : slide.product.price;
-
   return (
     <div
       className="relative rounded-2xl bg-linear-to-br from-zuni-purple-light to-white ring-1 ring-zinc-200 overflow-hidden"
       onMouseEnter={() => setIsAutoPlaying(false)}
       onMouseLeave={() => setIsAutoPlaying(true)}
     >
-      <div className="flex flex-col md:flex-row">
-        <Link
-          href={`/produto/${slide.product.code6}/${slide.product.slug}`}
-          className="relative w-full md:w-1/2 aspect-square md:aspect-auto md:h-80 bg-white/50"
+      <div className="overflow-hidden">
+        <div
+          className="flex transition-transform duration-500 ease-in-out"
+          style={{ transform: `translateX(-${current * 100}%)` }}
         >
-          {img ? (
-            <Image
-              src={img}
-              alt={slide.product.title}
-              fill
-              className="object-contain p-6"
-              sizes="(max-width: 768px) 100vw, 50vw"
-              priority
-            />
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-zinc-400">
-              Sem imagem
+          {items.map((item) => (
+            <div key={item.id} className="min-w-full shrink-0">
+              <SlideContent item={item} />
             </div>
-          )}
-          
-          {hasPromo && slide.product.off_percent > 0 && (
-            <div className="absolute top-4 left-4 bg-zuni-red text-white text-sm font-bold px-3 py-1.5 rounded-full">
-              {slide.product.off_percent}% OFF
-            </div>
-          )}
-        </Link>
-
-        <div className="flex-1 p-6 md:p-8 flex flex-col justify-center">
-          <div className="text-xs font-semibold text-zuni-primary uppercase tracking-wider mb-2">
-            Destaque
-          </div>
-          
-          <Link
-            href={`/produto/${slide.product.code6}/${slide.product.slug}`}
-            className="block"
-          >
-            <h2 className="text-xl md:text-2xl font-bold text-zinc-900 leading-tight line-clamp-3 hover:text-zuni-primary transition">
-              {slide.product.title}
-            </h2>
-          </Link>
-
-          <div className="mt-4 space-y-1">
-            {hasPromo && (
-              <div className="text-sm text-zinc-500 line-through">
-                {formatBRL(slide.product.price)}
-              </div>
-            )}
-            <div className={`text-2xl md:text-3xl font-bold ${hasPromo ? "text-zuni-green" : "text-zinc-900"}`}>
-              {formatBRL(finalPrice)}
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <a
-              href={slide.product.affiliate_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center justify-center rounded-full bg-zuni-primary px-6 py-3 text-sm font-semibold text-white hover:opacity-90 transition"
-            >
-              Comprar agora
-            </a>
-            <Link
-              href={`/produto/${slide.product.code6}/${slide.product.slug}`}
-              className="inline-flex items-center justify-center rounded-full border-2 border-zuni-primary px-6 py-3 text-sm font-semibold text-zuni-primary hover:bg-zuni-primary hover:text-white transition"
-            >
-              Ver detalhes
-            </Link>
-          </div>
+          ))}
         </div>
       </div>
 
@@ -160,7 +173,7 @@ export function HeroSlider({ items }: { items: SlideItem[] }) {
               <button
                 key={idx}
                 onClick={() => goTo(idx)}
-                className={`w-2.5 h-2.5 rounded-full transition ${
+                className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ease-in-out ${
                   idx === current
                     ? "bg-zuni-primary w-6"
                     : "bg-zinc-300 hover:bg-zinc-400"
