@@ -42,6 +42,7 @@ export default function AdminLayoutWrapper({
             <div className="text-xs font-semibold text-zinc-500 mb-2">Admin</div>
             <nav className="space-y-1 text-sm">
               <Nav href="/admin/produtos">Produtos</Nav>
+              <Nav href="/admin/categorias">Categorias</Nav>
               <Nav href="/admin/importacao">Importação</Nav>
               <Nav href="/admin/tokens">Tokens</Nav>
               <Nav href="/admin/carrossel">Carrossel</Nav>

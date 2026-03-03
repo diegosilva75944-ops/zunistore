@@ -1,5 +1,6 @@
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
+import { CookieBanner } from "@/components/CookieBanner";
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -7,6 +8,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
       <Header />
       <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
       <Footer />
+      <CookieBanner />
     </div>
   );
 }

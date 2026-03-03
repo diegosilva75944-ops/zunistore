@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -24,14 +24,16 @@ type ProductRow = {
   categories?: { id: string; name: string } | null;
 };
 
-export function ProductsClient({
-  categories,
-  initialItems,
-}: {
-  categories: Category[];
-  initialItems: ProductRow[];
-}) {
-  const [items] = useState<ProductRow[]>(initialItems);
+export function ProductsClient({ categories }: { categories: Category[] }) {
+  const [items, setItems] = useState<ProductRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState<10 | 20 | 50>(20);
+  const [filterQ, setFilterQ] = useState("");
+  const [filterCode6, setFilterCode6] = useState("");
+  const [filterCategoryId, setFilterCategoryId] = useState("");
+  const [filterVersion, setFilterVersion] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [action, setAction] = useState<
     "change_category" | "mark_needs_update" | "unmark_needs_update" | "remove"
@@ -41,10 +43,31 @@ export function ProductsClient({
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("perPage", String(perPage));
+    if (filterQ.trim()) params.set("q", filterQ.trim());
+    if (filterCode6.trim()) params.set("code6", filterCode6.trim());
+    if (filterCategoryId) params.set("categoryId", filterCategoryId);
+    const res = await fetch(`/api/admin/products?${params.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    setItems(Array.isArray(data?.items) ? data.items : []);
+    setTotal(Number(data?.total) ?? 0);
+    setLoading(false);
+  }, [page, perPage, filterQ, filterCode6, filterCategoryId]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts, filterVersion]);
+
   const selectedIds = useMemo(
     () => Object.entries(selected).filter(([, v]) => v).map(([k]) => k),
     [selected],
   );
+
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   async function runBulk() {
     if (!selectedIds.length) return;
@@ -132,6 +155,87 @@ export function ProductsClient({
         </span>
       </div>
 
+      <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-3">
+        <div className="text-sm font-semibold text-zinc-700">Filtros</div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Nome</label>
+            <input
+              type="text"
+              value={filterQ}
+              onChange={(e) => setFilterQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setPage(1);
+                  setSelected({});
+                  setFilterVersion((v) => v + 1);
+                }
+              }}
+              placeholder="Buscar no título/descrição"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm w-48 min-w-0"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Código (code6)</label>
+            <input
+              type="text"
+              value={filterCode6}
+              onChange={(e) => setFilterCode6(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  setPage(1);
+                  setSelected({});
+                  setFilterVersion((v) => v + 1);
+                }
+              }}
+              placeholder="Ex: 000001"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm w-28 min-w-0 font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Categoria</label>
+            <select
+              value={filterCategoryId}
+              onChange={(e) => setFilterCategoryId(e.target.value)}
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm min-w-[140px]"
+            >
+              <option value="">Todas</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs text-zinc-500 mb-1">Por página</label>
+            <select
+              value={perPage}
+              onChange={(e) => {
+                setPerPage(Number(e.target.value) as 10 | 20 | 50);
+                setPage(1);
+              }}
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPage(1);
+              setSelected({});
+              setFilterVersion((v) => v + 1);
+            }}
+            className="rounded-full bg-zuni-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+          >
+            Aplicar filtros
+          </button>
+        </div>
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-3">
         <select
           value={action}
@@ -171,6 +275,11 @@ export function ProductsClient({
         </div>
       </div>
 
+      {loading ? (
+        <div className="rounded-2xl ring-1 ring-zinc-200 p-8 text-center text-sm text-zinc-500">
+          Carregando produtos…
+        </div>
+      ) : (
       <div className="overflow-auto rounded-2xl ring-1 ring-zinc-200">
         <table className="min-w-[1100px] w-full text-sm">
           <thead className="bg-zinc-50 text-zinc-700">
@@ -268,6 +377,34 @@ export function ProductsClient({
             })}
           </tbody>
         </table>
+      </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-3">
+        <div className="text-sm text-zinc-600">
+          <span className="font-semibold text-zinc-900">{total}</span> produto(s)
+          {total > 0 && (
+            <> · Página <span className="font-semibold">{page}</span> de {totalPages}</>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-50"
+          >
+            ← Anterior
+          </button>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-50"
+          >
+            Próxima →
+          </button>
+        </div>
       </div>
     </div>
   );

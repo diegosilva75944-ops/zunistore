@@ -46,7 +46,9 @@ export default async function Home(props: {
           </Link>
         </div>
 
-        <HeroSlider items={carousel} />
+        <div className="relative left-1/2 -translate-x-1/2 w-screen max-w-none">
+          <HeroSlider items={carousel} />
+        </div>
       </section>
 
       <section className="space-y-4">

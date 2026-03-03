@@ -8,20 +8,77 @@ export async function adminListCategories() {
   const supabase = getSupabaseServiceRoleClient();
   const { data } = await supabase
     .from("categories")
-    .select("id, name, slug, parent_id")
+    .select("id, name, slug, parent_id, is_seed, created_at")
     .order("name", { ascending: true });
   return (data ?? []) as any[];
+}
+
+export async function adminCreateCategory(input: {
+  name: string;
+  slug?: string | null;
+  parent_id?: string | null;
+}) {
+  const supabase = getSupabaseServiceRoleClient();
+  const slug = (input.slug?.trim() ? slugify(input.slug) : slugify(input.name)) || "categoria";
+  const { data: existing } = await supabase
+    .from("categories")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (existing) throw new Error("Já existe uma categoria com este slug.");
+  const { data: inserted, error } = await supabase
+    .from("categories")
+    .insert({
+      name: input.name.trim(),
+      slug,
+      parent_id: input.parent_id ?? null,
+      is_seed: false,
+    })
+    .select("id, name, slug, parent_id, is_seed")
+    .single();
+  if (error) throw error;
+  return inserted as any;
+}
+
+export async function adminUpdateCategory(
+  id: string,
+  input: { name?: string; slug?: string }
+) {
+  const supabase = getSupabaseServiceRoleClient();
+  const updates: Record<string, unknown> = {};
+  if (input.name !== undefined) updates.name = input.name.trim();
+  if (input.slug !== undefined) {
+    const slug = input.slug.trim() || slugify((input.name as string) || "");
+    if (slug) updates.slug = slug;
+  }
+  if (Object.keys(updates).length === 0) return;
+  const { error } = await supabase.from("categories").update(updates).eq("id", id);
+  if (error) throw error;
+}
+
+export async function adminDeleteCategory(id: string) {
+  const supabase = getSupabaseServiceRoleClient();
+  const { count } = await supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .eq("category_id", id);
+  if (count && count > 0) throw new Error("Não é possível excluir: existem produtos nesta categoria.");
+  const { error } = await supabase.from("categories").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function adminListProducts(opts: {
   page?: number;
   perPage?: number;
   needsUpdate?: boolean | null;
+  q?: string | null;
+  code6?: string | null;
+  categoryId?: string | null;
 }) {
-  const { page = 1, perPage = 20, needsUpdate = null } = opts;
+  const { page = 1, perPage = 20, needsUpdate = null, q, code6, categoryId } = opts;
   const supabase = getSupabaseServiceRoleClient();
 
-  let q = supabase
+  let query = supabase
     .from("products")
     .select(
       "id, code6, slug, title, images, price, promo_price, is_offer, off_percent, needs_update, affiliate_url, created_at, categories:category_id (id, name, slug)",
@@ -30,10 +87,16 @@ export async function adminListProducts(opts: {
     .order("created_at", { ascending: false })
     .range((page - 1) * perPage, (page - 1) * perPage + perPage - 1);
 
-  if (needsUpdate === true) q = q.eq("needs_update", true);
-  if (needsUpdate === false) q = q.eq("needs_update", false);
+  if (needsUpdate === true) query = query.eq("needs_update", true);
+  if (needsUpdate === false) query = query.eq("needs_update", false);
+  if (categoryId) query = query.eq("category_id", categoryId);
+  if (code6?.trim()) query = query.ilike("code6", `%${code6.trim()}%`);
+  if (q?.trim()) {
+    const term = q.trim();
+    query = query.or(`title.ilike.%${term}%,description.ilike.%${term}%`);
+  }
 
-  const { data, count } = await q;
+  const { data, count } = await query;
   return { items: (data ?? []) as any[], total: count ?? 0 };
 }
 

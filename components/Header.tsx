@@ -9,27 +9,27 @@ export async function Header() {
 
   return (
     <header className="sticky top-0 z-50 bg-zuni-header text-zuni-white border-b border-white/10">
-      <div className="mx-auto max-w-6xl px-4">
-        <div className="flex items-center gap-4 py-3">
-          <Link href="/" className="flex items-center gap-2 shrink-0">
+      <div className="w-full px-3 sm:px-4 md:px-6">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 py-3">
+          <Link href="/" className="flex items-center gap-2 shrink-0 min-w-0">
             <Image
               src={logoUrl ?? "/logo-zunistore.png"}
               alt="ZuniStore"
               width={36}
               height={36}
-              className="h-9 w-9 shrink-0 rounded-lg"
+              className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-lg"
               priority
             />
-            <span className="font-semibold tracking-tight text-lg">
+            <span className="font-semibold tracking-tight text-base sm:text-lg truncate">
               Zuni<span className="text-zuni-yellow">Store</span>
             </span>
           </Link>
 
-          <div className="flex-1">
+          <div className="flex-1 min-w-0 w-full sm:w-auto order-3 sm:order-0">
             <SearchBox />
           </div>
 
-          <nav className="hidden md:flex items-center gap-4 text-sm">
+          <nav className="hidden md:flex items-center gap-4 text-sm shrink-0">
             <Link href="/" className="hover:underline">
               Início
             </Link>
@@ -43,18 +43,18 @@ export async function Header() {
 
           <Link
             href="/admin"
-            className="ml-2 inline-flex items-center justify-center rounded-full bg-zuni-orange px-4 py-2 text-xs font-semibold text-zuni-black hover:opacity-95 transition"
+            className="shrink-0 inline-flex items-center justify-center rounded-full bg-zuni-orange px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-semibold text-zuni-black hover:opacity-95 transition"
           >
             Admin
           </Link>
         </div>
 
-        <div className="hidden md:flex items-center gap-2 pb-3 overflow-auto">
+        <div className="flex items-center justify-center gap-2 pb-3 overflow-x-auto overflow-y-hidden">
           {categories.slice(0, 10).map((c) => (
             <Link
               key={c.id}
               href={`/categoria/${c.slug}`}
-              className="text-xs bg-white/10 hover:bg-white/15 px-3 py-1 rounded-full whitespace-nowrap"
+              className="text-xs bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded-full whitespace-nowrap shrink-0"
             >
               {c.name}
             </Link>

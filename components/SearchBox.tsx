@@ -35,10 +35,15 @@ export function SearchBox() {
     fetch(`/api/search?term=${encodeURIComponent(q)}`, { signal: ctrl.signal })
       .then((r) => r.json())
       .then((data) => {
+        if (ctrl.signal.aborted) return;
         setItems(Array.isArray(data?.items) ? data.items : []);
       })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (err?.name === "AbortError") return;
+      })
+      .finally(() => {
+        if (!ctrl.signal.aborted) setLoading(false);
+      });
   }, [debounced]);
 
   const hasResults = items.length > 0;
