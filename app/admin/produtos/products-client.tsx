@@ -42,9 +42,10 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [syncingProductId, setSyncingProductId] = useState<string | null>(null);
 
-  const fetchProducts = useCallback(async () => {
-    setLoading(true);
+  const fetchProducts = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     const params = new URLSearchParams();
     params.set("page", String(page));
     params.set("perPage", String(perPage));
@@ -110,6 +111,23 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       return;
     }
     window.location.reload();
+  }
+
+  async function syncProductPrice(productId: string) {
+    setSyncingProductId(productId);
+    try {
+      const res = await fetch(`/api/admin/products/${productId}/sync-price`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error ?? "Falha ao sincronizar preço.");
+        return;
+      }
+      await fetchProducts(true);
+    } finally {
+      setSyncingProductId(null);
+    }
   }
 
   async function syncAllPrices() {
@@ -337,6 +355,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               <th className="p-3 text-left">Preço</th>
               <th className="p-3 text-left">Promo</th>
               <th className="p-3 text-left">OFF%</th>
+              <th className="p-3 text-left">Sync preço</th>
               <th className="p-3 text-left">Editar</th>
               <th className="p-3 text-left">Abrir</th>
             </tr>
@@ -388,6 +407,24 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                     ) : (
                       "—"
                     )}
+                  </td>
+                  <td className="p-3">
+                    <button
+                      type="button"
+                      disabled={syncingProductId === p.id}
+                      onClick={() => syncProductPrice(p.id)}
+                      className="inline-flex items-center gap-1 rounded-full bg-zuni-green/90 px-2.5 py-1 text-xs font-semibold text-white hover:bg-zuni-green disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Sincronizar preço com a loja original"
+                    >
+                      {syncingProductId === p.id ? (
+                        <>
+                          <span className="animate-spin">⏳</span>
+                          Sync…
+                        </>
+                      ) : (
+                        "Sync"
+                      )}
+                    </button>
                   </td>
                   <td className="p-3">
                     <Link
