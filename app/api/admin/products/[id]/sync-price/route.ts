@@ -38,8 +38,12 @@ export async function POST(
   const priceInfo = await fetchPricesFromUrl(url);
   if (!priceInfo) {
     return NextResponse.json(
-      { ok: false, error: "Não foi possível obter o preço na página do Mercado Livre. Verifique se a URL está acessível." },
-      { status: 400 },
+      {
+        ok: false,
+        error:
+          "O Mercado Livre não respondeu (pode bloquear requisições do servidor). Tente novamente em instantes ou use a extensão no navegador para importar/atualizar o preço.",
+      },
+      { status: 503 },
     );
   }
 

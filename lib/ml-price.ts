@@ -204,24 +204,44 @@ const ML_FETCH_HEADERS = {
   "sec-ch-ua-platform": '"Windows"',
 } as const;
 
-export async function fetchPricesFromUrl(url: string): Promise<{
-  price: number;
-  promoPrice: number | null;
-} | null> {
+const FETCH_TIMEOUT_MS = 18000;
+const RETRY_DELAY_MS = 1500;
+
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       cache: "no-store",
       redirect: "follow",
       headers: ML_FETCH_HEADERS,
+      signal: controller.signal,
     });
-    if (!res.ok) return null;
+    return res;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
+type PriceResult = { price: number; promoPrice: number | null } | null;
+
+export async function fetchPricesFromUrl(url: string): Promise<PriceResult> {
+  const tryFetch = async (): Promise<PriceResult> => {
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
     const html = await res.text();
     const { price, promoPrice } = extractPricesFromHtml(html);
-
     if (!price || !Number.isFinite(price) || price <= 0) return null;
-
     return { price, promoPrice };
+  };
+
+  try {
+    let result = await tryFetch();
+    if (result == null && RETRY_DELAY_MS > 0) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      result = await tryFetch();
+    }
+    return result;
   } catch {
     return null;
   }
