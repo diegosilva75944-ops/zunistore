@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
+import { moveProductToDeletedHistoryAndDelete } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
 
@@ -37,10 +38,12 @@ export async function POST(
 
   const priceInfo = await fetchPricesFromUrl(url);
   if (!priceInfo) {
-    return NextResponse.json(
-      { ok: false, error: "Não foi possível obter o preço na página do Mercado Livre. Verifique se a URL está acessível." },
-      { status: 400 },
-    );
+    await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
+    return NextResponse.json({
+      ok: true,
+      deleted: true,
+      message: "Produto não encontrado na URL. Removido da listagem e do site e salvo no histórico de deletados.",
+    });
   }
 
   const { price, promoPrice: promo } = priceInfo;

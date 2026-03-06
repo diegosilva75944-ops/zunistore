@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getAdminSession } from "@/lib/admin/auth";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
+import { moveProductToDeletedHistoryAndDelete } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,17 +17,18 @@ async function syncAllProducts() {
     .limit(50);
 
   if (error) {
-    return { ok: false, error: "Failed to load products.", total: 0, updated: 0, skipped: 0, failed: 0 };
+    return { ok: false, error: "Failed to load products.", total: 0, updated: 0, skipped: 0, failed: 0, deleted: 0 };
   }
 
   const rows = (products ?? []) as { id: string; source_url: string | null; affiliate_url: string | null }[];
   if (!rows.length) {
-    return { ok: true, total: 0, updated: 0, skipped: 0, failed: 0 };
+    return { ok: true, total: 0, updated: 0, skipped: 0, failed: 0, deleted: 0 };
   }
 
   let updated = 0;
   let skipped = 0;
   let failed = 0;
+  let deleted = 0;
 
   for (const p of rows) {
     const url = p.source_url || p.affiliate_url;
@@ -38,7 +40,8 @@ async function syncAllProducts() {
     try {
       const priceInfo = await fetchPricesFromUrl(url);
       if (!priceInfo) {
-        skipped += 1;
+        await moveProductToDeletedHistoryAndDelete(p.id, "sync_not_found");
+        deleted += 1;
         continue;
       }
 
@@ -72,6 +75,7 @@ async function syncAllProducts() {
     updated,
     skipped,
     failed,
+    deleted,
   };
 }
 

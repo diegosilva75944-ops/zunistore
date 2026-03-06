@@ -43,6 +43,12 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [syncingProductId, setSyncingProductId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"listagem" | "historico">("listagem");
+  const [deletedItems, setDeletedItems] = useState<any[]>([]);
+  const [deletedTotal, setDeletedTotal] = useState(0);
+  const [deletedPage, setDeletedPage] = useState(1);
+  const [deletedPerPage, setDeletedPerPage] = useState(20);
+  const [deletedLoading, setDeletedLoading] = useState(false);
 
   const fetchProducts = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -62,6 +68,22 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts, filterVersion]);
+
+  const fetchDeletedHistory = useCallback(async () => {
+    setDeletedLoading(true);
+    const params = new URLSearchParams();
+    params.set("page", String(deletedPage));
+    params.set("perPage", String(deletedPerPage));
+    const res = await fetch(`/api/admin/products/deleted-history?${params.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    setDeletedItems(Array.isArray(data?.items) ? data.items : []);
+    setDeletedTotal(Number(data?.total) ?? 0);
+    setDeletedLoading(false);
+  }, [deletedPage, deletedPerPage]);
+
+  useEffect(() => {
+    if (tab === "historico") fetchDeletedHistory();
+  }, [tab, fetchDeletedHistory]);
 
   const selectedIds = useMemo(
     () => Object.entries(selected).filter(([, v]) => v).map(([k]) => k),
@@ -124,6 +146,9 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         alert(data?.error ?? "Falha ao sincronizar preço.");
         return;
       }
+      if (data.deleted) {
+        alert(data.message ?? "Produto não encontrado na URL. Removido da listagem e salvo no histórico.");
+      }
       await fetchProducts(true);
     } finally {
       setSyncingProductId(null);
@@ -148,7 +173,8 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         return;
       }
       
-      setSyncResult(`Sincronizado! Total: ${data.total}, Atualizados: ${data.updated}, Ignorados: ${data.skipped}, Falhas: ${data.failed}`);
+      const deletedPart = data.deleted ? `, Removidos (não encontrados): ${data.deleted}` : "";
+      setSyncResult(`Sincronizado! Total: ${data.total}, Atualizados: ${data.updated}, Ignorados: ${data.skipped}, Falhas: ${data.failed}${deletedPart}`);
       
       setTimeout(() => {
         window.location.reload();
@@ -161,9 +187,149 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   }
 
   const allChecked = items.length > 0 && items.every((p) => selected[p.id]);
+  const deletedTotalPages = Math.max(1, Math.ceil(deletedTotal / deletedPerPage));
 
   return (
     <div className="space-y-3">
+      <div className="flex items-center gap-2 border-b border-zinc-200">
+        <button
+          type="button"
+          onClick={() => setTab("listagem")}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition ${
+            tab === "listagem"
+              ? "border-zuni-primary text-zuni-primary bg-white"
+              : "border-transparent text-zinc-600 hover:text-zinc-900"
+          }`}
+        >
+          Listagem
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("historico")}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition ${
+            tab === "historico"
+              ? "border-zuni-primary text-zuni-primary bg-white"
+              : "border-transparent text-zinc-600 hover:text-zinc-900"
+          }`}
+        >
+          Histórico (deletados)
+        </button>
+      </div>
+
+      {tab === "historico" ? (
+        <div className="space-y-3">
+          <p className="text-sm text-zinc-600">
+            Produtos removidos da listagem e do site quando a sincronização de preços não encontrou mais o produto na URL.
+          </p>
+          {deletedLoading ? (
+            <div className="rounded-2xl ring-1 ring-zinc-200 p-8 text-center text-sm text-zinc-500">
+              Carregando…
+            </div>
+          ) : (
+            <>
+              <div className="overflow-auto rounded-2xl ring-1 ring-zinc-200">
+                <table className="min-w-[800px] w-full text-sm">
+                  <thead className="bg-zinc-50 text-zinc-700">
+                    <tr>
+                      <th className="p-3 text-left">Foto</th>
+                      <th className="p-3 text-left">Nome</th>
+                      <th className="p-3 text-left">Código</th>
+                      <th className="p-3 text-left">Categoria</th>
+                      <th className="p-3 text-left">Preço</th>
+                      <th className="p-3 text-left">Removido em</th>
+                      <th className="p-3 text-left">Motivo</th>
+                      <th className="p-3 text-left">Link</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deletedItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="p-6 text-center text-zinc-500">
+                          Nenhum produto no histórico.
+                        </td>
+                      </tr>
+                    ) : (
+                      deletedItems.map((d: any) => {
+                        const img = d.images?.[0] ?? null;
+                        const date = d.deleted_at
+                          ? new Date(d.deleted_at).toLocaleString("pt-BR", {
+                              dateStyle: "short",
+                              timeStyle: "short",
+                            })
+                          : "—";
+                        return (
+                          <tr key={d.id} className="border-t border-zinc-100">
+                            <td className="p-3">
+                              <div className="relative h-12 w-12 rounded-xl overflow-hidden bg-zinc-50 ring-1 ring-zinc-200">
+                                {img ? (
+                                  <Image src={img} alt={d.title} fill className="object-contain p-1" />
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="p-3 font-medium line-clamp-2">{d.title}</td>
+                            <td className="p-3 text-xs font-mono text-zinc-500">{d.code6}</td>
+                            <td className="p-3 text-xs">{d.category_name ?? "—"}</td>
+                            <td className="p-3">
+                              {d.promo_price != null
+                                ? formatBRL(d.promo_price)
+                                : d.price != null
+                                  ? formatBRL(d.price)
+                                  : "—"}
+                            </td>
+                            <td className="p-3 text-xs text-zinc-600">{date}</td>
+                            <td className="p-3 text-xs text-zinc-500">{d.reason === "sync_not_found" ? "Não encontrado na URL" : d.reason}</td>
+                            <td className="p-3">
+                              {d.affiliate_url ? (
+                                <a
+                                  href={d.affiliate_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-zuni-primary font-semibold hover:underline text-xs"
+                                >
+                                  Abrir
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-3">
+                <div className="text-sm text-zinc-600">
+                  <span className="font-semibold text-zinc-900">{deletedTotal}</span> registro(s)
+                  {deletedTotal > 0 && (
+                    <> · Página <span className="font-semibold">{deletedPage}</span> de {deletedTotalPages}</>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={deletedPage <= 1}
+                    onClick={() => setDeletedPage((p) => Math.max(1, p - 1))}
+                    className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-50"
+                  >
+                    ← Anterior
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletedPage >= deletedTotalPages}
+                    onClick={() => setDeletedPage((p) => Math.min(deletedTotalPages, p + 1))}
+                    className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-50"
+                  >
+                    Próxima →
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      ) : (
+        <>
       <div className="flex items-center gap-2 flex-wrap rounded-2xl bg-zuni-green/10 ring-1 ring-zuni-green/30 p-3">
         <button
           disabled={syncing}
@@ -478,6 +644,8 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           </button>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

@@ -115,6 +115,68 @@ export async function adminBulkDeleteProducts(productIds: string[]) {
   await supabase.from("products").delete().in("id", productIds);
 }
 
+/** Copia o produto para deleted_products_history e remove da listagem (e do site). Usado quando o sync não encontra mais o produto na URL. */
+export async function moveProductToDeletedHistoryAndDelete(
+  productId: string,
+  reason: string = "sync_not_found",
+): Promise<void> {
+  const supabase = getSupabaseServiceRoleClient();
+
+  const { data: row, error: fetchError } = await supabase
+    .from("products")
+    .select(
+      "id, code6, slug, title, description, images, category_id, price, promo_price, is_offer, off_percent, affiliate_url, source_url, categories:category_id (name)",
+    )
+    .eq("id", productId)
+    .maybeSingle();
+
+  if (fetchError || !row) return;
+
+  const categoryName = (row as any).categories?.name ?? null;
+  const categoryId = (row as any).category_id ?? null;
+
+  await supabase.from("deleted_products_history").insert({
+    product_id: row.id,
+    code6: row.code6,
+    slug: row.slug,
+    title: row.title,
+    description: row.description ?? "",
+    images: row.images ?? [],
+    category_id: categoryId,
+    category_name: categoryName,
+    price: row.price,
+    promo_price: row.promo_price,
+    is_offer: row.is_offer ?? false,
+    off_percent: row.off_percent ?? 0,
+    affiliate_url: row.affiliate_url,
+    source_url: row.source_url ?? null,
+    reason,
+  });
+
+  await supabase.from("products").delete().eq("id", productId);
+}
+
+export async function adminListDeletedProductsHistory(opts: {
+  page?: number;
+  perPage?: number;
+}) {
+  const { page = 1, perPage = 20 } = opts;
+  const supabase = getSupabaseServiceRoleClient();
+
+  const from = (page - 1) * perPage;
+  const to = from + perPage - 1;
+
+  const { data, count } = await supabase
+    .from("deleted_products_history")
+    .select("id, product_id, code6, title, images, price, promo_price, category_name, affiliate_url, deleted_at, reason", {
+      count: "exact",
+    })
+    .order("deleted_at", { ascending: false })
+    .range(from, to);
+
+  return { items: (data ?? []) as any[], total: count ?? 0 };
+}
+
 export async function adminUpdateSiteColors(colors: Record<string, string>) {
   const supabase = getSupabaseServiceRoleClient();
   const { data } = await supabase.from("site_settings").select("id").limit(1).maybeSingle();
