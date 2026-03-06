@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { getAdminSession } from "@/lib/admin/auth";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
-import { moveProductToDeletedHistoryAndDelete } from "@/lib/admin/db";
+import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -12,7 +12,7 @@ async function syncAllProducts() {
 
   const { data: products, error } = await supabase
     .from("products")
-    .select("id, source_url, affiliate_url")
+    .select("id, source_url, affiliate_url, price, promo_price")
     .order("updated_at", { ascending: true })
     .limit(50);
 
@@ -20,7 +20,13 @@ async function syncAllProducts() {
     return { ok: false, error: "Failed to load products.", total: 0, updated: 0, skipped: 0, failed: 0, deleted: 0 };
   }
 
-  const rows = (products ?? []) as { id: string; source_url: string | null; affiliate_url: string | null }[];
+  const rows = (products ?? []) as {
+    id: string;
+    source_url: string | null;
+    affiliate_url: string | null;
+    price: number;
+    promo_price: number | null;
+  }[];
   if (!rows.length) {
     return { ok: true, total: 0, updated: 0, skipped: 0, failed: 0, deleted: 0 };
   }
@@ -51,6 +57,17 @@ async function syncAllProducts() {
       const off_percent = is_offer
         ? Math.round((1 - promo! / price) * 100)
         : 0;
+
+      const oldPrice = Number(p.price) || 0;
+      const oldPromo = p.promo_price != null ? Number(p.promo_price) : null;
+      await recordProductPriceChange({
+        productId: p.id,
+        oldPrice,
+        newPrice: price,
+        oldPromoPrice: oldPromo,
+        newPromoPrice: promo ?? null,
+        source: "sync_batch",
+      });
 
       await supabase
         .from("products")

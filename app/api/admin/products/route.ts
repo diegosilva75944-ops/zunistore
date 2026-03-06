@@ -14,6 +14,7 @@ export async function GET(req: Request) {
     const q = searchParams.get("q")?.trim() ?? null;
     const code6 = searchParams.get("code6")?.trim() ?? null;
     const categoryId = searchParams.get("categoryId")?.trim() || null;
+    const affiliateExpired = searchParams.get("affiliateExpired") === "true";
 
     const { items, total } = await adminListProducts({
       page,
@@ -21,6 +22,7 @@ export async function GET(req: Request) {
       q: q || null,
       code6: code6 || null,
       categoryId: categoryId || null,
+      affiliateExpired: affiliateExpired || null,
     });
 
     return NextResponse.json({ items, total, page, perPage });

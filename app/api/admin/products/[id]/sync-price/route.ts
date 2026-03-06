@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
-import { moveProductToDeletedHistoryAndDelete } from "@/lib/admin/db";
+import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function POST(
 
   const { data: row, error } = await supabase
     .from("products")
-    .select("id, source_url, affiliate_url")
+    .select("id, source_url, affiliate_url, price, promo_price")
     .eq("id", id)
     .maybeSingle();
 
@@ -51,6 +51,17 @@ export async function POST(
   const off_percent = is_offer
     ? Math.round((1 - promo! / price) * 100)
     : 0;
+
+  const oldPrice = Number((row as any).price) || 0;
+  const oldPromo = (row as any).promo_price != null ? Number((row as any).promo_price) : null;
+  await recordProductPriceChange({
+    productId: id,
+    oldPrice,
+    newPrice: price,
+    oldPromoPrice: oldPromo,
+    newPromoPrice: promo ?? null,
+    source: "sync_single",
+  });
 
   await supabase
     .from("products")

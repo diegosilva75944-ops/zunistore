@@ -43,6 +43,8 @@ create table if not exists public.products (
   source_url text not null,
   needs_update boolean not null default false,
   last_seen_at timestamptz null,
+  affiliate_valid_checked_at timestamptz null,
+  affiliate_valid boolean null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   search_tsv tsvector generated always as (
@@ -84,6 +86,21 @@ create table if not exists public.deleted_products_history (
 );
 
 create index if not exists deleted_products_history_deleted_at_idx on public.deleted_products_history(deleted_at desc);
+
+-- histórico de alteração de preço (para alertar quando produto teve preço alterado)
+create table if not exists public.product_price_history (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  old_price numeric not null,
+  new_price numeric not null,
+  old_promo_price numeric null,
+  new_promo_price numeric null,
+  changed_at timestamptz not null default now(),
+  source text not null default 'sync'
+);
+
+create index if not exists product_price_history_changed_at_idx on public.product_price_history(changed_at desc);
+create index if not exists product_price_history_product_id_idx on public.product_price_history(product_id);
 
 -- carousel
 create table if not exists public.carousel_items (

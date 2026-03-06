@@ -20,6 +20,8 @@ type ProductRow = {
   promo_price: number | null;
   off_percent: number | null;
   affiliate_url: string;
+  affiliate_valid: boolean | null;
+  affiliate_valid_checked_at: string | null;
   needs_update: boolean;
   categories?: { id: string; name: string } | null;
 };
@@ -43,12 +45,21 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [syncingProductId, setSyncingProductId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"listagem" | "historico">("listagem");
+  const [tab, setTab] = useState<"listagem" | "historico" | "precos">("listagem");
   const [deletedItems, setDeletedItems] = useState<any[]>([]);
   const [deletedTotal, setDeletedTotal] = useState(0);
   const [deletedPage, setDeletedPage] = useState(1);
   const [deletedPerPage, setDeletedPerPage] = useState(20);
   const [deletedLoading, setDeletedLoading] = useState(false);
+  const [priceHistoryItems, setPriceHistoryItems] = useState<any[]>([]);
+  const [priceHistoryTotal, setPriceHistoryTotal] = useState(0);
+  const [priceHistoryPage, setPriceHistoryPage] = useState(1);
+  const [priceHistoryPerPage, setPriceHistoryPerPage] = useState(20);
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+  const [expiredAffiliateCount, setExpiredAffiliateCount] = useState<number | null>(null);
+  const [filterAffiliateExpired, setFilterAffiliateExpired] = useState(false);
+  const [validatingLinks, setValidatingLinks] = useState(false);
+  const [validateResult, setValidateResult] = useState<string | null>(null);
 
   const fetchProducts = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -58,12 +69,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
     if (filterQ.trim()) params.set("q", filterQ.trim());
     if (filterCode6.trim()) params.set("code6", filterCode6.trim());
     if (filterCategoryId) params.set("categoryId", filterCategoryId);
+    if (filterAffiliateExpired) params.set("affiliateExpired", "true");
     const res = await fetch(`/api/admin/products?${params.toString()}`);
     const data = await res.json().catch(() => ({}));
     setItems(Array.isArray(data?.items) ? data.items : []);
     setTotal(Number(data?.total) ?? 0);
     setLoading(false);
-  }, [page, perPage, filterQ, filterCode6, filterCategoryId]);
+  }, [page, perPage, filterQ, filterCode6, filterCategoryId, filterAffiliateExpired]);
 
   useEffect(() => {
     fetchProducts();
@@ -84,6 +96,29 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   useEffect(() => {
     if (tab === "historico") fetchDeletedHistory();
   }, [tab, fetchDeletedHistory]);
+
+  const fetchPriceHistory = useCallback(async () => {
+    setPriceHistoryLoading(true);
+    const params = new URLSearchParams();
+    params.set("page", String(priceHistoryPage));
+    params.set("perPage", String(priceHistoryPerPage));
+    const res = await fetch(`/api/admin/products/price-history?${params.toString()}`);
+    const data = await res.json().catch(() => ({}));
+    setPriceHistoryItems(Array.isArray(data?.items) ? data.items : []);
+    setPriceHistoryTotal(Number(data?.total) ?? 0);
+    setPriceHistoryLoading(false);
+  }, [priceHistoryPage, priceHistoryPerPage]);
+
+  useEffect(() => {
+    if (tab === "precos") fetchPriceHistory();
+  }, [tab, fetchPriceHistory]);
+
+  useEffect(() => {
+    if (tab !== "listagem") return;
+    fetch("/api/admin/products/affiliate-expired-count")
+      .then((r) => r.json().catch(() => ({})))
+      .then((data) => setExpiredAffiliateCount(typeof data?.count === "number" ? data.count : 0));
+  }, [tab, filterVersion]);
 
   const selectedIds = useMemo(
     () => Object.entries(selected).filter(([, v]) => v).map(([k]) => k),
@@ -150,6 +185,9 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         alert(data.message ?? "Produto não encontrado na URL. Removido da listagem e salvo no histórico.");
       }
       await fetchProducts(true);
+      fetch("/api/admin/products/affiliate-expired-count")
+        .then((r) => r.json().catch(() => ({})))
+        .then((data) => setExpiredAffiliateCount(typeof data?.count === "number" ? data.count : 0));
     } finally {
       setSyncingProductId(null);
     }
@@ -214,9 +252,112 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         >
           Histórico (deletados)
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("precos")}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition ${
+            tab === "precos"
+              ? "border-zuni-primary text-zuni-primary bg-white"
+              : "border-transparent text-zinc-600 hover:text-zinc-900"
+          }`}
+        >
+          Histórico de preços
+        </button>
       </div>
 
-      {tab === "historico" ? (
+      {tab === "precos" ? (
+        <div className="space-y-3">
+          <p className="text-sm text-zinc-600">
+            Alterações de preço detectadas na sincronização. Útil para alertar quando um produto teve o preço alterado.
+          </p>
+          {priceHistoryLoading ? (
+            <div className="rounded-2xl ring-1 ring-zinc-200 p-8 text-center text-sm text-zinc-500">
+              Carregando…
+            </div>
+          ) : (
+            <>
+              <div className="overflow-auto rounded-2xl ring-1 ring-zinc-200">
+                <table className="min-w-[700px] w-full text-sm">
+                  <thead className="bg-zinc-50 text-zinc-700">
+                    <tr>
+                      <th className="p-3 text-left">Produto</th>
+                      <th className="p-3 text-left">Preço anterior</th>
+                      <th className="p-3 text-left">Preço novo</th>
+                      <th className="p-3 text-left">Promo anterior</th>
+                      <th className="p-3 text-left">Promo nova</th>
+                      <th className="p-3 text-left">Data</th>
+                      <th className="p-3 text-left">Origem</th>
+                      <th className="p-3 text-left">Editar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {priceHistoryItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="p-6 text-center text-zinc-500">
+                          Nenhuma alteração de preço registrada.
+                        </td>
+                      </tr>
+                    ) : (
+                      priceHistoryItems.map((h: any) => {
+                        const product = h.products ?? {};
+                        const date = h.changed_at
+                          ? new Date(h.changed_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+                          : "—";
+                        const sourceLabel = h.source === "sync_single" ? "Sync individual" : h.source === "sync_batch" ? "Sync em lote" : h.source || "—";
+                        return (
+                          <tr key={h.id} className="border-t border-zinc-100">
+                            <td className="p-3">
+                              <span className="font-medium line-clamp-2">{product.title ?? "—"}</span>
+                              <span className="text-xs font-mono text-zinc-500">{product.code6 ?? ""}</span>
+                            </td>
+                            <td className="p-3">{h.old_price != null ? formatBRL(Number(h.old_price)) : "—"}</td>
+                            <td className="p-3 font-semibold text-zuni-green">{h.new_price != null ? formatBRL(Number(h.new_price)) : "—"}</td>
+                            <td className="p-3">{h.old_promo_price != null ? formatBRL(Number(h.old_promo_price)) : "—"}</td>
+                            <td className="p-3">{h.new_promo_price != null ? formatBRL(Number(h.new_promo_price)) : "—"}</td>
+                            <td className="p-3 text-zinc-600">{date}</td>
+                            <td className="p-3 text-xs">{sourceLabel}</td>
+                            <td className="p-3">
+                              <Link href={`/admin/produtos/${h.product_id}`} className="text-zuni-primary font-semibold hover:underline text-xs">
+                                Editar
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-3">
+                <div className="text-sm text-zinc-600">
+                  <span className="font-semibold text-zinc-900">{priceHistoryTotal}</span> registro(s)
+                  {priceHistoryTotal > 0 && (
+                    <> · Página <span className="font-semibold">{priceHistoryPage}</span> de {Math.max(1, Math.ceil(priceHistoryTotal / priceHistoryPerPage))}</>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={priceHistoryPage <= 1}
+                    onClick={() => setPriceHistoryPage((p) => Math.max(1, p - 1))}
+                    className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-50"
+                  >
+                    ← Anterior
+                  </button>
+                  <button
+                    type="button"
+                    disabled={priceHistoryPage >= Math.max(1, Math.ceil(priceHistoryTotal / priceHistoryPerPage))}
+                    onClick={() => setPriceHistoryPage((p) => p + 1)}
+                    className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-50"
+                  >
+                    Próxima →
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      ) : tab === "historico" ? (
         <div className="space-y-3">
           <p className="text-sm text-zinc-600">
             Produtos removidos da listagem e do site quando a sincronização de preços não encontrou mais o produto na URL.
@@ -330,6 +471,95 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         </div>
       ) : (
         <>
+      {(expiredAffiliateCount != null && expiredAffiliateCount > 0) && (
+        <div className="rounded-2xl bg-amber-50 ring-1 ring-amber-200 p-3 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium text-amber-800">
+            ⚠️ {expiredAffiliateCount} produto(s) com link de afiliado expirado (página do link não contém o nome do produto).
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setFilterAffiliateExpired((v) => !v);
+              setPage(1);
+              setFilterVersion((f) => f + 1);
+            }}
+            className="rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+          >
+            {filterAffiliateExpired ? "Exibir todos" : "Exibir apenas estes"}
+          </button>
+        </div>
+      )}
+
+      <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-3 flex flex-wrap items-center gap-3">
+        <span className="text-sm text-zinc-600">
+          Validação: verificamos se o preço normal é detectado na página do link. Se não for possível detectar o preço, o link é marcado como expirado.
+        </span>
+        <button
+          type="button"
+          disabled={validatingLinks}
+          onClick={async () => {
+            setValidatingLinks(true);
+            setValidateResult(null);
+            let totalChecked = 0;
+            let totalValid = 0;
+            let totalInvalid = 0;
+            try {
+              const countRes = await fetch("/api/admin/products?page=1&perPage=1");
+              const countData = await countRes.json().catch(() => ({}));
+              const totalProducts = Number(countData?.total) ?? 0;
+              if (totalProducts === 0) {
+                setValidateResult("Nenhum produto no site.");
+                setValidatingLinks(false);
+                return;
+              }
+              for (;;) {
+                if (totalChecked >= totalProducts) break;
+                const res = await fetch("/api/admin/products/validate-affiliate-links?limit=20", { method: "POST" });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data?.ok) {
+                  setValidateResult(data?.error || "Erro ao validar.");
+                  break;
+                }
+                totalChecked += data.checked ?? 0;
+                totalValid += data.valid ?? 0;
+                totalInvalid += data.invalid ?? 0;
+                setValidateResult(`Validando… ${totalChecked}/${totalProducts}: ${totalValid} válido(s), ${totalInvalid} expirado(s).`);
+                const params = new URLSearchParams();
+                params.set("page", String(page));
+                params.set("perPage", String(perPage));
+                if (filterQ.trim()) params.set("q", filterQ.trim());
+                if (filterCode6.trim()) params.set("code6", filterCode6.trim());
+                if (filterCategoryId) params.set("categoryId", filterCategoryId);
+                if (filterAffiliateExpired) params.set("affiliateExpired", "true");
+                const listRes = await fetch(`/api/admin/products?${params.toString()}`);
+                const listData = await listRes.json().catch(() => ({}));
+                setItems(Array.isArray(listData?.items) ? listData.items : []);
+                setTotal(Number(listData?.total) ?? 0);
+                const cr = await fetch("/api/admin/products/affiliate-expired-count");
+                const j = await cr.json().catch(() => ({}));
+                setExpiredAffiliateCount(typeof j?.count === "number" ? j.count : 0);
+                if ((data.checked ?? 0) < 20) break;
+              }
+              setValidateResult(
+                totalChecked === 0
+                  ? "Nenhum produto pendente. Todos já foram validados."
+                  : `Validados ${totalChecked}: ${totalValid} válido(s), ${totalInvalid} expirado(s).`
+              );
+            } catch {
+              setValidateResult("Erro ao validar links.");
+            } finally {
+              setValidatingLinks(false);
+            }
+          }}
+          className="rounded-full bg-zuni-primary px-4 py-2 text-sm font-semibold text-white hover:bg-zuni-purple disabled:opacity-60"
+        >
+          {validatingLinks ? "Validando…" : "Validar links de afiliado"}
+        </button>
+        {validateResult && (
+          <span className="text-sm text-zinc-700">{validateResult}</span>
+        )}
+      </div>
+
       <div className="flex items-center gap-2 flex-wrap rounded-2xl bg-zuni-green/10 ring-1 ring-zuni-green/30 p-3">
         <button
           disabled={syncing}
@@ -395,6 +625,22 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               placeholder="Ex: 000001"
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm w-28 min-w-0 font-mono"
             />
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="filterAffiliateExpired"
+              checked={filterAffiliateExpired}
+              onChange={() => {
+                setFilterAffiliateExpired((v) => !v);
+                setPage(1);
+                setFilterVersion((f) => f + 1);
+              }}
+              className="rounded border-zinc-300"
+            />
+            <label htmlFor="filterAffiliateExpired" className="text-sm text-zinc-700">
+              Apenas com link de afiliado expirado
+            </label>
           </div>
           <div>
             <label className="block text-xs text-zinc-500 mb-1">Categoria</label>
@@ -549,6 +795,24 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                   <td className="p-3">
                     <div className="font-semibold line-clamp-2">{p.title}</div>
                     <div className="text-xs text-zinc-500 font-mono">{p.code6}</div>
+                    {p.affiliate_valid === false && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        <span className="inline-block rounded bg-amber-200 text-amber-900 text-xs font-medium px-1.5 py-0.5">
+                          Link expirado
+                        </span>
+                        <Link
+                          href={`/admin/produtos/${p.id}`}
+                          className="inline-block rounded bg-amber-600 text-white text-xs font-semibold px-2 py-1 hover:bg-amber-700"
+                        >
+                          Atualizar link de afiliado
+                        </Link>
+                      </div>
+                    )}
+                    {p.affiliate_valid === null && (
+                      <span className="inline-block mt-1 rounded bg-zinc-200 text-zinc-600 text-xs font-medium px-1.5 py-0.5">
+                        Não verificado
+                      </span>
+                    )}
                   </td>
                   <td className="p-3 text-xs">{p.categories?.name ?? "—"}</td>
                   <td className="p-3">

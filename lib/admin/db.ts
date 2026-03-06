@@ -3,6 +3,7 @@ import "server-only";
 import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { randomToken, sha256Hex } from "@/lib/crypto";
 import { slugify } from "@/lib/slug";
+import { checkAffiliatePageContainsProduct } from "@/lib/affiliate-validate";
 
 export async function adminListCategories() {
   const supabase = getSupabaseServiceRoleClient();
@@ -67,6 +68,28 @@ export async function adminDeleteCategory(id: string) {
   if (error) throw error;
 }
 
+/** Parâmetro obrigatório na URL final (após redirect) para o link de afiliado ser considerado válido. */
+export const AFFILIATE_VALID_PARAM = "matt_tool=40141155";
+
+/** Conta produtos cujo link de afiliado foi validado e a URL final não contém o param (expirado). */
+export async function adminCountExpiredAffiliateProducts(): Promise<number> {
+  try {
+    const supabase = getSupabaseServiceRoleClient();
+    const { count } = await supabase
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("affiliate_valid", false);
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+const PRODUCTS_SELECT_FULL =
+  "id, code6, slug, title, images, price, promo_price, is_offer, off_percent, needs_update, affiliate_url, affiliate_valid, affiliate_valid_checked_at, created_at, categories:category_id (id, name, slug)";
+const PRODUCTS_SELECT_FALLBACK =
+  "id, code6, slug, title, images, price, promo_price, is_offer, off_percent, needs_update, affiliate_url, created_at, categories:category_id (id, name, slug)";
+
 export async function adminListProducts(opts: {
   page?: number;
   perPage?: number;
@@ -74,30 +97,102 @@ export async function adminListProducts(opts: {
   q?: string | null;
   code6?: string | null;
   categoryId?: string | null;
+  affiliateExpired?: boolean | null;
 }) {
-  const { page = 1, perPage = 20, needsUpdate = null, q, code6, categoryId } = opts;
+  const { page = 1, perPage = 20, needsUpdate = null, q, code6, categoryId, affiliateExpired } = opts;
   const supabase = getSupabaseServiceRoleClient();
+  const range = [(page - 1) * perPage, (page - 1) * perPage + perPage - 1] as [number, number];
+
+  const searchTerm = q?.trim() ?? "";
+  const applyFilters = (qb: any, includeAffiliateExpired: boolean) => {
+    if (needsUpdate === true) qb = qb.eq("needs_update", true);
+    if (needsUpdate === false) qb = qb.eq("needs_update", false);
+    if (categoryId) qb = qb.eq("category_id", categoryId);
+    if (code6?.trim()) qb = qb.ilike("code6", `%${code6.trim()}%`);
+    if (searchTerm) qb = qb.or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`);
+    if (includeAffiliateExpired && affiliateExpired === true) qb = qb.eq("affiliate_valid", false);
+    return qb;
+  };
 
   let query = supabase
     .from("products")
-    .select(
-      "id, code6, slug, title, images, price, promo_price, is_offer, off_percent, needs_update, affiliate_url, created_at, categories:category_id (id, name, slug)",
-      { count: "exact" },
-    )
+    .select(PRODUCTS_SELECT_FULL, { count: "exact" })
     .order("created_at", { ascending: false })
-    .range((page - 1) * perPage, (page - 1) * perPage + perPage - 1);
+    .range(...range);
+  query = applyFilters(query, true);
 
-  if (needsUpdate === true) query = query.eq("needs_update", true);
-  if (needsUpdate === false) query = query.eq("needs_update", false);
-  if (categoryId) query = query.eq("category_id", categoryId);
-  if (code6?.trim()) query = query.ilike("code6", `%${code6.trim()}%`);
-  if (q?.trim()) {
-    const term = q.trim();
-    query = query.or(`title.ilike.%${term}%,description.ilike.%${term}%`);
+  const { data, error, count } = await query;
+
+  const columnMissing =
+    error &&
+    (String((error as any).code) === "42703" ||
+      /affiliate_valid|does not exist|column/i.test(String((error as any).message ?? "")));
+
+  if (columnMissing) {
+    let fallbackQuery = supabase
+      .from("products")
+      .select(PRODUCTS_SELECT_FALLBACK, { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(...range);
+    fallbackQuery = applyFilters(fallbackQuery, false);
+    const { data: fallbackData, count: fallbackCount } = await fallbackQuery;
+    const items = ((fallbackData ?? []) as any[]).map((row) => ({
+      ...row,
+      affiliate_valid: null,
+      affiliate_valid_checked_at: null,
+    }));
+    return { items, total: fallbackCount ?? 0 };
   }
 
-  const { data, count } = await query;
+  if (error) throw error;
   return { items: (data ?? []) as any[], total: count ?? 0 };
+}
+
+/** Valida o link de afiliado: abre a página e verifica se o nome do produto aparece nela. Se não aparecer, marca como expirado. */
+export async function adminValidateProductAffiliateLink(productId: string): Promise<{
+  valid: boolean;
+  error?: string;
+}> {
+  const supabase = getSupabaseServiceRoleClient();
+  const { data: row, error: fetchError } = await supabase
+    .from("products")
+    .select("id, affiliate_url, title")
+    .eq("id", productId)
+    .maybeSingle();
+
+  if (fetchError || !row?.affiliate_url) {
+    return { valid: false, error: "Produto ou URL não encontrado." };
+  }
+
+  const title = (row as any).title ? String((row as any).title).trim() : "";
+  const { valid } = await checkAffiliatePageContainsProduct(
+    row.affiliate_url as string,
+    title || "Produto",
+  );
+  const now = new Date().toISOString();
+
+  await supabase
+    .from("products")
+    .update({ affiliate_valid: valid, affiliate_valid_checked_at: now })
+    .eq("id", productId);
+
+  return { valid };
+}
+
+export async function adminValidateAffiliateLinksBatch(productIds: string[]): Promise<{
+  checked: number;
+  valid: number;
+  invalid: number;
+}> {
+  let valid = 0;
+  let invalid = 0;
+  for (const id of productIds) {
+    const result = await adminValidateProductAffiliateLink(id);
+    if (result.valid) valid += 1;
+    else invalid += 1;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return { checked: productIds.length, valid, invalid };
 }
 
 export async function adminBulkUpdateCategory(productIds: string[], categoryId: string) {
@@ -174,6 +269,45 @@ export async function adminListDeletedProductsHistory(opts: {
     .order("deleted_at", { ascending: false })
     .range(from, to);
 
+  return { items: (data ?? []) as any[], total: count ?? 0 };
+}
+
+/** Registra alteração de preço no histórico (só insere se preço ou promo mudou). */
+export async function recordProductPriceChange(opts: {
+  productId: string;
+  oldPrice: number;
+  newPrice: number;
+  oldPromoPrice: number | null;
+  newPromoPrice: number | null;
+  source?: string;
+}): Promise<void> {
+  const { productId, oldPrice, newPrice, oldPromoPrice, newPromoPrice, source = "sync" } = opts;
+  const priceChanged = oldPrice !== newPrice || (oldPromoPrice ?? 0) !== (newPromoPrice ?? 0);
+  if (!priceChanged) return;
+  const supabase = getSupabaseServiceRoleClient();
+  await supabase.from("product_price_history").insert({
+    product_id: productId,
+    old_price: oldPrice,
+    new_price: newPrice,
+    old_promo_price: oldPromoPrice,
+    new_promo_price: newPromoPrice,
+    source,
+  });
+}
+
+export async function adminListPriceHistory(opts: { page?: number; perPage?: number }) {
+  const { page = 1, perPage = 20 } = opts;
+  const supabase = getSupabaseServiceRoleClient();
+  const from = (page - 1) * perPage;
+  const to = from + perPage - 1;
+  const { data, count } = await supabase
+    .from("product_price_history")
+    .select(
+      "id, product_id, old_price, new_price, old_promo_price, new_promo_price, changed_at, source, products:product_id (code6, title)",
+      { count: "exact" },
+    )
+    .order("changed_at", { ascending: false })
+    .range(from, to);
   return { items: (data ?? []) as any[], total: count ?? 0 };
 }
 
