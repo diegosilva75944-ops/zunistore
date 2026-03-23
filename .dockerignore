@@ -1,0 +1,12 @@
+.git
+.gitignore
+.next
+node_modules
+npm-debug.log
+.env
+.env.local
+.env.*.local
+.cursor
+terminals
+agent-transcripts
+zunistore-importer

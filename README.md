@@ -8,22 +8,41 @@ Importante: o ZuniStore **não vende**. O botão **Comprar** sempre abre em **no
 
 - Next.js (App Router) + TypeScript
 - TailwindCSS
-- Supabase (PostgreSQL)
-- `@supabase/supabase-js`
+- API PostgREST/Supabase API + PostgreSQL
+- `@supabase/supabase-js` (cliente HTTP para API de dados)
 - Admin com autenticação própria (bcrypt) e sessão via cookie **httpOnly**
 - Importação de produtos **exclusivamente via Extensão Chrome** (sem API oficial do Mercado Livre; sem scraping backend por padrão)
 
-## Setup (Supabase)
+## Importante sobre PostgreSQL local
 
-- **1) Criar projeto no Supabase**
-- **2) Aplicar schema**
-  - Execute `supabase/schema.sql` no SQL Editor
-- **3) Aplicar seed**
-  - Execute `supabase/seed.sql` no SQL Editor
+Este projeto **não conecta no PostgreSQL diretamente**.  
+Ele usa uma **API de dados compatível com PostgREST** (o Supabase já entrega isso pronto).
+
+Se você migrou para servidor próprio com PostgreSQL local, você precisa de uma destas opções:
+
+- Subir stack Supabase self-hosted (ou apenas PostgREST + JWT config)
+- Manter uma API compatível com as rotas usadas pelo app
+
+Somente restaurar o dump no PostgreSQL não é suficiente para o app funcionar.
+
+## Setup do banco (self-hosted)
+
+- Restaurar dump e/ou aplicar:
+  - `supabase/schema.sql`
+  - `supabase/seed.sql` (ajuste credenciais antes)
+- Garantir que a API PostgREST enxergue o schema/tabelas e permissões
 
 ## Variáveis de ambiente
 
 Crie um `.env.local` baseado em `.env.example`.
+
+Principais variáveis em produção:
+
+- `NEXT_PUBLIC_SITE_URL=https://seu-dominio`
+- `SUPABASE_URL=http://postgrest:3000` (ou `DB_API_URL`)
+- `SUPABASE_ANON_KEY=...` (ou `DB_ANON_KEY`)
+- `SUPABASE_SERVICE_ROLE_KEY=...` (ou `DB_SERVICE_ROLE_KEY`)
+- `ADMIN_JWT_SECRET=...` (>= 32 chars)
 
 ## Rodar local
 
@@ -46,6 +65,18 @@ Código da extensão em `zunistore-importer/`.
   - **URL da página do produto** (Mercado Livre) — ou use "Usar página atual" se estiver na aba do produto
   - **Link de afiliado** (o que aparecerá no botão Comprar)
   - Clique em **Importar**
+
+## Deploy no Coolify
+
+O projeto agora inclui `Dockerfile` multi-stage e roda com `next start` standalone.
+
+Passos sugeridos no Coolify:
+
+1. Criar recurso da aplicação apontando para este repositório.
+2. Usar build por `Dockerfile`.
+3. Definir porta `3000`.
+4. Configurar todas as variáveis de ambiente listadas acima.
+5. Criar job de cron no Coolify chamando `GET /api/cron/sync-prices` (sem autenticação)
 
 ## Observações
 
