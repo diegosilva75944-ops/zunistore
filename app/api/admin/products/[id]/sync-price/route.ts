@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 
@@ -10,15 +10,15 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  const supabase = getSupabaseServiceRoleClient();
 
-  const { data: row, error } = await supabase
-    .from("products")
-    .select("id, source_url, affiliate_url, price, promo_price")
-    .eq("id", id)
-    .maybeSingle();
+  const rows = await postgrestGet<any[]>("products", {
+    select: "id,source_url,affiliate_url,price,promo_price",
+    id: `eq.${id}`,
+    limit: "1",
+  });
+  const row = Array.isArray(rows) ? rows[0] : null;
 
-  if (error || !row) {
+  if (!row) {
     return NextResponse.json(
       { ok: false, error: "Produto não encontrado." },
       { status: 404 },
@@ -63,16 +63,13 @@ export async function POST(
     source: "sync_single",
   });
 
-  await supabase
-    .from("products")
-    .update({
-      price,
-      promo_price: promo,
-      is_offer,
-      off_percent,
-      last_seen_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+  await postgrestPatch("products", {
+    price,
+    promo_price: promo,
+    is_offer,
+    off_percent,
+    last_seen_at: new Date().toISOString(),
+  }, { id: `eq.${id}` });
 
   return NextResponse.json({
     ok: true,

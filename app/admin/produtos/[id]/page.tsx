@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { adminListCategories } from "@/lib/admin/db";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { postgrestGet } from "@/lib/postgrest/server";
 import { ProductEditClient } from "@/app/admin/produtos/[id]/product-edit-client";
 
 export const runtime = "nodejs";
@@ -11,14 +11,12 @@ export default async function AdminProdutoEditPage(props: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await props.params;
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase
-    .from("products")
-    .select(
-      "id, code6, slug, title, description, images, category_id, price, promo_price, affiliate_url, source_url, rating, reviews_count",
-    )
-    .eq("id", id)
-    .maybeSingle();
+  const rows = await postgrestGet<any[]>("products", {
+    select: "id,code6,slug,title,description,images,category_id,price,promo_price,affiliate_url,source_url,rating,reviews_count",
+    id: `eq.${id}`,
+    limit: "1",
+  });
+  const data = Array.isArray(rows) ? rows[0] : null;
 
   if (!data) notFound();
 

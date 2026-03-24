@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAnonServerClient } from "@/lib/supabase/server";
+import { postgrestGet } from "@/lib/postgrest/server";
 import { PRICE_RANGES } from "@/lib/priceRanges";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   const origin = new URL(req.url).origin;
-  const supabase = getSupabaseAnonServerClient();
-
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("slug, created_at")
-    .is("parent_id", null)
-    .limit(1000);
+  const categories = await postgrestGet<any[]>("categories", {
+    select: "slug,created_at",
+    parent_id: "is.null",
+    limit: "1000",
+  }, "anon");
 
   const urls: { loc: string; lastmod: string | null }[] = [
     { loc: `${origin}/ofertas`, lastmod: null },
@@ -21,7 +19,7 @@ export async function GET(req: Request) {
     { loc: `${origin}/maiores-descontos`, lastmod: null },
   ];
 
-  for (const c of categories ?? []) {
+  for (const c of Array.isArray(categories) ? categories : []) {
     urls.push({ loc: `${origin}/ofertas/${c.slug}`, lastmod: c.created_at ? new Date(c.created_at).toISOString() : null });
     urls.push({ loc: `${origin}/mais-avaliados/${c.slug}`, lastmod: c.created_at ? new Date(c.created_at).toISOString() : null });
     for (const r of PRICE_RANGES) {

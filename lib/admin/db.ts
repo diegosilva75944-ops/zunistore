@@ -1,17 +1,27 @@
 import "server-only";
 
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import {
+  postgrestGet,
+  postgrestPost,
+  postgrestPatch,
+  postgrestDelete,
+  postgrestGetWithCount,
+  inVal,
+} from "@/lib/postgrest/server";
 import { randomToken, sha256Hex } from "@/lib/crypto";
 import { slugify } from "@/lib/slug";
 import { checkAffiliatePageContainsProduct } from "@/lib/affiliate-validate";
 
+function enc(v: string | number | boolean): string {
+  return encodeURIComponent(String(v));
+}
+
 export async function adminListCategories() {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase
-    .from("categories")
-    .select("id, name, slug, parent_id, is_seed, created_at")
-    .order("name", { ascending: true });
-  return (data ?? []) as any[];
+  const data = await postgrestGet<any[]>("categories", {
+    select: "id,name,slug,parent_id,is_seed,created_at",
+    order: "name.asc",
+  });
+  return Array.isArray(data) ? data : [];
 }
 
 export async function adminCreateCategory(input: {
@@ -19,33 +29,35 @@ export async function adminCreateCategory(input: {
   slug?: string | null;
   parent_id?: string | null;
 }) {
-  const supabase = getSupabaseServiceRoleClient();
   const slug = (input.slug?.trim() ? slugify(input.slug) : slugify(input.name)) || "categoria";
-  const { data: existing } = await supabase
-    .from("categories")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (existing) throw new Error("Já existe uma categoria com este slug.");
-  const { data: inserted, error } = await supabase
-    .from("categories")
-    .insert({
+  const existing = await postgrestGet<any[]>("categories", {
+    select: "id",
+    slug: `eq.${enc(slug)}`,
+    limit: "1",
+  });
+  if (Array.isArray(existing) && existing.length > 0) {
+    throw new Error("Já existe uma categoria com este slug.");
+  }
+  const inserted = await postgrestPost<any[]>(
+    "categories",
+    {
       name: input.name.trim(),
       slug,
       parent_id: input.parent_id ?? null,
       is_seed: false,
-    })
-    .select("id, name, slug, parent_id, is_seed")
-    .single();
-  if (error) throw error;
-  return inserted as any;
+    },
+    "service",
+    { select: "id,name,slug,parent_id,is_seed", returning: true },
+  );
+  const arr = Array.isArray(inserted) ? inserted : [];
+  if (!arr[0]) throw new Error("Falha ao criar categoria.");
+  return arr[0];
 }
 
 export async function adminUpdateCategory(
   id: string,
-  input: { name?: string; slug?: string }
+  input: { name?: string; slug?: string },
 ) {
-  const supabase = getSupabaseServiceRoleClient();
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name.trim();
   if (input.slug !== undefined) {
@@ -53,32 +65,30 @@ export async function adminUpdateCategory(
     if (slug) updates.slug = slug;
   }
   if (Object.keys(updates).length === 0) return;
-  const { error } = await supabase.from("categories").update(updates).eq("id", id);
-  if (error) throw error;
+  await postgrestPatch("categories", updates, { id: `eq.${id}` });
 }
 
 export async function adminDeleteCategory(id: string) {
-  const supabase = getSupabaseServiceRoleClient();
-  const { count } = await supabase
-    .from("products")
-    .select("id", { count: "exact", head: true })
-    .eq("category_id", id);
-  if (count && count > 0) throw new Error("Não é possível excluir: existem produtos nesta categoria.");
-  const { error } = await supabase.from("categories").delete().eq("id", id);
-  if (error) throw error;
+  const { count } = await postgrestGetWithCount<unknown[]>("products", {
+    select: "id",
+    category_id: `eq.${id}`,
+    limit: "1",
+  });
+  if (count > 0) {
+    throw new Error("Não é possível excluir: existem produtos nesta categoria.");
+  }
+  await postgrestDelete("categories", { id: `eq.${id}` });
 }
 
-/** Parâmetro obrigatório na URL final (após redirect) para o link de afiliado ser considerado válido. */
 export const AFFILIATE_VALID_PARAM = "matt_tool=40141155";
 
-/** Conta produtos cujo link de afiliado foi validado e a URL final não contém o param (expirado). */
 export async function adminCountExpiredAffiliateProducts(): Promise<number> {
   try {
-    const supabase = getSupabaseServiceRoleClient();
-    const { count } = await supabase
-      .from("products")
-      .select("id", { count: "exact", head: true })
-      .eq("affiliate_valid", false);
+    const { count } = await postgrestGetWithCount<unknown[]>("products", {
+      select: "id",
+      affiliate_valid: "eq.false",
+      limit: "1",
+    });
     return count ?? 0;
   } catch {
     return 0;
@@ -86,9 +96,42 @@ export async function adminCountExpiredAffiliateProducts(): Promise<number> {
 }
 
 const PRODUCTS_SELECT_FULL =
-  "id, code6, slug, title, images, price, promo_price, is_offer, off_percent, needs_update, affiliate_url, affiliate_valid, affiliate_valid_checked_at, created_at, categories:category_id (id, name, slug)";
+  "id,code6,slug,title,images,price,promo_price,is_offer,off_percent,needs_update,affiliate_url,affiliate_valid,affiliate_valid_checked_at,created_at,categories:category_id(id,name,slug)";
 const PRODUCTS_SELECT_FALLBACK =
-  "id, code6, slug, title, images, price, promo_price, is_offer, off_percent, needs_update, affiliate_url, created_at, categories:category_id (id, name, slug)";
+  "id,code6,slug,title,images,price,promo_price,is_offer,off_percent,needs_update,affiliate_url,created_at,categories:category_id(id,name,slug)";
+
+function buildProductsParams(opts: {
+  page: number;
+  perPage: number;
+  needsUpdate?: boolean | null;
+  q?: string | null;
+  code6?: string | null;
+  categoryId?: string | null;
+  affiliateExpired?: boolean | null;
+  includeAffiliateExpired: boolean;
+  select: string;
+}) {
+  const { page, perPage, needsUpdate, q, code6, categoryId, affiliateExpired, includeAffiliateExpired, select } = opts;
+  const from = (page - 1) * perPage;
+  const to = from + perPage - 1;
+  const params: Record<string, string> = {
+    select,
+    order: "created_at.desc",
+    offset: String(from),
+    limit: String(perPage),
+  };
+  if (needsUpdate === true) params.needs_update = "eq.true";
+  if (needsUpdate === false) params.needs_update = "eq.false";
+  if (categoryId) params.category_id = `eq.${categoryId}`;
+  if (code6?.trim()) params.code6 = `ilike.${encodeURIComponent("%" + code6.trim() + "%")}`;
+  const searchTerm = q?.trim() ?? "";
+  if (searchTerm) {
+    const pat = encodeURIComponent("%" + searchTerm + "%");
+    params.or = `(title.ilike.${pat},description.ilike.${pat})`;
+  }
+  if (includeAffiliateExpired && affiliateExpired === true) params.affiliate_valid = "eq.false";
+  return params;
+}
 
 export async function adminListProducts(opts: {
   page?: number;
@@ -100,82 +143,73 @@ export async function adminListProducts(opts: {
   affiliateExpired?: boolean | null;
 }) {
   const { page = 1, perPage = 20, needsUpdate = null, q, code6, categoryId, affiliateExpired } = opts;
-  const supabase = getSupabaseServiceRoleClient();
-  const range = [(page - 1) * perPage, (page - 1) * perPage + perPage - 1] as [number, number];
+  const from = (page - 1) * perPage;
 
-  const searchTerm = q?.trim() ?? "";
-  const applyFilters = (qb: any, includeAffiliateExpired: boolean) => {
-    if (needsUpdate === true) qb = qb.eq("needs_update", true);
-    if (needsUpdate === false) qb = qb.eq("needs_update", false);
-    if (categoryId) qb = qb.eq("category_id", categoryId);
-    if (code6?.trim()) qb = qb.ilike("code6", `%${code6.trim()}%`);
-    if (searchTerm) qb = qb.or(`title.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`);
-    if (includeAffiliateExpired && affiliateExpired === true) qb = qb.eq("affiliate_valid", false);
-    return qb;
-  };
+  const params = buildProductsParams({
+    page,
+    perPage,
+    needsUpdate,
+    q,
+    code6,
+    categoryId,
+    affiliateExpired,
+    includeAffiliateExpired: true,
+    select: PRODUCTS_SELECT_FULL,
+  });
 
-  let query = supabase
-    .from("products")
-    .select(PRODUCTS_SELECT_FULL, { count: "exact" })
-    .order("created_at", { ascending: false })
-    .range(...range);
-  query = applyFilters(query, true);
+  try {
+    const { data, count } = await postgrestGetWithCount<any[]>("products", params);
+    return { items: Array.isArray(data) ? data : [], total: count ?? 0 };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const columnMissing = /42703|affiliate_valid|does not exist|column/i.test(msg);
+    if (!columnMissing) throw err;
 
-  const { data, error, count } = await query;
-
-  const columnMissing =
-    error &&
-    (String((error as any).code) === "42703" ||
-      /affiliate_valid|does not exist|column/i.test(String((error as any).message ?? "")));
-
-  if (columnMissing) {
-    let fallbackQuery = supabase
-      .from("products")
-      .select(PRODUCTS_SELECT_FALLBACK, { count: "exact" })
-      .order("created_at", { ascending: false })
-      .range(...range);
-    fallbackQuery = applyFilters(fallbackQuery, false);
-    const { data: fallbackData, count: fallbackCount } = await fallbackQuery;
-    const items = ((fallbackData ?? []) as any[]).map((row) => ({
+    const fallbackParams = buildProductsParams({
+      page,
+      perPage,
+      needsUpdate,
+      q,
+      code6,
+      categoryId,
+      affiliateExpired,
+      includeAffiliateExpired: false,
+      select: PRODUCTS_SELECT_FALLBACK,
+    });
+    const { data: fallbackData, count: fallbackCount } = await postgrestGetWithCount<any[]>("products", fallbackParams);
+    const items = (Array.isArray(fallbackData) ? fallbackData : []).map((row) => ({
       ...row,
       affiliate_valid: null,
       affiliate_valid_checked_at: null,
     }));
     return { items, total: fallbackCount ?? 0 };
   }
-
-  if (error) throw error;
-  return { items: (data ?? []) as any[], total: count ?? 0 };
 }
 
-/** Valida o link de afiliado: abre a página e verifica se o nome do produto aparece nela. Se não aparecer, marca como expirado. */
 export async function adminValidateProductAffiliateLink(productId: string): Promise<{
   valid: boolean;
   error?: string;
 }> {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data: row, error: fetchError } = await supabase
-    .from("products")
-    .select("id, affiliate_url, title")
-    .eq("id", productId)
-    .maybeSingle();
-
-  if (fetchError || !row?.affiliate_url) {
+  const rows = await postgrestGet<any[]>("products", {
+    select: "id,affiliate_url,title",
+    id: `eq.${productId}`,
+    limit: "1",
+  });
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row?.affiliate_url) {
     return { valid: false, error: "Produto ou URL não encontrado." };
   }
-
-  const title = (row as any).title ? String((row as any).title).trim() : "";
+  const title = row.title ? String(row.title).trim() : "";
   const { valid } = await checkAffiliatePageContainsProduct(
-    row.affiliate_url as string,
+    row.affiliate_url,
     title || "Produto",
   );
   const now = new Date().toISOString();
-
-  await supabase
-    .from("products")
-    .update({ affiliate_valid: valid, affiliate_valid_checked_at: now })
-    .eq("id", productId);
-
+  await postgrestPatch(
+    "products",
+    { affiliate_valid: valid, affiliate_valid_checked_at: now },
+    { id: `eq.${productId}` },
+  );
   return { valid };
 }
 
@@ -196,41 +230,36 @@ export async function adminValidateAffiliateLinksBatch(productIds: string[]): Pr
 }
 
 export async function adminBulkUpdateCategory(productIds: string[], categoryId: string) {
-  const supabase = getSupabaseServiceRoleClient();
-  await supabase.from("products").update({ category_id: categoryId }).in("id", productIds);
+  if (!productIds.length) return;
+  await postgrestPatch("products", { category_id: categoryId }, { id: inVal(productIds) });
 }
 
 export async function adminBulkMarkNeedsUpdate(productIds: string[], needsUpdate: boolean) {
-  const supabase = getSupabaseServiceRoleClient();
-  await supabase.from("products").update({ needs_update: needsUpdate }).in("id", productIds);
+  if (!productIds.length) return;
+  await postgrestPatch("products", { needs_update: needsUpdate }, { id: inVal(productIds) });
 }
 
 export async function adminBulkDeleteProducts(productIds: string[]) {
-  const supabase = getSupabaseServiceRoleClient();
-  await supabase.from("products").delete().in("id", productIds);
+  if (!productIds.length) return;
+  await postgrestDelete("products", { id: inVal(productIds) });
 }
 
-/** Copia o produto para deleted_products_history e remove da listagem (e do site). Usado quando o sync não encontra mais o produto na URL. */
 export async function moveProductToDeletedHistoryAndDelete(
   productId: string,
   reason: string = "sync_not_found",
 ): Promise<void> {
-  const supabase = getSupabaseServiceRoleClient();
+  const rows = await postgrestGet<any[]>("products", {
+    select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,affiliate_url,source_url,categories:category_id(name)",
+    id: `eq.${productId}`,
+    limit: "1",
+  });
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row) return;
 
-  const { data: row, error: fetchError } = await supabase
-    .from("products")
-    .select(
-      "id, code6, slug, title, description, images, category_id, price, promo_price, is_offer, off_percent, affiliate_url, source_url, categories:category_id (name)",
-    )
-    .eq("id", productId)
-    .maybeSingle();
+  const categoryName = row.categories?.name ?? null;
+  const categoryId = row.category_id ?? null;
 
-  if (fetchError || !row) return;
-
-  const categoryName = (row as any).categories?.name ?? null;
-  const categoryId = (row as any).category_id ?? null;
-
-  await supabase.from("deleted_products_history").insert({
+  await postgrestPost("deleted_products_history", {
     product_id: row.id,
     code6: row.code6,
     slug: row.slug,
@@ -248,31 +277,21 @@ export async function moveProductToDeletedHistoryAndDelete(
     reason,
   });
 
-  await supabase.from("products").delete().eq("id", productId);
+  await postgrestDelete("products", { id: `eq.${productId}` });
 }
 
-export async function adminListDeletedProductsHistory(opts: {
-  page?: number;
-  perPage?: number;
-}) {
+export async function adminListDeletedProductsHistory(opts: { page?: number; perPage?: number }) {
   const { page = 1, perPage = 20 } = opts;
-  const supabase = getSupabaseServiceRoleClient();
-
   const from = (page - 1) * perPage;
-  const to = from + perPage - 1;
-
-  const { data, count } = await supabase
-    .from("deleted_products_history")
-    .select("id, product_id, code6, title, images, price, promo_price, category_name, affiliate_url, deleted_at, reason", {
-      count: "exact",
-    })
-    .order("deleted_at", { ascending: false })
-    .range(from, to);
-
-  return { items: (data ?? []) as any[], total: count ?? 0 };
+  const { data, count } = await postgrestGetWithCount<any[]>("deleted_products_history", {
+    select: "id,product_id,code6,title,images,price,promo_price,category_name,affiliate_url,deleted_at,reason",
+    order: "deleted_at.desc",
+    offset: String(from),
+    limit: String(perPage),
+  });
+  return { items: Array.isArray(data) ? data : [], total: count ?? 0 };
 }
 
-/** Registra alteração de preço no histórico (só insere se preço ou promo mudou). */
 export async function recordProductPriceChange(opts: {
   productId: string;
   oldPrice: number;
@@ -284,8 +303,7 @@ export async function recordProductPriceChange(opts: {
   const { productId, oldPrice, newPrice, oldPromoPrice, newPromoPrice, source = "sync" } = opts;
   const priceChanged = oldPrice !== newPrice || (oldPromoPrice ?? 0) !== (newPromoPrice ?? 0);
   if (!priceChanged) return;
-  const supabase = getSupabaseServiceRoleClient();
-  await supabase.from("product_price_history").insert({
+  await postgrestPost("product_price_history", {
     product_id: productId,
     old_price: oldPrice,
     new_price: newPrice,
@@ -297,73 +315,67 @@ export async function recordProductPriceChange(opts: {
 
 export async function adminListPriceHistory(opts: { page?: number; perPage?: number }) {
   const { page = 1, perPage = 20 } = opts;
-  const supabase = getSupabaseServiceRoleClient();
   const from = (page - 1) * perPage;
-  const to = from + perPage - 1;
-  const { data, count } = await supabase
-    .from("product_price_history")
-    .select(
-      "id, product_id, old_price, new_price, old_promo_price, new_promo_price, changed_at, source, products:product_id (code6, title)",
-      { count: "exact" },
-    )
-    .order("changed_at", { ascending: false })
-    .range(from, to);
-  return { items: (data ?? []) as any[], total: count ?? 0 };
+  const { data, count } = await postgrestGetWithCount<any[]>("product_price_history", {
+    select: "id,product_id,old_price,new_price,old_promo_price,new_promo_price,changed_at,source,products:product_id(code6,title)",
+    order: "changed_at.desc",
+    offset: String(from),
+    limit: String(perPage),
+  });
+  return { items: Array.isArray(data) ? data : [], total: count ?? 0 };
 }
 
 export async function adminUpdateSiteColors(colors: Record<string, string>) {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase.from("site_settings").select("id").limit(1).maybeSingle();
+  const rows = await postgrestGet<any[]>("site_settings", { select: "id", limit: "1" });
+  const data = Array.isArray(rows) ? rows[0] : null;
   if (!data) {
-    await supabase.from("site_settings").insert({ colors });
+    await postgrestPost("site_settings", { colors });
     return;
   }
-  await supabase.from("site_settings").update({ colors }).eq("id", data.id);
+  await postgrestPatch("site_settings", { colors }, { id: `eq.${data.id}` });
 }
 
 export async function adminUpdateLogoUrl(logoUrl: string | null) {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase.from("site_settings").select("id").limit(1).maybeSingle();
+  const rows = await postgrestGet<any[]>("site_settings", { select: "id", limit: "1" });
+  const data = Array.isArray(rows) ? rows[0] : null;
   if (!data) {
-    await supabase.from("site_settings").insert({ logo_url: logoUrl });
+    await postgrestPost("site_settings", { logo_url: logoUrl });
     return;
   }
-  await supabase.from("site_settings").update({ logo_url: logoUrl }).eq("id", data.id);
+  await postgrestPatch("site_settings", { logo_url: logoUrl }, { id: `eq.${data.id}` });
 }
 
 export async function adminGetSiteSettings() {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase.from("site_settings").select("id, logo_url, colors").limit(1).maybeSingle();
-  return data as any | null;
+  const rows = await postgrestGet<any[]>("site_settings", {
+    select: "id,logo_url,colors",
+    limit: "1",
+  });
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
 
 export async function adminGetContactSettings() {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase
-    .from("contact_settings")
-    .select("id, address, city, state, phone, email")
-    .limit(1)
-    .maybeSingle();
-  return data as any | null;
+  const rows = await postgrestGet<any[]>("contact_settings", {
+    select: "id,address,city,state,phone,email",
+    limit: "1",
+  });
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
 
 export async function adminUpdateContactSettings(patch: Record<string, any>) {
-  const supabase = getSupabaseServiceRoleClient();
   const current = await adminGetContactSettings();
   if (!current) {
-    await supabase.from("contact_settings").insert(patch);
+    await postgrestPost("contact_settings", patch);
     return;
   }
-  await supabase.from("contact_settings").update(patch).eq("id", current.id);
+  await postgrestPatch("contact_settings", patch, { id: `eq.${current.id}` });
 }
 
 export async function adminListSocialLinks() {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase
-    .from("social_links")
-    .select("id, icon, url, color, sort_order")
-    .order("sort_order", { ascending: true });
-  return (data ?? []) as any[];
+  const data = await postgrestGet<any[]>("social_links", {
+    select: "id,icon,url,color,sort_order",
+    order: "sort_order.asc",
+  });
+  return Array.isArray(data) ? data : [];
 }
 
 export async function adminUpsertSocialLink(input: {
@@ -373,20 +385,20 @@ export async function adminUpsertSocialLink(input: {
   color?: string | null;
   sort_order?: number;
 }) {
-  const supabase = getSupabaseServiceRoleClient();
   if (input.id) {
-    await supabase
-      .from("social_links")
-      .update({
+    await postgrestPatch(
+      "social_links",
+      {
         icon: input.icon,
         url: input.url,
         color: input.color ?? null,
         sort_order: input.sort_order ?? 0,
-      })
-      .eq("id", input.id);
+      },
+      { id: `eq.${input.id}` },
+    );
     return;
   }
-  await supabase.from("social_links").insert({
+  await postgrestPost("social_links", {
     icon: input.icon,
     url: input.url,
     color: input.color ?? null,
@@ -395,55 +407,51 @@ export async function adminUpsertSocialLink(input: {
 }
 
 export async function adminDeleteSocialLink(id: string) {
-  const supabase = getSupabaseServiceRoleClient();
-  await supabase.from("social_links").delete().eq("id", id);
+  await postgrestDelete("social_links", { id: `eq.${id}` });
 }
 
 export async function adminListTokens() {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase
-    .from("admin_tokens")
-    .select("id, name, active, last_used_at, created_at")
-    .order("created_at", { ascending: false });
-  return (data ?? []) as any[];
+  const data = await postgrestGet<any[]>("admin_tokens", {
+    select: "id,name,active,last_used_at,created_at",
+    order: "created_at.desc",
+  });
+  return Array.isArray(data) ? data : [];
 }
 
 export async function adminCreateToken(name: string) {
-  const supabase = getSupabaseServiceRoleClient();
   const raw = randomToken(32);
   const token_hash = sha256Hex(raw);
-  const { data, error } = await supabase
-    .from("admin_tokens")
-    .insert({ name, token_hash, active: true })
-    .select("id")
-    .maybeSingle();
-  if (error) throw error;
-  return { id: data?.id as string, token: raw };
+  const inserted = await postgrestPost<any[]>(
+    "admin_tokens",
+    { name, token_hash, active: true },
+    "service",
+    { select: "id", returning: true },
+  );
+  const arr = Array.isArray(inserted) ? inserted : [];
+  const id = arr[0]?.id;
+  if (!id) throw new Error("Falha ao criar token.");
+  return { id, token: raw };
 }
 
 export async function adminRevokeToken(id: string) {
-  const supabase = getSupabaseServiceRoleClient();
-  await supabase.from("admin_tokens").update({ active: false }).eq("id", id);
+  await postgrestPatch("admin_tokens", { active: false }, { id: `eq.${id}` });
 }
 
 export async function adminListCarousel() {
-  const supabase = getSupabaseServiceRoleClient();
-  const { data } = await supabase
-    .from("carousel_items")
-    .select("id, product_id, sort_order, size, products:product_id (code6, slug, title, images)")
-    .order("sort_order", { ascending: true });
-  return (data ?? []) as any[];
+  const data = await postgrestGet<any[]>("carousel_items", {
+    select: "id,product_id,sort_order,size,products:product_id(code6,slug,title,images)",
+    order: "sort_order.asc",
+  });
+  return Array.isArray(data) ? data : [];
 }
 
 export async function adminSetCarousel(items: { product_id: string; sort_order: number; size: "S" | "M" | "G" }[]) {
-  const supabase = getSupabaseServiceRoleClient();
-  await supabase.from("carousel_items").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+  await postgrestDelete("carousel_items", { id: `neq.00000000-0000-0000-0000-000000000000` });
   if (!items.length) return;
-  await supabase.from("carousel_items").insert(items);
+  await postgrestPost("carousel_items", items);
 }
 
 export async function buildProductSlug(title: string, code6: string) {
   const base = slugify(title);
   return `${base}-${code6}`;
 }
-

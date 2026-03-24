@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { postgrestGet, postgrestPost, postgrestRpc } from "@/lib/postgrest/server";
 import { makeSeoQueryFromPhrase, ngrams, tokenizePtBr } from "@/lib/admin/seo-suggest";
 
 export const runtime = "nodejs";
 
 export async function POST() {
-  const supabase = getSupabaseServiceRoleClient();
-
-  const { data: products } = await supabase.from("products").select("title").limit(1000);
-  const titles = (products ?? []).map((p: any) => String(p.title || "")).filter(Boolean);
+  const products = await postgrestGet<any[]>("products", {
+    select: "title",
+    limit: "1000",
+  });
+  const titles = (Array.isArray(products) ? products : []).map((p) => String(p.title || "")).filter(Boolean);
 
   const freq = new Map<string, number>();
   for (const title of titles) {
@@ -31,32 +32,25 @@ export async function POST() {
     const base = makeSeoQueryFromPhrase(phrase);
     const terms = base.query_terms;
 
-    // Pré-calcula resultados via RPC FTS (requer schema.sql aplicado)
-    const { data: c } = await supabase.rpc("count_products_for_terms", {
+    const c = await postgrestRpc<number>("count_products_for_terms", {
       _terms: terms,
       _category: null,
     });
     const count = typeof c === "number" ? c : 0;
     const indexable = count >= 12;
 
-    await supabase
-      .from("seo_queries")
-      .upsert(
-        {
-          slug: base.slug,
-          title: base.title,
-          description: base.description,
-          query_terms: terms,
-          category_id: null,
-          is_indexable: indexable,
-          min_results: 8,
-        },
-        { onConflict: "slug" },
-      );
+    await postgrestPost("seo_queries", {
+      slug: base.slug,
+      title: base.title,
+      description: base.description,
+      query_terms: terms,
+      category_id: null,
+      is_indexable: indexable,
+      min_results: 8,
+    }, "service", { upsert: true, onConflict: "slug" });
 
     created.push({ slug: base.slug, count, indexable });
   }
 
   return NextResponse.json({ ok: true, createdCount: created.length, created });
 }
-

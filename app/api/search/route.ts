@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAnonServerClient } from "@/lib/supabase/server";
+import { postgrestGet, inVal } from "@/lib/postgrest/server";
 
 export const runtime = "nodejs";
 
@@ -11,39 +11,35 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [] });
   }
 
-  const supabase = getSupabaseAnonServerClient();
-  const safeTerm = term.replace(/%/g, "\\%").replace(/_/g, "\\_");
+  const pat = encodeURIComponent("%" + term.replace(/%/g, "\\%").replace(/_/g, "\\_") + "%");
 
-  // Buscar por título/descrição (ilike no próprio produto)
-  const { data: byText } = await supabase
-    .from("products")
-    .select("code6, slug, title")
-    .or(`title.ilike.%${safeTerm}%,description.ilike.%${safeTerm}%`)
-    .order("created_at", { ascending: false })
-    .limit(8);
+  const byText = await postgrestGet<any[]>("products", {
+    select: "code6,slug,title",
+    or: `(title.ilike.${pat},description.ilike.${pat})`,
+    order: "created_at.desc",
+    limit: "8",
+  }, "anon");
 
-  // Buscar categorias pelo nome e obter IDs
-  const { data: categories } = await supabase
-    .from("categories")
-    .select("id")
-    .ilike("name", `%${safeTerm}%`);
-  const categoryIds = (categories ?? []).map((c: { id: string }) => c.id);
+  const categories = await postgrestGet<any[]>("categories", {
+    select: "id",
+    name: `ilike.${pat}`,
+  }, "anon");
+  const categoryIds = (Array.isArray(categories) ? categories : []).map((c) => c.id);
 
   let byCategory: { code6: string; slug: string; title: string }[] = [];
   if (categoryIds.length > 0) {
-    const { data } = await supabase
-      .from("products")
-      .select("code6, slug, title")
-      .in("category_id", categoryIds)
-      .order("created_at", { ascending: false })
-      .limit(8);
-    byCategory = (data ?? []) as { code6: string; slug: string; title: string }[];
+    const data = await postgrestGet<any[]>("products", {
+      select: "code6,slug,title",
+      category_id: inVal(categoryIds),
+      order: "created_at.desc",
+      limit: "8",
+    }, "anon");
+    byCategory = Array.isArray(data) ? data : [];
   }
 
-  // Unir e remover duplicatas por code6, mantendo ordem (texto primeiro)
   const seen = new Set<string>();
   const items: { code6: string; slug: string; title: string }[] = [];
-  for (const p of [...(byText ?? []), ...byCategory]) {
+  for (const p of [...(Array.isArray(byText) ? byText : []), ...byCategory]) {
     const row = p as { code6: string; slug: string; title: string };
     if (seen.has(row.code6)) continue;
     seen.add(row.code6);

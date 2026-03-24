@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAnonServerClient } from "@/lib/supabase/server";
+import { postgrestGet } from "@/lib/postgrest/server";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   const origin = new URL(req.url).origin;
-  const supabase = getSupabaseAnonServerClient();
+  const data = await postgrestGet<any[]>("products", {
+    select: "code6,slug,updated_at",
+    order: "created_at.desc",
+    limit: "5000",
+  }, "anon");
 
-  const { data } = await supabase
-    .from("products")
-    .select("code6, slug, updated_at")
-    .order("created_at", { ascending: false })
-    .limit(5000);
-
-  const urls = (data ?? []).map((p: any) => ({
+  const urls = (Array.isArray(data) ? data : []).map((p) => ({
     loc: `${origin}/produto/${p.code6}/${p.slug}`,
     lastmod: p.updated_at ? new Date(p.updated_at).toISOString() : null,
   }));

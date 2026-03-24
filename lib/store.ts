@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getSupabaseAnonServerClient } from "@/lib/supabase/server";
+import { postgrestGet, postgrestGetWithCount } from "@/lib/postgrest/server";
 
 export type Category = {
   id: string;
@@ -73,14 +73,11 @@ export type SeoQuery = {
 
 export async function getSiteSettings(): Promise<SiteSettings | null> {
   try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data, error } = await supabase
-      .from("site_settings")
-      .select("id, logo_url, colors")
-      .limit(1)
-      .maybeSingle();
-    if (error) return null;
-    return data as SiteSettings | null;
+    const rows = await postgrestGet<any[]>("site_settings", {
+      select: "id,logo_url,colors",
+      limit: "1",
+    }, "anon");
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
   } catch {
     return null;
   }
@@ -88,14 +85,11 @@ export async function getSiteSettings(): Promise<SiteSettings | null> {
 
 export async function getContactSettings(): Promise<ContactSettings | null> {
   try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data, error } = await supabase
-      .from("contact_settings")
-      .select("id, address, city, state, phone, email")
-      .limit(1)
-      .maybeSingle();
-    if (error) return null;
-    return data as ContactSettings | null;
+    const rows = await postgrestGet<any[]>("contact_settings", {
+      select: "id,address,city,state,phone,email",
+      limit: "1",
+    }, "anon");
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
   } catch {
     return null;
   }
@@ -103,12 +97,11 @@ export async function getContactSettings(): Promise<ContactSettings | null> {
 
 export async function getSocialLinks(): Promise<SocialLink[]> {
   try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data } = await supabase
-      .from("social_links")
-      .select("id, icon, url, color, sort_order")
-      .order("sort_order", { ascending: true });
-    return (data ?? []) as SocialLink[];
+    const data = await postgrestGet<any[]>("social_links", {
+      select: "id,icon,url,color,sort_order",
+      order: "sort_order.asc",
+    }, "anon");
+    return Array.isArray(data) ? data : [];
   } catch {
     return [];
   }
@@ -116,104 +109,17 @@ export async function getSocialLinks(): Promise<SocialLink[]> {
 
 export async function getSeoQueryBySlug(slug: string): Promise<SeoQuery | null> {
   try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data } = await supabase
-      .from("seo_queries")
-      .select("id, slug, title, description, query_terms, category_id, is_indexable, min_results")
-      .eq("slug", slug)
-      .maybeSingle();
+    const rows = await postgrestGet<any[]>("seo_queries", {
+      select: "id,slug,title,description,query_terms,category_id,is_indexable,min_results",
+      slug: `eq.${encodeURIComponent(slug)}`,
+      limit: "1",
+    }, "anon");
+    const data = Array.isArray(rows) ? rows[0] : null;
     if (!data) return null;
     return {
-      ...(data as any),
-      query_terms: Array.isArray((data as any).query_terms) ? (data as any).query_terms : [],
+      ...data,
+      query_terms: Array.isArray(data.query_terms) ? data.query_terms : [],
     } as SeoQuery;
-  } catch {
-    return null;
-  }
-}
-
-export async function searchProductsByTerms(opts: {
-  terms: string[];
-  categoryId?: string | null;
-  page?: number;
-  perPage?: 10 | 20 | 50;
-  sort?: ProductSort;
-}) {
-  const { terms, categoryId, page = 1, perPage = 20, sort = "recentes" } = opts;
-  let supabase: ReturnType<typeof getSupabaseAnonServerClient>;
-  try {
-    supabase = getSupabaseAnonServerClient();
-  } catch {
-    return { items: [], total: 0 };
-  }
-
-  let query = supabase
-    .from("products")
-    .select(
-      "id, code6, slug, title, description, images, category_id, price, promo_price, is_offer, off_percent, rating, reviews_count, affiliate_code, affiliate_url, source_url, created_at, updated_at, effective_price",
-      { count: "exact" },
-    );
-
-  if (categoryId) query = query.eq("category_id", categoryId);
-
-  if (terms.length) {
-    query = query.textSearch("search_tsv", terms.join(" "), {
-      type: "websearch",
-      config: "portuguese",
-    });
-  }
-
-  if (sort === "recentes") query = query.order("created_at", { ascending: false });
-  if (sort === "menor-preco") query = query.order("effective_price", { ascending: true });
-  if (sort === "maior-preco") query = query.order("effective_price", { ascending: false });
-  if (sort === "maior-desconto") query = query.order("off_percent", { ascending: false });
-  if (sort === "mais-avaliados") query = query.order("rating", { ascending: false, nullsFirst: false }).order("reviews_count", { ascending: false, nullsFirst: false });
-
-  const from = (page - 1) * perPage;
-  const to = from + perPage - 1;
-  query = query.range(from, to);
-
-  const { data, count } = await query;
-  return { items: ((data ?? []) as any[]).map(normalizeProduct), total: count ?? 0 };
-}
-
-export async function listSeedCategories(): Promise<Category[]> {
-  try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data } = await supabase
-      .from("categories")
-      .select("id, name, slug, parent_id")
-      .is("parent_id", null)
-      .order("name", { ascending: true });
-    return (data ?? []) as Category[];
-  } catch {
-    return [];
-  }
-}
-
-export async function getCategoryBySlug(slug: string): Promise<Category | null> {
-  try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data } = await supabase
-      .from("categories")
-      .select("id, name, slug, parent_id")
-      .eq("slug", slug)
-      .maybeSingle();
-    return (data ?? null) as Category | null;
-  } catch {
-    return null;
-  }
-}
-
-export async function getCategoryById(id: string): Promise<Category | null> {
-  try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data } = await supabase
-      .from("categories")
-      .select("id, name, slug, parent_id")
-      .eq("id", id)
-      .maybeSingle();
-    return (data ?? null) as Category | null;
   } catch {
     return null;
   }
@@ -226,6 +132,82 @@ export type ProductSort =
   | "maior-desconto"
   | "mais-avaliados";
 
+function sortToOrder(sort: ProductSort): string {
+  switch (sort) {
+    case "recentes": return "created_at.desc";
+    case "menor-preco": return "effective_price.asc";
+    case "maior-preco": return "effective_price.desc";
+    case "maior-desconto": return "off_percent.desc";
+    case "mais-avaliados": return "rating.desc.nullslast,reviews_count.desc.nullslast";
+    default: return "created_at.desc";
+  }
+}
+
+export async function searchProductsByTerms(opts: {
+  terms: string[];
+  categoryId?: string | null;
+  page?: number;
+  perPage?: 10 | 20 | 50;
+  sort?: ProductSort;
+}) {
+  const { terms, categoryId, page = 1, perPage = 20, sort = "recentes" } = opts;
+  try {
+    const from = (page - 1) * perPage;
+    const params: Record<string, string> = {
+      select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at,effective_price",
+      order: sortToOrder(sort),
+      offset: String(from),
+      limit: String(perPage),
+    };
+    if (categoryId) params.category_id = `eq.${categoryId}`;
+    if (terms.length) params.search_tsv = `wfts.portuguese.${encodeURIComponent(terms.join(" "))}`;
+
+    const { data, count } = await postgrestGetWithCount<any[]>("products", params, "anon");
+    return { items: (Array.isArray(data) ? data : []).map(normalizeProduct), total: count ?? 0 };
+  } catch {
+    return { items: [], total: 0 };
+  }
+}
+
+export async function listSeedCategories(): Promise<Category[]> {
+  try {
+    const data = await postgrestGet<any[]>("categories", {
+      select: "id,name,slug,parent_id",
+      parent_id: "is.null",
+      order: "name.asc",
+    }, "anon");
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getCategoryBySlug(slug: string): Promise<Category | null> {
+  try {
+    const rows = await postgrestGet<any[]>("categories", {
+      select: "id,name,slug,parent_id",
+      slug: `eq.${encodeURIComponent(slug)}`,
+      limit: "1",
+    }, "anon");
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getCategoryById(id: string): Promise<Category | null> {
+  try {
+    const rows = await postgrestGet<any[]>("categories", {
+      select: "id,name,slug,parent_id",
+      id: `eq.${id}`,
+      limit: "1",
+    }, "anon");
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function listProducts(opts: {
   categoryId?: string | null;
   q?: string | null;
@@ -236,67 +218,45 @@ export async function listProducts(opts: {
   perPage?: 10 | 20 | 50;
   onlyOffers?: boolean;
 }) {
-  const {
-    categoryId,
-    q,
-    min,
-    max,
-    sort = "recentes",
-    page = 1,
-    perPage = 20,
-    onlyOffers,
-  } = opts;
-
-  let supabase: ReturnType<typeof getSupabaseAnonServerClient>;
+  const { categoryId, q, min, max, sort = "recentes", page = 1, perPage = 20, onlyOffers } = opts;
   try {
-    supabase = getSupabaseAnonServerClient();
+    const from = (page - 1) * perPage;
+    const params: Record<string, string> = {
+      select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
+      order: sortToOrder(sort),
+      offset: String(from),
+      limit: String(perPage),
+    };
+    if (categoryId) params.category_id = `eq.${categoryId}`;
+    if (onlyOffers) params.is_offer = "eq.true";
+    if (typeof min === "number" && typeof max === "number") {
+      params.and = `(effective_price.gte.${min},effective_price.lte.${max})`;
+    } else if (typeof min === "number") {
+      params.effective_price = `gte.${min}`;
+    } else if (typeof max === "number") {
+      params.effective_price = `lte.${max}`;
+    }
+    if (q?.trim()) {
+      const pat = encodeURIComponent("%" + q.trim() + "%");
+      params.or = `(title.ilike.${pat},description.ilike.${pat})`;
+    }
+
+    const { data, count } = await postgrestGetWithCount<any[]>("products", params, "anon");
+    return { items: (Array.isArray(data) ? data : []).map(normalizeProduct), total: count ?? 0 };
   } catch {
     return { items: [], total: 0 };
   }
-  let query = supabase
-    .from("products")
-    .select(
-      "id, code6, slug, title, description, images, category_id, price, promo_price, is_offer, off_percent, rating, reviews_count, affiliate_code, affiliate_url, source_url, created_at, updated_at",
-      { count: "exact" },
-    );
-
-  if (categoryId) query = query.eq("category_id", categoryId);
-  if (onlyOffers) query = query.eq("is_offer", true);
-  if (typeof min === "number") query = query.gte("effective_price", min);
-  if (typeof max === "number") query = query.lte("effective_price", max);
-
-  if (q && q.trim()) {
-    const term = q.trim();
-    query = query.or(
-      `title.ilike.%${term}%,description.ilike.%${term}%`,
-    );
-  }
-
-  if (sort === "recentes") query = query.order("created_at", { ascending: false });
-  if (sort === "menor-preco") query = query.order("effective_price", { ascending: true });
-  if (sort === "maior-preco") query = query.order("effective_price", { ascending: false });
-  if (sort === "maior-desconto") query = query.order("off_percent", { ascending: false });
-  if (sort === "mais-avaliados") query = query.order("rating", { ascending: false, nullsFirst: false }).order("reviews_count", { ascending: false, nullsFirst: false });
-
-  const from = (page - 1) * perPage;
-  const to = from + perPage - 1;
-  query = query.range(from, to);
-
-  const { data, count } = await query;
-  return { items: ((data ?? []) as any[]).map(normalizeProduct), total: count ?? 0 };
 }
 
 export async function getProductByCode6(code6: string): Promise<Product | null> {
   try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data } = await supabase
-      .from("products")
-      .select(
-        "id, code6, slug, title, description, images, category_id, price, promo_price, is_offer, off_percent, rating, reviews_count, affiliate_code, affiliate_url, source_url, created_at, updated_at",
-      )
-      .eq("code6", code6)
-      .maybeSingle();
-    return data ? normalizeProduct(data as any) : null;
+    const rows = await postgrestGet<any[]>("products", {
+      select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
+      code6: `eq.${encodeURIComponent(code6)}`,
+      limit: "1",
+    }, "anon");
+    const data = Array.isArray(rows) ? rows[0] : null;
+    return data ? normalizeProduct(data) : null;
   } catch {
     return null;
   }
@@ -304,13 +264,11 @@ export async function getProductByCode6(code6: string): Promise<Product | null> 
 
 export async function listCarouselProducts() {
   try {
-    const supabase = getSupabaseAnonServerClient();
-    const { data } = await supabase
-      .from("carousel_items")
-      .select("id, product_id, sort_order, size, products:product_id (code6, slug, title, images, price, promo_price, is_offer, off_percent, affiliate_url)")
-      .order("sort_order", { ascending: true });
-
-    const items = (data ?? []) as any[];
+    const data = await postgrestGet<any[]>("carousel_items", {
+      select: "id,product_id,sort_order,size,products:product_id(code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url)",
+      order: "sort_order.asc",
+    }, "anon");
+    const items = Array.isArray(data) ? data : [];
     return items
       .filter((x) => x.products)
       .map((x) => ({
@@ -341,7 +299,6 @@ export async function listRelatedProducts(opts: {
   limit?: number;
 }) {
   try {
-    const supabase = getSupabaseAnonServerClient();
     const { limit = 12 } = opts;
     const tokens = opts.title
       .toLowerCase()
@@ -350,20 +307,18 @@ export async function listRelatedProducts(opts: {
       .filter((t) => t.length >= 4)
       .slice(0, 6);
 
-    let query = supabase
-      .from("products")
-      .select("id, code6, slug, title, images, price, promo_price, is_offer, off_percent, affiliate_url, rating, reviews_count, category_id")
-      .eq("category_id", opts.categoryId)
-      .neq("code6", opts.excludeCode6)
-      .limit(limit);
-
+    const params: Record<string, string> = {
+      select: "id,code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url,rating,reviews_count,category_id",
+      category_id: `eq.${opts.categoryId}`,
+      code6: `neq.${encodeURIComponent(opts.excludeCode6)}`,
+      limit: String(limit),
+    };
     if (tokens.length) {
-      const or = tokens.map((t) => `title.ilike.%${t}%`).join(",");
-      query = query.or(or);
+      params.or = `(${tokens.map((t) => `title.ilike.${encodeURIComponent("%" + t + "%")}`).join(",")})`;
     }
 
-    const { data } = await query;
-    return ((data ?? []) as any[]).map(normalizeProduct);
+    const data = await postgrestGet<any[]>("products", params, "anon");
+    return (Array.isArray(data) ? data : []).map(normalizeProduct);
   } catch {
     return [];
   }
@@ -391,4 +346,3 @@ function normalizeProduct(row: any): Product {
     updated_at: row.updated_at,
   };
 }
-

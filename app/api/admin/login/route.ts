@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { postgrestGet } from "@/lib/postgrest/server";
 import { setAdminSessionCookie } from "@/lib/admin/auth";
 
 export const runtime = "nodejs";
@@ -18,14 +18,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Payload inválido." }, { status: 400 });
   }
 
-  const supabase = getSupabaseServiceRoleClient();
-  const { data, error } = await supabase
-    .from("admin_users")
-    .select("id, username, password_hash")
-    .eq("username", parsed.data.username)
-    .maybeSingle();
+  let data: { id: string; username: string; password_hash: string } | null = null;
+  try {
+    const rows = await postgrestGet<{ id: string; username: string; password_hash: string }[]>(
+      "admin_users",
+      {
+        select: "id,username,password_hash",
+        username: `eq.${encodeURIComponent(parsed.data.username)}`,
+        limit: "1",
+      },
+      "service",
+    );
+    const arr = Array.isArray(rows) ? rows : [];
+    data = arr[0] ?? null;
+  } catch {
+    return NextResponse.json({ ok: false, error: "Usuário ou senha inválidos." }, { status: 401 });
+  }
 
-  if (error || !data) {
+  if (!data) {
     return NextResponse.json({ ok: false, error: "Usuário ou senha inválidos." }, { status: 401 });
   }
 

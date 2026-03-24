@@ -1,22 +1,18 @@
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { adminListCarousel } from "@/lib/admin/db";
+import { postgrestGet } from "@/lib/postgrest/server";
 import { CarouselClient } from "@/app/admin/carrossel/carousel-client";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
 
 export default async function AdminCarrosselPage() {
-  const supabase = getSupabaseServiceRoleClient();
-
-  const [{ data: carousel }, { data: products }] = await Promise.all([
-    supabase
-      .from("carousel_items")
-      .select("id, product_id, sort_order, size, products:product_id (id, code6, slug, title, images, price, promo_price, off_percent)")
-      .order("sort_order", { ascending: true }),
-    supabase
-      .from("products")
-      .select("id, code6, slug, title, images, price, promo_price, off_percent")
-      .order("created_at", { ascending: false })
-      .limit(200),
+  const [carousel, products] = await Promise.all([
+    adminListCarousel(),
+    postgrestGet<any[]>("products", {
+      select: "id,code6,slug,title,images,price,promo_price,off_percent",
+      order: "created_at.desc",
+      limit: "200",
+    }),
   ]);
 
   return (
@@ -29,8 +25,8 @@ export default async function AdminCarrosselPage() {
       </div>
 
       <CarouselClient
-        initialCarousel={(carousel ?? []) as any[]}
-        products={(products ?? []) as any[]}
+        initialCarousel={carousel as any[]}
+        products={(Array.isArray(products) ? products : []) as any[]}
       />
     </div>
   );

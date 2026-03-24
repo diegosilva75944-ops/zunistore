@@ -1,20 +1,18 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAnonServerClient } from "@/lib/supabase/server";
+import { postgrestGet } from "@/lib/postgrest/server";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   const origin = new URL(req.url).origin;
-  const supabase = getSupabaseAnonServerClient();
+  const data = await postgrestGet<any[]>("seo_queries", {
+    select: "slug,updated_at,is_indexable",
+    is_indexable: "eq.true",
+    order: "updated_at.desc",
+    limit: "5000",
+  }, "anon");
 
-  const { data } = await supabase
-    .from("seo_queries")
-    .select("slug, updated_at, is_indexable")
-    .eq("is_indexable", true)
-    .order("updated_at", { ascending: false })
-    .limit(5000);
-
-  const urls = (data ?? []).map((q: any) => ({
+  const urls = (Array.isArray(data) ? data : []).map((q) => ({
     loc: `${origin}/buscar/${q.slug}`,
     lastmod: q.updated_at ? new Date(q.updated_at).toISOString() : null,
   }));

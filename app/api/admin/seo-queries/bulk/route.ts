@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { postgrestPatch, inVal } from "@/lib/postgrest/server";
 
 export const runtime = "nodejs";
 
@@ -18,9 +18,7 @@ export async function PATCH(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: "Payload inválido." }, { status: 400 });
   }
-
-  const supabase = getSupabaseServiceRoleClient();
-  await supabase.from("seo_queries").update(parsed.data.patch).in("id", parsed.data.ids);
+  await postgrestPatch("seo_queries", parsed.data.patch, { id: inVal(parsed.data.ids) });
   return NextResponse.json({ ok: true });
 }
 

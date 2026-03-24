@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
 import { getAdminSession } from "@/lib/admin/auth";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
@@ -8,25 +8,18 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 async function syncAllProducts() {
-  const supabase = getSupabaseServiceRoleClient();
-
-  const { data: products, error } = await supabase
-    .from("products")
-    .select("id, source_url, affiliate_url, price, promo_price")
-    .order("updated_at", { ascending: true })
-    .limit(50);
-
-  if (error) {
+  let rows: { id: string; source_url: string | null; affiliate_url: string | null; price: number; promo_price: number | null }[];
+  try {
+    const products = await postgrestGet<any[]>("products", {
+      select: "id,source_url,affiliate_url,price,promo_price",
+      order: "updated_at.asc",
+      limit: "50",
+    });
+    rows = Array.isArray(products) ? products : [];
+  } catch {
     return { ok: false, error: "Failed to load products.", total: 0, updated: 0, skipped: 0, failed: 0, deleted: 0 };
   }
 
-  const rows = (products ?? []) as {
-    id: string;
-    source_url: string | null;
-    affiliate_url: string | null;
-    price: number;
-    promo_price: number | null;
-  }[];
   if (!rows.length) {
     return { ok: true, total: 0, updated: 0, skipped: 0, failed: 0, deleted: 0 };
   }
@@ -69,16 +62,13 @@ async function syncAllProducts() {
         source: "sync_batch",
       });
 
-      await supabase
-        .from("products")
-        .update({
-          price,
-          promo_price: promo,
-          is_offer,
-          off_percent,
-          last_seen_at: new Date().toISOString(),
-        })
-        .eq("id", p.id);
+      await postgrestPatch("products", {
+        price,
+        promo_price: promo,
+        is_offer,
+        off_percent,
+        last_seen_at: new Date().toISOString(),
+      }, { id: `eq.${p.id}` });
 
       updated += 1;
     } catch {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { postgrestGet, postgrestPost, postgrestPatch, postgrestRpc } from "@/lib/postgrest/server";
 import { sha256Hex } from "@/lib/crypto";
 import { slugify } from "@/lib/slug";
 
@@ -47,23 +47,24 @@ export async function POST(req: Request) {
     return withCors(NextResponse.json({ ok: false, error: "Token ausente." }, { status: 401 }));
   }
 
-  const supabase = getSupabaseServiceRoleClient();
   const tokenHash = sha256Hex(rawToken);
 
-  const { data: tokenRow } = await supabase
-    .from("admin_tokens")
-    .select("id, active")
-    .eq("token_hash", tokenHash)
-    .maybeSingle();
+  const tokenRows = await postgrestGet<any[]>("admin_tokens", {
+    select: "id,active",
+    token_hash: `eq.${tokenHash}`,
+    limit: "1",
+  });
+  const tokenRow = Array.isArray(tokenRows) ? tokenRows[0] : null;
 
-  if (!tokenRow || !(tokenRow as any).active) {
+  if (!tokenRow || !tokenRow.active) {
     return withCors(NextResponse.json({ ok: false, error: "Token inválido ou revogado." }, { status: 401 }));
   }
 
-  await supabase
-    .from("admin_tokens")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", (tokenRow as any).id);
+  await postgrestPatch(
+    "admin_tokens",
+    { last_used_at: new Date().toISOString() },
+    { id: `eq.${tokenRow.id}` },
+  );
 
   const json = await req.json().catch(() => null);
   const parsed = schema.safeParse(json);
@@ -73,8 +74,7 @@ export async function POST(req: Request) {
 
   const p = parsed.data;
 
-  // Gera code6 sequencial (RPC)
-  const { data: code6 } = await supabase.rpc("next_product_code6");
+  const code6 = await postgrestRpc<string>("next_product_code6", {});
   if (typeof code6 !== "string" || code6.length !== 6) {
     return withCors(NextResponse.json({ ok: false, error: "Falha ao gerar code6." }, { status: 500 }));
   }
@@ -85,11 +85,11 @@ export async function POST(req: Request) {
   const is_offer = promo != null && promo < p.price;
   const off_percent = is_offer ? Math.round((1 - promo / p.price) * 100) : 0;
 
-  const categoryId = await upsertCategoryFromBreadcrumb(supabase, p.categoryPath, p.categoryName);
+  const categoryId = await upsertCategoryFromBreadcrumb(p.categoryPath, p.categoryName);
 
-  const { data: inserted, error } = await supabase
-    .from("products")
-    .insert({
+  const inserted = await postgrestPost<any[]>(
+    "products",
+    {
       code6,
       slug,
       title: p.title,
@@ -106,30 +106,27 @@ export async function POST(req: Request) {
       affiliate_url: p.affiliateUrl,
       source_url: p.sourceUrl,
       last_seen_at: new Date().toISOString(),
-    })
-    .select("code6, slug")
-    .maybeSingle();
+    },
+    "service",
+    { select: "code6,slug", returning: true },
+  );
 
-  if (error || !inserted) {
+  const row = Array.isArray(inserted) ? inserted[0] : null;
+  if (!row) {
     return withCors(NextResponse.json({ ok: false, error: "Falha ao salvar produto." }, { status: 500 }));
   }
 
-  const productUrl = `/produto/${inserted.code6}/${inserted.slug}`;
-  return withCors(NextResponse.json({ ok: true, code6: inserted.code6, productUrl }));
+  const productUrl = `/produto/${row.code6}/${row.slug}`;
+  return withCors(NextResponse.json({ ok: true, code6: row.code6, productUrl }));
 }
 
-async function upsertCategoryFromBreadcrumb(
-  supabase: ReturnType<typeof getSupabaseServiceRoleClient>,
-  categoryPath: string[],
-  categoryName: string,
-) {
-  const { data: seeds } = await supabase
-    .from("categories")
-    .select("id, name, slug")
-    .eq("is_seed", true)
-    .is("parent_id", null);
-
-  const seedList = (seeds ?? []) as any[];
+async function upsertCategoryFromBreadcrumb(categoryPath: string[], categoryName: string): Promise<string | undefined> {
+  const seeds = await postgrestGet<any[]>("categories", {
+    select: "id,name,slug",
+    is_seed: "eq.true",
+    parent_id: "is.null",
+  });
+  const seedList = Array.isArray(seeds) ? seeds : [];
   const path = (categoryPath ?? []).map((s) => String(s || "").trim()).filter(Boolean);
   const last = String(categoryName || path[path.length - 1] || "").trim();
 
@@ -138,25 +135,25 @@ async function upsertCategoryFromBreadcrumb(
 
   if (!last) return seedId;
 
-  // Se o último item casar com o seed, usa o seed; senão cria subcategoria
   const sameAsSeed = chosenSeed && normalize(last) === normalize(chosenSeed.name);
   if (sameAsSeed) return seedId;
 
   const subSlug = slugify(last);
-  const { data: existing } = await supabase
-    .from("categories")
-    .select("id")
-    .eq("slug", subSlug)
-    .maybeSingle();
-  if (existing?.id) return existing.id as string;
+  const existing = await postgrestGet<any[]>("categories", {
+    select: "id",
+    slug: `eq.${encodeURIComponent(subSlug)}`,
+    limit: "1",
+  });
+  if (Array.isArray(existing) && existing[0]?.id) return existing[0].id;
 
-  const { data: created } = await supabase
-    .from("categories")
-    .insert({ name: last, slug: subSlug, parent_id: seedId, is_seed: false })
-    .select("id")
-    .maybeSingle();
-
-  return (created?.id as string) ?? seedId;
+  const created = await postgrestPost<any[]>(
+    "categories",
+    { name: last, slug: subSlug, parent_id: seedId, is_seed: false },
+    "service",
+    { select: "id", returning: true },
+  );
+  const createdRow = Array.isArray(created) ? created[0] : null;
+  return createdRow?.id ?? seedId;
 }
 
 function pickClosestSeed(seeds: { id: string; name: string }[], crumbs: string[]) {
@@ -173,10 +170,10 @@ function pickClosestSeed(seeds: { id: string; name: string }[], crumbs: string[]
     for (const t of tokens) if (hayTokens.has(t)) score += 1;
     if (score > bestScore) {
       bestScore = score;
-      best = s as any;
+      best = s;
     }
   }
-  return bestScore >= 1 ? (best as any) : (seeds[0] as any);
+  return bestScore >= 1 ? best : seeds[0];
 }
 
 function normalize(input: string) {
@@ -188,4 +185,3 @@ function normalize(input: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
-
