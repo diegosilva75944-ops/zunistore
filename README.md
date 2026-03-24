@@ -76,7 +76,37 @@ Passos sugeridos no Coolify:
 2. Usar build por `Dockerfile`.
 3. Definir porta `3000`.
 4. Configurar todas as variáveis de ambiente listadas acima.
-5. Criar job de cron no Coolify chamando `GET /api/cron/sync-prices` (sem autenticação)
+5. Definir `CRON_SECRET` (string longa e aleatória) para o job de validação de links abaixo.
+
+### Tarefas agendadas (a cada 2 horas)
+
+O app expõe:
+
+- `GET /api/cron/sync-prices` — sincroniza até 50 produtos por chamada (preços / remoção se a URL não existir); **sem autenticação** (proteja por rede ou coloque atrás de IP restrito se possível).
+- `GET /api/cron/validate-affiliate-links?limit=15` — revalida links de afiliado em lote; **exige** a variável `CRON_SECRET` e um dos mecanismos: header `Authorization: Bearer <CRON_SECRET>`, header `x-cron-secret: <CRON_SECRET>` ou query `?secret=<CRON_SECRET>` (não recomendado em logs).
+
+**Coolify:** em *Scheduled Tasks* (ou equivalente), crie duas tarefas com periodicidade “every 2 hours” (ou cron `0 */2 * * *`), por exemplo:
+
+1. Comando / request: `GET https://<seu-dominio>/api/cron/sync-prices`
+2. Comando / request: `GET https://<seu-dominio>/api/cron/validate-affiliate-links?limit=15` com header `Authorization: Bearer <valor de CRON_SECRET>` (definido nas env vars do mesmo serviço).
+
+**Ubuntu (crontab do usuário ou root):** ajuste domínio e segredo; `-fsS` falha em erro HTTP e mostra mensagem no stderr.
+
+```bash
+CRON_SECRET='cole-o-mesmo-valor-da-env-CRON_SECRET'
+SITE='https://seu-dominio.com'
+
+crontab -e
+```
+
+Adicione (ambas a cada 2 horas, no minuto 0 e 15 para não disparar tudo junto):
+
+```
+0 */2 * * * curl -fsS "${SITE}/api/cron/sync-prices" -o /dev/null
+15 */2 * * * curl -fsS -H "Authorization: Bearer ${CRON_SECRET}" "${SITE}/api/cron/validate-affiliate-links?limit=15" -o /dev/null
+```
+
+No crontab as variáveis `SITE` e `CRON_SECRET` **não** costumam estar definidas; use valores literais na linha ou um script wrapper que exporte as variáveis e chame o `curl`.
 
 ## Observações
 
