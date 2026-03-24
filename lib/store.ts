@@ -71,12 +71,38 @@ export type SeoQuery = {
   min_results: number;
 };
 
+async function getWithPublicFallback<T>(
+  table: string,
+  params: Record<string, string>,
+): Promise<T> {
+  try {
+    return await postgrestGet<T>(table, params, "anon");
+  } catch (anonErr) {
+    // Self-hosted installs often miss anon grants/RLS policies.
+    console.error(`[store] anon read failed for ${table}; retrying with service role`, anonErr);
+    return postgrestGet<T>(table, params, "service");
+  }
+}
+
+async function getWithCountPublicFallback<T>(
+  table: string,
+  params: Record<string, string>,
+): Promise<{ data: T; count: number }> {
+  try {
+    return await postgrestGetWithCount<T>(table, params, "anon");
+  } catch (anonErr) {
+    // Fallback keeps storefront working while server permissions are fixed.
+    console.error(`[store] anon read with count failed for ${table}; retrying with service role`, anonErr);
+    return postgrestGetWithCount<T>(table, params, "service");
+  }
+}
+
 export async function getSiteSettings(): Promise<SiteSettings | null> {
   try {
-    const rows = await postgrestGet<any[]>("site_settings", {
+    const rows = await getWithPublicFallback<any[]>("site_settings", {
       select: "id,logo_url,colors",
       limit: "1",
-    }, "anon");
+    });
     return Array.isArray(rows) && rows[0] ? rows[0] : null;
   } catch {
     return null;
@@ -85,10 +111,10 @@ export async function getSiteSettings(): Promise<SiteSettings | null> {
 
 export async function getContactSettings(): Promise<ContactSettings | null> {
   try {
-    const rows = await postgrestGet<any[]>("contact_settings", {
+    const rows = await getWithPublicFallback<any[]>("contact_settings", {
       select: "id,address,city,state,phone,email",
       limit: "1",
-    }, "anon");
+    });
     return Array.isArray(rows) && rows[0] ? rows[0] : null;
   } catch {
     return null;
@@ -97,10 +123,10 @@ export async function getContactSettings(): Promise<ContactSettings | null> {
 
 export async function getSocialLinks(): Promise<SocialLink[]> {
   try {
-    const data = await postgrestGet<any[]>("social_links", {
+    const data = await getWithPublicFallback<any[]>("social_links", {
       select: "id,icon,url,color,sort_order",
       order: "sort_order.asc",
-    }, "anon");
+    });
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
@@ -109,11 +135,11 @@ export async function getSocialLinks(): Promise<SocialLink[]> {
 
 export async function getSeoQueryBySlug(slug: string): Promise<SeoQuery | null> {
   try {
-    const rows = await postgrestGet<any[]>("seo_queries", {
+    const rows = await getWithPublicFallback<any[]>("seo_queries", {
       select: "id,slug,title,description,query_terms,category_id,is_indexable,min_results",
       slug: `eq.${encodeURIComponent(slug)}`,
       limit: "1",
-    }, "anon");
+    });
     const data = Array.isArray(rows) ? rows[0] : null;
     if (!data) return null;
     return {
@@ -162,7 +188,7 @@ export async function searchProductsByTerms(opts: {
     if (categoryId) params.category_id = `eq.${categoryId}`;
     if (terms.length) params.search_tsv = `wfts.portuguese.${encodeURIComponent(terms.join(" "))}`;
 
-    const { data, count } = await postgrestGetWithCount<any[]>("products", params, "anon");
+    const { data, count } = await getWithCountPublicFallback<any[]>("products", params);
     return { items: (Array.isArray(data) ? data : []).map(normalizeProduct), total: count ?? 0 };
   } catch {
     return { items: [], total: 0 };
@@ -171,11 +197,11 @@ export async function searchProductsByTerms(opts: {
 
 export async function listSeedCategories(): Promise<Category[]> {
   try {
-    const data = await postgrestGet<any[]>("categories", {
+    const data = await getWithPublicFallback<any[]>("categories", {
       select: "id,name,slug,parent_id",
       parent_id: "is.null",
       order: "name.asc",
-    }, "anon");
+    });
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
@@ -184,11 +210,11 @@ export async function listSeedCategories(): Promise<Category[]> {
 
 export async function getCategoryBySlug(slug: string): Promise<Category | null> {
   try {
-    const rows = await postgrestGet<any[]>("categories", {
+    const rows = await getWithPublicFallback<any[]>("categories", {
       select: "id,name,slug,parent_id",
       slug: `eq.${encodeURIComponent(slug)}`,
       limit: "1",
-    }, "anon");
+    });
     return Array.isArray(rows) && rows[0] ? rows[0] : null;
   } catch {
     return null;
@@ -197,11 +223,11 @@ export async function getCategoryBySlug(slug: string): Promise<Category | null> 
 
 export async function getCategoryById(id: string): Promise<Category | null> {
   try {
-    const rows = await postgrestGet<any[]>("categories", {
+    const rows = await getWithPublicFallback<any[]>("categories", {
       select: "id,name,slug,parent_id",
       id: `eq.${id}`,
       limit: "1",
-    }, "anon");
+    });
     return Array.isArray(rows) && rows[0] ? rows[0] : null;
   } catch {
     return null;
@@ -241,7 +267,7 @@ export async function listProducts(opts: {
       params.or = `(title.ilike.${pat},description.ilike.${pat})`;
     }
 
-    const { data, count } = await postgrestGetWithCount<any[]>("products", params, "anon");
+    const { data, count } = await getWithCountPublicFallback<any[]>("products", params);
     return { items: (Array.isArray(data) ? data : []).map(normalizeProduct), total: count ?? 0 };
   } catch {
     return { items: [], total: 0 };
@@ -250,11 +276,11 @@ export async function listProducts(opts: {
 
 export async function getProductByCode6(code6: string): Promise<Product | null> {
   try {
-    const rows = await postgrestGet<any[]>("products", {
+    const rows = await getWithPublicFallback<any[]>("products", {
       select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
       code6: `eq.${encodeURIComponent(code6)}`,
       limit: "1",
-    }, "anon");
+    });
     const data = Array.isArray(rows) ? rows[0] : null;
     return data ? normalizeProduct(data) : null;
   } catch {
@@ -264,10 +290,10 @@ export async function getProductByCode6(code6: string): Promise<Product | null> 
 
 export async function listCarouselProducts() {
   try {
-    const data = await postgrestGet<any[]>("carousel_items", {
+    const data = await getWithPublicFallback<any[]>("carousel_items", {
       select: "id,product_id,sort_order,size,products:product_id(code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url)",
       order: "sort_order.asc",
-    }, "anon");
+    });
     const items = Array.isArray(data) ? data : [];
     return items
       .filter((x) => x.products)
@@ -317,7 +343,7 @@ export async function listRelatedProducts(opts: {
       params.or = `(${tokens.map((t) => `title.ilike.${encodeURIComponent("%" + t + "%")}`).join(",")})`;
     }
 
-    const data = await postgrestGet<any[]>("products", params, "anon");
+    const data = await getWithPublicFallback<any[]>("products", params);
     return (Array.isArray(data) ? data : []).map(normalizeProduct);
   } catch {
     return [];
