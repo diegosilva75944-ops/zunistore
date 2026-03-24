@@ -108,6 +108,10 @@ Adicione (ambas a cada 2 horas, no minuto 0 e 15 para não disparar tudo junto):
 
 No crontab as variáveis `SITE` e `CRON_SECRET` **não** costumam estar definidas; use valores literais na linha ou um script wrapper que exporte as variáveis e chame o `curl`.
 
+Na máquina do Coolify (com Docker), use o script versionado `scripts/zunistore-cron-host.sh`: copie para o servidor (ex.: `~/zunistore-cron.sh`), `chmod +x`, aponte o crontab para ele. O script lê `CRON_SECRET` de dentro do container via `docker exec`, usando o label `coolify.applicationId` (padrão `3`; ajuste `ZUNI_COOLIFY_APPLICATION_ID` se mudar no painel).
+
+Após o primeiro deploy com a rota `GET /api/cron/validate-affiliate-links`, o job de validação deixa de responder HTTP 404.
+
 ## Observações
 
 - Para o `next/image` carregar imagens externas, ajuste `next.config.ts` se necessário (domínios).
