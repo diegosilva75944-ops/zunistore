@@ -43,9 +43,10 @@
 
       const line1 = amounts[0];
       if (line1 != null) {
-        const promoCandidates = amounts.slice(1, 3).filter((n): n is number => n != null);
-        const bestPromo = promoCandidates.length ? Math.min(...promoCandidates) : null;
-        const promoPrice = bestPromo != null && bestPromo < line1 ? bestPromo : null;
+        // A 3ª linha costuma ser o valor da parcela no cartão (ex: "6x de R$39,33"),
+        // então o promo_price correto (preço promocional) vem da 2ª linha.
+        const promoLine = amounts[1];
+        const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
         return { price: line1, promoPrice };
       }
     }

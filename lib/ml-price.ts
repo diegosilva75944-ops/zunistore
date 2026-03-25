@@ -64,9 +64,10 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
     const line1 = amounts[0];
     if (line1 != null) {
-      const promoCandidates = amounts.slice(1, 3);
-      const bestPromo = promoCandidates.length ? Math.min(...promoCandidates) : null;
-      const promo = bestPromo != null && bestPromo < line1 ? bestPromo : null;
+      // A 3ª linha pode trazer o valor da parcela no cartão (ex: "6x de R$39,33"),
+      // então o preço promocional vem da 2ª linha.
+      const promoLine = amounts[1];
+      const promo = promoLine != null && promoLine < line1 ? promoLine : null;
       return { price: line1, promoPrice: promo };
     }
   }
