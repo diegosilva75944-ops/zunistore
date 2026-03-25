@@ -78,14 +78,14 @@ Passos sugeridos no Coolify:
 4. Configurar todas as variáveis de ambiente listadas acima.
 5. Definir `CRON_SECRET` (string longa e aleatória) para o job de validação de links abaixo.
 
-### Tarefas agendadas (a cada 2 horas)
+### Tarefas agendadas (a cada 30 minutos)
 
 O app expõe:
 
 - `GET /api/cron/sync-prices` — sincroniza até 50 produtos por chamada (preços / remoção se a URL não existir); **sem autenticação** (proteja por rede ou coloque atrás de IP restrito se possível).
 - `GET /api/cron/validate-affiliate-links?limit=15` — revalida links de afiliado em lote; **exige** a variável `CRON_SECRET` e um dos mecanismos: header `Authorization: Bearer <CRON_SECRET>`, header `x-cron-secret: <CRON_SECRET>` ou query `?secret=<CRON_SECRET>` (não recomendado em logs).
 
-**Coolify:** em *Scheduled Tasks* (ou equivalente), crie duas tarefas com periodicidade “every 2 hours” (ou cron `0 */2 * * *`), por exemplo:
+**Coolify:** em *Scheduled Tasks* (ou equivalente), use periodicidade “every 30 minutes” (ou cron `*/30 * * * *`), por exemplo:
 
 1. Comando / request: `GET https://<seu-dominio>/api/cron/sync-prices`
 2. Comando / request: `GET https://<seu-dominio>/api/cron/validate-affiliate-links?limit=15` com header `Authorization: Bearer <valor de CRON_SECRET>` (definido nas env vars do mesmo serviço).
@@ -99,11 +99,11 @@ SITE='https://seu-dominio.com'
 crontab -e
 ```
 
-Adicione (ambas a cada 2 horas, no minuto 0 e 15 para não disparar tudo junto):
+Adicione (sync a cada 30 min; validação nos minutos 15 e 45 para não coincidir com o sync):
 
 ```
-0 */2 * * * curl -fsS "${SITE}/api/cron/sync-prices" -o /dev/null
-15 */2 * * * curl -fsS -H "Authorization: Bearer ${CRON_SECRET}" "${SITE}/api/cron/validate-affiliate-links?limit=15" -o /dev/null
+*/30 * * * * curl -fsS "${SITE}/api/cron/sync-prices" -o /dev/null
+15,45 * * * * curl -fsS -H "Authorization: Bearer ${CRON_SECRET}" "${SITE}/api/cron/validate-affiliate-links?limit=15" -o /dev/null
 ```
 
 No crontab as variáveis `SITE` e `CRON_SECRET` **não** costumam estar definidas; use valores literais na linha ou um script wrapper que exporte as variáveis e chame o `curl`.

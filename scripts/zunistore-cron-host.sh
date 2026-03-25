@@ -1,6 +1,6 @@
 #!/bin/bash
 # Rodar no host Ubuntu (Coolify) com usuário em grupo `docker`.
-# Crontab sugerido: 0 */2 * * * /home/diego/zunistore-cron.sh
+# Crontab sugerido: */30 * * * * /home/diego/zunistore-cron.sh
 #
 # Variáveis opcionais:
 #   ZUNI_SITE — default https://www.zunistore.com.br
