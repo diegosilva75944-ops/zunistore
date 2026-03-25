@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 type ProductGalleryProps = {
   images: string[];
@@ -10,6 +10,7 @@ type ProductGalleryProps = {
 
 export function ProductGallery({ images, title }: ProductGalleryProps) {
   const [selected, setSelected] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lens, setLens] = useState({ show: false, x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -33,12 +34,26 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
 
   const handleClickMain = useCallback(() => {
     if (!mainSrc) return;
-    try {
-      window.open(mainSrc, "_blank", "noopener,noreferrer");
-    } catch {
-      // ignore
-    }
+    setLightboxOpen(true);
   }, [mainSrc]);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [lightboxOpen]);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxOpen]);
 
   return (
     <div className="space-y-3">
@@ -113,6 +128,30 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
           ))}
         </div>
       )}
+
+      {lightboxOpen && mainSrc ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 md:p-8"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${title} — imagem em tamanho grande`}
+          onClick={() => setLightboxOpen(false)}
+        >
+          <div
+            className="relative max-h-[min(100vh-2rem,100dvh-2rem)] max-w-[min(100vw-2rem,100dvw-2rem)] h-[min(90vh,90dvh)] w-full sm:w-[min(96vw,1400px)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Image
+              src={mainSrc}
+              alt={title}
+              fill
+              className="object-contain"
+              sizes="100vw"
+              priority
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
