@@ -36,17 +36,27 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   // Prioridade: ui-pdp-price__main-container (quando existir, tenta 3 linhas em ordem).
   // 1ª linha: preço normal (price)
   // 2ª e 3ª linha: preço promocional / no cartão (promoPrice = menor entre elas, quando for menor que line1)
-  const mainMatch = html.match(/ui-pdp-price__main-container[\s\S]{0,3000}/i);
-  if (mainMatch) {
-    const mainBlock = mainMatch[0];
-    const amountRe =
-      /andes-money-amount(?![^>]*--previous)[\s\S]{0,450}?andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,150}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
+  const lower = html.toLowerCase();
+  const startIdx = lower.indexOf("ui-pdp-price__main-container");
+  if (startIdx !== -1) {
+    // Em HTML bruto (server-side), o bloco pode ser maior que 3000 chars;
+    // aumentamos a janela para capturar 1ª, 2ª e 3ª linha.
+    const mainBlock = html.slice(startIdx, startIdx + 20000);
 
     const amounts: number[] = [];
-    for (const m of mainBlock.matchAll(amountRe)) {
-      const fractionStr = m[1]?.replace(/\./g, "");
+    // Captura blocos de `andes-money-amount` e lê fraction+cents dentro de cada bloco.
+    // Depois filtramos os que contêm `--previous` (mesma lógica do content_script).
+    const amountBlockRe =
+      /<[^>]*class=["'][^"']*andes-money-amount[^"']*["'][^>]*>[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,300}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
+
+    for (const m of mainBlock.matchAll(amountBlockRe)) {
+      const blockStr = m[0] || "";
+      if (blockStr.includes("andes-money-amount--previous") || blockStr.includes("--previous")) continue;
+
+      const fractionStr = (m[1] || "").replace(/\./g, "");
       const centsStr = (m[2] || "00").padStart(2, "0");
       if (!fractionStr) continue;
+
       const n = parseFloat(`${fractionStr}.${centsStr}`);
       if (Number.isFinite(n) && n > 0) amounts.push(n);
       if (amounts.length >= 3) break;
@@ -210,11 +220,17 @@ export function extractPricesFromHtml(html: string): {
   if (fromDom && fromDom.price != null && fromDom.price > 0) {
     if (fromDom.promoPrice != null) return fromDom;
 
-    // Se o DOM não conseguiu promo (promoPrice null),
-    // tenta usar o JSON-LD como "promo" quando ele estiver abaixo do preço DOM.
+    // Se o DOM não conseguiu promo, usamos apenas o JSON-LD como fallback
+    // para o campo "promoPrice" (não para o "price"), quando ele for menor.
     const fromJsonLd = extractFromJsonLd(html);
-    if (fromJsonLd && fromJsonLd.price != null && fromJsonLd.price > 0 && fromJsonLd.price < fromDom.price) {
-      return { price: fromDom.price, promoPrice: fromJsonLd.price };
+    if (
+      fromJsonLd &&
+      fromJsonLd.promoPrice != null &&
+      Number.isFinite(fromJsonLd.promoPrice) &&
+      fromJsonLd.promoPrice > 0 &&
+      fromJsonLd.promoPrice < fromDom.price
+    ) {
+      return { price: fromDom.price, promoPrice: fromJsonLd.promoPrice };
     }
 
     return { price: fromDom.price, promoPrice: null };
