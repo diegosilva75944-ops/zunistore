@@ -557,7 +557,16 @@ export async function fetchPricesFromUrl(url: string): Promise<{
   promoPrice: number | null;
 } | null> {
   try {
-    const res = await fetch(url, {
+    const fetchUrl = (() => {
+      try {
+        const u = new URL(url);
+        // Canonical: remove hash e query params (tracking/recommendations) para estabilizar a extração.
+        return `${u.origin}${u.pathname}`;
+      } catch {
+        return url;
+      }
+    })();
+    const res = await fetch(fetchUrl, {
       cache: "no-store",
       redirect: "follow",
       headers: ML_FETCH_HEADERS,
