@@ -272,6 +272,27 @@
     return result.length > 30 ? result.slice(0, 30) : result;
   }
 
+  function extractDescriptionFromMl(doc) {
+    const el =
+      doc.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
+      doc.querySelector('[data-testid="content"].ui-pdp-description__content') ||
+      doc.querySelector(".ui-pdp-description__content");
+    return el ? normalizeText(el.textContent) : null;
+  }
+
+  function extractDescriptionBlockFromMl(doc) {
+    const root =
+      doc.querySelector("div#description.ui-pdp-description") ||
+      doc.querySelector("#description.ui-pdp-description") ||
+      doc.querySelector(".ui-pdp-description");
+    const el = root
+      ? root.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
+        root.querySelector("p.ui-pdp-description__content") ||
+        root.querySelector('[data-testid="content"].ui-pdp-description__content')
+      : extractDescriptionFromMl(doc);
+    return el ? normalizeText(el.textContent) : null;
+  }
+
   function extractFromJsonLd() {
     const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
     for (const s of scripts) {
@@ -289,7 +310,14 @@
         if (!product) continue;
 
         const title = product.name ? normalizeText(product.name) : null;
-        const description = product.description ? normalizeText(product.description) : null;
+        const jsonLdDesc = product.description ? normalizeText(product.description) : null;
+        const domBlock = extractDescriptionBlockFromMl(document);
+        const fallbackDesc = extractDescriptionFromMl(document);
+        let description = (jsonLdDesc || fallbackDesc || "").trim();
+        let descriptionDetail = "";
+        if (domBlock && domBlock.trim() !== description) {
+          descriptionDetail = domBlock.trim();
+        }
 
         let images = [];
         if (typeof product.image === "string") images = [product.image];
@@ -321,6 +349,7 @@
         return {
           title,
           description,
+          descriptionDetail,
           images,
           price: finalPrice,
           promoPrice: finalPromoPrice,
@@ -455,9 +484,18 @@
 
     const reviewsCount = extractReviewsCountFromMl(document);
 
+    const domBlock = extractDescriptionBlockFromMl(document);
+    const fallbackDesc = extractDescriptionFromMl(document);
+    let description = (fallbackDesc || domBlock || "").trim();
+    let descriptionDetail = "";
+    if (domBlock && domBlock.trim() !== description) {
+      descriptionDetail = domBlock.trim();
+    }
+
     return {
       title: title || null,
-      description: null,
+      description,
+      descriptionDetail,
       images: imgs,
       price: promo?.price ?? null,
       promoPrice: promo?.promoPrice ?? null,
@@ -513,6 +551,7 @@
     return {
       title: null,
       description: null,
+      descriptionDetail: "",
       images: [],
       price: promo.price,
       promoPrice: promo.promoPrice,

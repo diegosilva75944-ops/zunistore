@@ -24,6 +24,7 @@ export async function OPTIONS() {
 const schema = z.object({
   title: z.string().min(3),
   description: z.string().optional().default(""),
+  descriptionDetail: z.string().optional().default(""),
   images: z.array(z.string().url()).optional().default([]),
   price: z.coerce.number().positive(),
   promoPrice: z.coerce.number().positive().optional().nullable(),
@@ -94,6 +95,7 @@ export async function POST(req: Request) {
       slug,
       title: p.title,
       description: p.description ?? "",
+      description_detail: p.descriptionDetail ?? "",
       images: p.images ?? [],
       category_id: categoryId,
       price: p.price,

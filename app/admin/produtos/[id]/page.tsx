@@ -12,7 +12,7 @@ export default async function AdminProdutoEditPage(props: {
 }) {
   const { id } = await props.params;
   const rows = await postgrestGet<any[]>("products", {
-    select: "id,code6,slug,title,description,images,category_id,price,promo_price,affiliate_url,source_url,rating,reviews_count",
+    select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,affiliate_url,source_url,rating,reviews_count",
     id: `eq.${id}`,
     limit: "1",
   });

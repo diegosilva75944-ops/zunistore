@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 const schema = z.object({
   title: z.string().min(1),
   description: z.string().optional().default(""),
+  description_detail: z.string().optional().default(""),
   images: z.array(z.string().url()).optional().default([]),
   category_id: z.string().uuid(),
   price: z.coerce.number().positive(),
@@ -41,6 +42,7 @@ export async function PATCH(
   await postgrestPatch("products", {
     title: parsed.data.title,
     description: parsed.data.description ?? "",
+    description_detail: parsed.data.description_detail ?? "",
     images: parsed.data.images ?? [],
     category_id: parsed.data.category_id,
     price,

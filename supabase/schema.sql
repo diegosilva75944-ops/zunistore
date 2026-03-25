@@ -30,6 +30,7 @@ create table if not exists public.products (
   slug text not null,
   title text not null,
   description text not null default '',
+  description_detail text not null default '',
   images jsonb not null default '[]'::jsonb,
   category_id uuid not null references public.categories(id) on delete restrict,
   price numeric not null,

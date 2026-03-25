@@ -78,6 +78,21 @@ function extractDescriptionFromMl(doc) {
   return el ? normalizeText(el.textContent) : null;
 }
 
+/** Bloco #description.ui-pdp-description (texto maior no ML), além do JSON-LD. */
+function extractDescriptionBlockFromMl(doc) {
+  const root =
+    doc.querySelector("div#description.ui-pdp-description") ||
+    doc.querySelector("#description.ui-pdp-description") ||
+    doc.querySelector(".ui-pdp-description");
+  const el = root
+    ? root.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
+      root.querySelector("p.ui-pdp-description__content") ||
+      root.querySelector('[data-testid="content"].ui-pdp-description__content')
+    : doc.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
+      doc.querySelector(".ui-pdp-description__content");
+  return el ? normalizeText(el.textContent) : null;
+}
+
 function extractImagesFromMlDom(doc) {
   const isMlImage = (u) => u && (u.includes("mlstatic.com") || u.includes("mercadolivre"));
   const normalizeUrl = (u) => {
@@ -495,8 +510,14 @@ function extractFromDocument(doc, sourceUrl) {
         const product = findProduct(obj);
         if (!product) continue;
         const title = product.name ? normalizeText(product.name) : null;
-        let description = product.description ? normalizeText(product.description) : null;
-        if (!description) description = extractDescriptionFromMl(doc);
+        const jsonLdDesc = product.description ? normalizeText(product.description) : null;
+        const domBlock = extractDescriptionBlockFromMl(doc);
+        const fallbackDesc = extractDescriptionFromMl(doc);
+        let description = (jsonLdDesc || fallbackDesc || "").trim();
+        let descriptionDetail = "";
+        if (domBlock && domBlock.trim() !== description) {
+          descriptionDetail = domBlock.trim();
+        }
         let images = [];
         if (typeof product.image === "string") images = [product.image];
         else if (Array.isArray(product.image)) images = product.image.filter(Boolean);
@@ -528,6 +549,7 @@ function extractFromDocument(doc, sourceUrl) {
         return {
           title,
           description,
+          descriptionDetail,
           images,
           price,
           promoPrice,
@@ -547,7 +569,13 @@ function extractFromDocument(doc, sourceUrl) {
     const h1 = doc.querySelector("h1");
     const ogTitle = doc.querySelector('meta[property="og:title"]')?.getAttribute("content");
     const title = normalizeText(h1?.textContent || ogTitle || "");
-    const description = extractDescriptionFromMl(doc);
+    const domBlock = extractDescriptionBlockFromMl(doc);
+    const fallbackDesc = extractDescriptionFromMl(doc);
+    let description = (fallbackDesc || domBlock || "").trim();
+    let descriptionDetail = "";
+    if (domBlock && domBlock.trim() !== description) {
+      descriptionDetail = domBlock.trim();
+    }
     const breadcrumb = [];
     const nav = doc.querySelector("nav");
     const ol = nav ? nav.querySelector("ol") : doc.querySelector("ol");
@@ -577,6 +605,7 @@ function extractFromDocument(doc, sourceUrl) {
     return {
       title: title || null,
       description,
+      descriptionDetail,
       images: imgs,
       price: promo.price,
       promoPrice: promo.promoPrice,
@@ -595,6 +624,7 @@ function extractFromDocument(doc, sourceUrl) {
     return {
       title: null,
       description: null,
+      descriptionDetail: "",
       images: [],
       price: promo.price,
       promoPrice: promo.promoPrice,
@@ -745,6 +775,7 @@ async function main() {
       const payload = {
         title: extracted.title || "Produto",
         description: extracted.description || "",
+        descriptionDetail: extracted.descriptionDetail || "",
         images: extracted.images || [],
         price: extracted.price,
         promoPrice: extracted.promoPrice,

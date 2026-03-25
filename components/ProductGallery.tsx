@@ -46,14 +46,52 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
     };
   }, [lightboxOpen]);
 
+  const goPrev = useCallback(() => {
+    const len = imgs.length;
+    if (len <= 1) return;
+    let i = selected;
+    for (let step = 0; step < len; step++) {
+      i = (i - 1 + len) % len;
+      if (imgs[i]) {
+        setSelected(i);
+        return;
+      }
+    }
+  }, [imgs, selected]);
+
+  const goNext = useCallback(() => {
+    const len = imgs.length;
+    if (len <= 1) return;
+    let i = selected;
+    for (let step = 0; step < len; step++) {
+      i = (i + 1) % len;
+      if (imgs[i]) {
+        setSelected(i);
+        return;
+      }
+    }
+  }, [imgs, selected]);
+
   useEffect(() => {
     if (!lightboxOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setLightboxOpen(false);
+      if (e.key === "Escape") {
+        setLightboxOpen(false);
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        goPrev();
+        return;
+      }
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        goNext();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightboxOpen]);
+  }, [lightboxOpen, goPrev, goNext]);
 
   return (
     <div className="space-y-3">
@@ -131,12 +169,49 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
 
       {lightboxOpen && mainSrc ? (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 md:p-8"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 md:p-8"
           role="dialog"
           aria-modal="true"
           aria-label={`${title} — imagem em tamanho grande`}
           onClick={() => setLightboxOpen(false)}
         >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setLightboxOpen(false);
+            }}
+            className="absolute left-3 top-3 z-[110] flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-zinc-900 shadow-lg ring-1 ring-zinc-200 hover:bg-white text-2xl font-light leading-none"
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+          {imgs.filter(Boolean).length > 1 ? (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goPrev();
+                }}
+                className="absolute left-2 md:left-4 top-1/2 z-[110] -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-zinc-900 shadow-md ring-1 ring-zinc-200 hover:bg-white md:h-14 md:w-14"
+                aria-label="Imagem anterior"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goNext();
+                }}
+                className="absolute right-2 md:right-4 top-1/2 z-[110] -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-zinc-900 shadow-md ring-1 ring-zinc-200 hover:bg-white md:h-14 md:w-14"
+                aria-label="Próxima imagem"
+              >
+                ›
+              </button>
+            </>
+          ) : null}
           <div
             className="relative max-h-[min(100vh-2rem,100dvh-2rem)] max-w-[min(100vw-2rem,100dvw-2rem)] h-[min(90vh,90dvh)] w-full sm:w-[min(96vw,1400px)]"
             onClick={(e) => e.stopPropagation()}

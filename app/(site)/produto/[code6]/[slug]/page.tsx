@@ -176,11 +176,21 @@ export default async function ProdutoPage(props: {
             ) : null}
           </div>
 
-          <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5">
-            <h2 className="font-semibold mb-2">Descrição</h2>
-            <div className="text-sm text-zinc-700 whitespace-pre-wrap">
-              {product.description || "Sem descrição."}
+          <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-4">
+            <div>
+              <h2 className="font-semibold mb-2">Descrição</h2>
+              <div className="text-sm text-zinc-700 whitespace-pre-wrap">
+                {product.description || "Sem descrição."}
+              </div>
             </div>
+            {product.description_detail?.trim() ? (
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-800 mb-2">Descrição completa</h3>
+                <div className="text-base md:text-lg text-zinc-800 whitespace-pre-wrap leading-relaxed">
+                  {product.description_detail}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>
@@ -232,12 +242,16 @@ function formatBRL(value: number) {
 
 function buildProductJsonLd(product: any, pageUrl: string) {
   const price = product.promo_price ?? product.price;
+  const descFull = [product.description, product.description_detail]
+    .filter((s: string) => typeof s === "string" && s.trim())
+    .join("\n\n")
+    .trim();
   const base: any = {
     "@context": "https://schema.org",
     "@type": "Product",
     name: product.title,
     image: Array.isArray(product.images) ? product.images : [],
-    description: product.description,
+    description: descFull || product.description,
     sku: product.code6,
     offers: {
       "@type": "Offer",

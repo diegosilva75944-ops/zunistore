@@ -13,6 +13,7 @@ export function ProductEditClient({
   const [form, setForm] = useState({
     title: product.title ?? "",
     description: product.description ?? "",
+    description_detail: product.description_detail ?? "",
     imagesText: Array.isArray(product.images) ? product.images.join("\n") : "",
     category_id: product.category_id ?? categories[0]?.id ?? "",
     price: String(product.price ?? ""),
@@ -131,6 +132,14 @@ export function ProductEditClient({
           value={form.description}
           onChange={(e) => setForm((s) => ({ ...s, description: e.target.value }))}
           className="w-full min-h-40 rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+        />
+      </Field>
+
+      <Field label="Descrição completa (bloco ML / texto maior)">
+        <textarea
+          value={form.description_detail}
+          onChange={(e) => setForm((s) => ({ ...s, description_detail: e.target.value }))}
+          className="w-full min-h-32 rounded-xl border border-zinc-200 px-3 py-2 text-sm"
         />
       </Field>
 

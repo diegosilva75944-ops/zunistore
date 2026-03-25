@@ -15,6 +15,8 @@ export type Product = {
   slug: string;
   title: string;
   description: string;
+  /** Bloco longo ML (#description .ui-pdp-description__content), além da description curta. */
+  description_detail: string;
   images: string[];
   category_id: string;
   price: number;
@@ -180,7 +182,7 @@ export async function searchProductsByTerms(opts: {
   try {
     const from = (page - 1) * perPage;
     const params: Record<string, string> = {
-      select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at,effective_price",
+      select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at,effective_price",
       order: sortToOrder(sort),
       offset: String(from),
       limit: String(perPage),
@@ -277,7 +279,7 @@ export async function listProducts(opts: {
 export async function getProductByCode6(code6: string): Promise<Product | null> {
   try {
     const rows = await getWithPublicFallback<any[]>("products", {
-      select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
+      select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
       code6: `eq.${encodeURIComponent(code6)}`,
       limit: "1",
     });
@@ -366,6 +368,7 @@ function normalizeProduct(row: any): Product {
     slug: row.slug,
     title: row.title,
     description: row.description ?? "",
+    description_detail: row.description_detail ?? "",
     images: Array.isArray(row.images) ? row.images : [],
     category_id: row.category_id,
     price: Number(row.price),
