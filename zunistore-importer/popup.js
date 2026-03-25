@@ -456,6 +456,60 @@ function parseAndesMoney(el) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Par fraction + cents adjacentes (ex.: cents com classe --superscript-36), sem wrapper .andes-money-amount. */
+function parseAndesMoneyFromFractionCents(fracEl, centsEl) {
+  if (!fracEl || !centsEl) return null;
+  const fraction = fracEl.textContent?.trim();
+  const cents = centsEl.textContent?.trim();
+  if (!fraction) return null;
+  const fractionNum = fraction.replace(/\./g, "");
+  const dec = cents && /^\d{1,2}$/.test(cents) ? cents.padStart(2, "0") : "00";
+  const n = parseFloat(`${fractionNum}.${dec}`);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Evita contar o mesmo preço duas vezes quando há .andes-money-amount aninhados. */
+function filterTopLevelAndesMoney(container) {
+  const all = Array.from(container.querySelectorAll(".andes-money-amount"));
+  return all.filter((el) => {
+    let p = el.parentElement;
+    while (p && container.contains(p)) {
+      if (p !== container && p.classList && p.classList.contains("andes-money-amount")) return false;
+      p = p.parentElement;
+    }
+    return true;
+  });
+}
+
+function collectAmountsFromPriceBlock(container) {
+  const topLevel = filterTopLevelAndesMoney(container);
+  const amounts = [];
+  for (const el of topLevel) {
+    const n = parseAndesMoney(el);
+    if (n != null && n > 0) amounts.push(n);
+    if (amounts.length >= 3) break;
+  }
+  if (amounts.length > 0) return amounts;
+
+  const fractions = Array.from(container.querySelectorAll(".andes-money-amount__fraction"));
+  for (const f of fractions) {
+    if (isInsideOtherSellers(f)) continue;
+    const parent = f.closest(".andes-money-amount");
+    if (parent) {
+      const n = parseAndesMoney(parent);
+      if (n != null && n > 0) amounts.push(n);
+    } else {
+      const next = f.nextElementSibling;
+      if (next && next.classList && next.classList.contains("andes-money-amount__cents")) {
+        const n = parseAndesMoneyFromFractionCents(f, next);
+        if (n != null && n > 0) amounts.push(n);
+      }
+    }
+    if (amounts.length >= 3) break;
+  }
+  return amounts;
+}
+
 /** Preços em "Outros vendedores" (classe *other-sellers*) não entram no produto principal. */
 function isInsideOtherSellers(el) {
   if (!el || typeof el.closest !== "function") return false;
@@ -497,14 +551,7 @@ function extractPricesFromMlDom(doc) {
     firstElementNotInOtherSellers(doc, ".ui-pdp-container__row--price, .ui-pdp-container__row.ui-pdp-container__row--price");
 
   if (priceRow) {
-    const amountEls = Array.from(priceRow.querySelectorAll(".andes-money-amount"));
-    const amounts = [];
-    for (const el of amountEls) {
-      const n = parseAndesMoney(el);
-      if (n != null && n > 0) amounts.push(n);
-      if (amounts.length >= 3) break;
-    }
-
+    const amounts = collectAmountsFromPriceBlock(priceRow);
     const price = amounts[0];
     const promoLine = amounts[1];
     if (price != null) {
@@ -519,20 +566,10 @@ function extractPricesFromMlDom(doc) {
     firstElementNotInOtherSellers(doc, ".ui-pdp-price");
 
   if (mainContainer) {
-    const amountEls = Array.from(mainContainer.querySelectorAll(".andes-money-amount"))
-      .filter((el) => !el.classList.contains("andes-money-amount--previous"));
-
-    const amounts = [];
-    for (const el of amountEls) {
-      const n = parseAndesMoney(el);
-      if (n != null && n > 0) amounts.push(n);
-      if (amounts.length >= 3) break;
-    }
-
+    // 1º par fraction+cents = preço "de" (pode ser andes-money-amount--previous); 2º = promocional.
+    const amounts = collectAmountsFromPriceBlock(mainContainer);
     const line1 = amounts[0];
     if (line1 != null) {
-      // A 3ª linha pode trazer o valor da parcela no cartão (ex: "6x de R$39,33"),
-      // então o promo_price correto (preço promocional) vem da 2ª linha.
       const promoLine = amounts[1];
       const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
       return { price: line1, promoPrice };

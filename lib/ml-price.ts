@@ -268,32 +268,34 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
     return { price: domPrice, promoPrice: domPromoPrice ?? null };
   }
 
-  // Prioridade: ui-pdp-price__main-container (quando existir, tenta 3 linhas em ordem).
-  // 1ª linha: preço normal (price)
-  // 2ª linha: promo (quando existir); 3ª costuma ser cartão/parcelas.
+  // ui-pdp-price__main-container: o ML costuma colocar o preço "de" (às vezes riscado,
+  // andes-money-amount--previous) como 1º par fraction+cents e o promocional em seguida.
+  // Centavos podem usar andes-money-amount__cents--superscript-36; o par é sempre
+  // fraction seguido do cents mais próximo (ordem do documento).
   const startIdx = lower.indexOf("ui-pdp-price__main-container");
   if (startIdx !== -1) {
-    // Em HTML bruto (server-side), o bloco pode ser maior; aumentamos a janela.
     const mainBlock = htmlToParse.slice(startIdx, startIdx + 20000);
 
     const amounts: number[] = [];
-    const amountBlockRe =
-      /<[^>]*class=["'][^"']*andes-money-amount[^"']*["'][^>]*>[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,300}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
+    const pairSeqRe =
+      /andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,800}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
 
-    for (const m of mainBlock.matchAll(amountBlockRe)) {
-      const blockStr = m[0] || "";
-      if (blockStr.includes("andes-money-amount--previous") || blockStr.includes("--previous")) continue;
-
+    for (const m of mainBlock.matchAll(pairSeqRe)) {
       const fractionStr = (m[1] || "").replace(/\./g, "");
       const centsStr = (m[2] || "00").padStart(2, "0");
       if (!fractionStr) continue;
 
       const n = parseFloat(`${fractionStr}.${centsStr}`);
       if (Number.isFinite(n) && n > 0) amounts.push(n);
+      if (amounts.length >= 3) break;
     }
 
-    const pairMain = pairTwoMeaningfulPrices(amounts);
-    if (pairMain) return pairMain;
+    if (amounts.length >= 1) {
+      const price = amounts[0];
+      const promoLine = amounts[1];
+      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+      return { price, promoPrice };
+    }
   }
 
   // Original: aria-label="Antes: N reais (com N centavos)" (igual à extensão)
@@ -557,16 +559,7 @@ export async function fetchPricesFromUrl(url: string): Promise<{
   promoPrice: number | null;
 } | null> {
   try {
-    const fetchUrl = (() => {
-      try {
-        const u = new URL(url);
-        // Canonical: remove hash e query params (tracking/recommendations) para estabilizar a extração.
-        return `${u.origin}${u.pathname}`;
-      } catch {
-        return url;
-      }
-    })();
-    const res = await fetch(fetchUrl, {
+    const res = await fetch(url, {
       cache: "no-store",
       redirect: "follow",
       headers: ML_FETCH_HEADERS,
@@ -574,11 +567,172 @@ export async function fetchPricesFromUrl(url: string): Promise<{
     if (!res.ok) return null;
 
     const html = await res.text();
-    const { price, promoPrice } = extractPricesFromHtml(html);
+    const initial = extractPricesFromHtml(html);
 
-    if (!price || !Number.isFinite(price) || price <= 0) return null;
+    if (!initial || !initial.price || !Number.isFinite(initial.price) || initial.price <= 0) return null;
 
-    return { price, promoPrice };
+    // Se a extração por HTML veio sem promo, fazemos fallback via DOM renderizado
+    // (Playwright) para bater com a lógica do import (extensão).
+    if (initial.promoPrice == null) {
+      const dom = await fetchPricesFromUrlWithPlaywright(url);
+      if (dom && dom.price > 0 && (dom.promoPrice != null || Math.abs(dom.price - initial.price) > 0.01)) {
+        return dom;
+      }
+    }
+
+    return { price: initial.price, promoPrice: initial.promoPrice };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPricesFromUrlWithPlaywright(url: string): Promise<{
+  price: number;
+  promoPrice: number | null;
+} | null> {
+  try {
+    const { chromium } = await import("playwright");
+    const userAgent = (ML_FETCH_HEADERS["User-Agent"] as string) || undefined;
+
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({ userAgent });
+    const page = await context.newPage();
+
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+
+    // Aceita banner de cookies quando existir.
+    try {
+      const btn = page.locator('button[data-testid="action:understood-button"]');
+      if (await btn.isVisible().catch(() => false)) {
+        await btn.click({ timeout: 2000 }).catch(() => {});
+      }
+    } catch {
+      // ignore
+    }
+
+    // Espera por algum elemento de preço (varia por layout).
+    await page
+      .waitForSelector(
+        ".ui-pdp-container__row--price, .ui-pdp-price__main-container, .ui-pdp-price",
+        { timeout: 20000 },
+      )
+      .catch(() => {});
+
+    const data = await page.evaluate(() => {
+      const parseAndesMoney = (el: Element | null): number | null => {
+        if (!el) return null;
+        const fraction = el.querySelector(".andes-money-amount__fraction")?.textContent?.trim();
+        const cents = el.querySelector(".andes-money-amount__cents")?.textContent?.trim();
+        if (!fraction) return null;
+        const fractionNum = fraction.replace(/\./g, "");
+        const dec = cents && /^\d{1,2}$/.test(cents) ? cents.padStart(2, "0") : "00";
+        const n = parseFloat(`${fractionNum}.${dec}`);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      };
+
+      const isInsideOtherSellers = (el: Element | null) => {
+        if (!el || typeof el.closest !== "function") return false;
+        try {
+          return !!el.closest("[class*='other-sellers']");
+        } catch {
+          return false;
+        }
+      };
+
+      const firstNotInOtherSellers = (selector: string): Element | null => {
+        const nodes = Array.from(document.querySelectorAll(selector));
+        for (const n of nodes) {
+          if (!isInsideOtherSellers(n)) return n;
+        }
+        return null;
+      };
+
+      const priceRow =
+        firstNotInOtherSellers(".ui-pdp-container__row--price, .ui-pdp-container__row.ui-pdp-container__row--price") ||
+        null;
+
+      const parseAndesMoneyFromFractionCents = (fracEl: Element, centsEl: Element): number | null => {
+        const fraction = fracEl.textContent?.trim();
+        const cents = centsEl.textContent?.trim();
+        if (!fraction) return null;
+        const fractionNum = fraction.replace(/\./g, "");
+        const dec = cents && /^\d{1,2}$/.test(cents) ? cents.padStart(2, "0") : "00";
+        const n = parseFloat(`${fractionNum}.${dec}`);
+        return Number.isFinite(n) && n > 0 ? n : null;
+      };
+
+      const filterTopLevelAndesMoney = (container: Element): Element[] => {
+        const all = Array.from(container.querySelectorAll(".andes-money-amount"));
+        return all.filter((el: Element) => {
+          let p: Element | null = el.parentElement;
+          while (p && container.contains(p)) {
+            if (p !== container && p.classList.contains("andes-money-amount")) return false;
+            p = p.parentElement;
+          }
+          return true;
+        });
+      };
+
+      const collectAmountsFromPriceBlock = (container: Element): number[] => {
+        const topLevel = filterTopLevelAndesMoney(container);
+        const amounts: number[] = [];
+        for (const el of topLevel) {
+          const n = parseAndesMoney(el);
+          if (n != null && n > 0) amounts.push(n);
+          if (amounts.length >= 3) break;
+        }
+        if (amounts.length > 0) return amounts;
+
+        const fractions = Array.from(container.querySelectorAll(".andes-money-amount__fraction"));
+        for (const f of fractions) {
+          if (isInsideOtherSellers(f)) continue;
+          const parent = f.closest(".andes-money-amount");
+          if (parent) {
+            const n = parseAndesMoney(parent);
+            if (n != null && n > 0) amounts.push(n);
+          } else {
+            const next = f.nextElementSibling;
+            if (next?.classList.contains("andes-money-amount__cents")) {
+              const n = parseAndesMoneyFromFractionCents(f, next);
+              if (n != null && n > 0) amounts.push(n);
+            }
+          }
+          if (amounts.length >= 3) break;
+        }
+        return amounts;
+      };
+
+      if (priceRow) {
+        const amounts = collectAmountsFromPriceBlock(priceRow);
+        const price = amounts[0];
+        const promoLine = amounts[1];
+        if (price != null) {
+          const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+          return { price, promoPrice };
+        }
+      }
+
+      const mainContainer =
+        firstNotInOtherSellers(".ui-pdp-price__main-container") ||
+        firstNotInOtherSellers(".ui-pdp-price");
+
+      if (mainContainer) {
+        const amounts = collectAmountsFromPriceBlock(mainContainer);
+        const line1 = amounts[0];
+        if (line1 != null) {
+          const promoLine = amounts[1];
+          const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
+          return { price: line1, promoPrice };
+        }
+      }
+
+      return null;
+    });
+
+    await browser.close().catch(() => {});
+
+    if (!data || !data.price || !Number.isFinite(data.price) || data.price <= 0) return null;
+    return { price: data.price, promoPrice: data.promoPrice ?? null };
   } catch {
     return null;
   }
