@@ -3,6 +3,16 @@
     return String(s || "").replace(/\s+/g, " ").trim();
   }
 
+  function normalizeDescriptionBlockText(s) {
+    return String(s || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/[ \t\f\v]+/g, " ")
+      .replace(/\n[ \t]+/g, "\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
   function parseBRL(text) {
     const m = String(text || "").match(/R\$\s*([\d\.]+,\d{2})/);
     if (!m) return null;
@@ -189,6 +199,11 @@
       return best;
     };
 
+    const getMlImageId = (url) => {
+      const m = String(url || "").match(/\/(\d+-[A-Z0-9]+_\d+)(?:[-.]|[-.a-z0-9]*\.(webp|jpg|jpeg|png))/i);
+      return m ? m[1] : null;
+    };
+
     /** Uma URL de maior resolução por .ui-pdp-gallery__figure, na ordem da galeria */
     const figures = d.querySelectorAll(".ui-pdp-gallery__figure");
     const result = [];
@@ -246,6 +261,33 @@
       }
     }
 
+    /** Miniaturas / slides podem estar fora de .ui-pdp-gallery__figure mas com data-zoom. */
+    const galleryRoot = d.querySelector(".ui-pdp-gallery");
+    if (galleryRoot) {
+      const seenIds = new Set();
+      const seenUrl = new Set();
+      for (const u of result) {
+        const nu = normalizeUrl(u);
+        const id = getMlImageId(nu);
+        if (id) seenIds.add(id);
+        else seenUrl.add(nu);
+      }
+      for (const el of galleryRoot.querySelectorAll("[data-zoom]")) {
+        const u = normalizeUrl(el.getAttribute("data-zoom"));
+        if (!isValidUrl(u)) continue;
+        const id = getMlImageId(u);
+        if (id) {
+          if (seenIds.has(id)) continue;
+          seenIds.add(id);
+          result.push(u);
+        } else {
+          if (seenUrl.has(u)) continue;
+          seenUrl.add(u);
+          result.push(u);
+        }
+      }
+    }
+
     if (result.length > 0) {
       return result.length > 30 ? result.slice(0, 30) : result;
     }
@@ -277,20 +319,60 @@
       doc.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
       doc.querySelector('[data-testid="content"].ui-pdp-description__content') ||
       doc.querySelector(".ui-pdp-description__content");
-    return el ? normalizeText(el.textContent) : null;
+    return el ? normalizeText(el.innerText || el.textContent) : null;
   }
 
   function extractDescriptionBlockFromMl(doc) {
     const root =
+      doc.querySelector(".ui-pdp-collapsable__container #description") ||
+      doc.querySelector(".ui-pdp-collapsable__container #description.ui-pdp-description") ||
+      doc.querySelector(".ui-pdp-collapsable__container .ui-pdp-description") ||
       doc.querySelector("div#description.ui-pdp-description") ||
       doc.querySelector("#description.ui-pdp-description") ||
+      doc.querySelector("#description") ||
       doc.querySelector(".ui-pdp-description");
-    const el = root
-      ? root.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
-        root.querySelector("p.ui-pdp-description__content") ||
-        root.querySelector('[data-testid="content"].ui-pdp-description__content')
-      : extractDescriptionFromMl(doc);
-    return el ? normalizeText(el.textContent) : null;
+
+    const readParagraphs = (container) => {
+      const ps = container.querySelectorAll(
+        'p.ui-pdp-description__content, p[data-testid="content"].ui-pdp-description__content, p[data-testid="content"]',
+      );
+      const parts = [];
+      for (const p of ps) {
+        const t = (p.innerText || p.textContent || "").trim();
+        if (t) parts.push(t);
+      }
+      return parts.length ? parts.join("\n\n") : "";
+    };
+
+    if (root) {
+      let text = readParagraphs(root);
+      if (!text) {
+        const pSingle =
+          root.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
+          root.querySelector("p.ui-pdp-description__content") ||
+          root.querySelector(".ui-pdp-description__content") ||
+          root.querySelector('[data-testid="content"]');
+        if (pSingle) text = (pSingle.innerText || pSingle.textContent || "").trim();
+      }
+      if (!text || text.length < 30) {
+        text = (root.innerText || root.textContent || "").trim();
+        text = text.replace(/^\s*Descrição\s*/i, "").trim();
+      } else {
+        text = text.replace(/^\s*Descrição\s*/i, "").trim();
+      }
+      const out = normalizeDescriptionBlockText(text);
+      return out || null;
+    }
+
+    const lone =
+      doc.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
+      doc.querySelector("p.ui-pdp-description__content") ||
+      doc.querySelector(".ui-pdp-description__content");
+    if (!lone) return null;
+    let t = (lone.innerText || lone.textContent || "").trim();
+    t = t.replace(/^\s*Descrição\s*/i, "").trim();
+    const out = normalizeDescriptionBlockText(t);
+    return out || null;
   }
 
   function extractFromJsonLd() {

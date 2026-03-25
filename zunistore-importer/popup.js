@@ -15,6 +15,17 @@ function normalizeText(s) {
   return String(s || "").replace(/\s+/g, " ").trim();
 }
 
+/** Preserva quebras de linha da descrição ML (listas, parágrafos). */
+function normalizeDescriptionBlockText(s) {
+  return String(s || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function parseBRL(text) {
   const m = String(text || "").match(/R\$\s*([\d\.]+,\d{2})/);
   if (!m) return null;
@@ -75,22 +86,64 @@ function extractDescriptionFromMl(doc) {
   const el = doc.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
     doc.querySelector('[data-testid="content"].ui-pdp-description__content') ||
     doc.querySelector('.ui-pdp-description__content');
-  return el ? normalizeText(el.textContent) : null;
+  return el ? normalizeText(el.innerText || el.textContent) : null;
 }
 
-/** Bloco #description.ui-pdp-description (texto maior no ML), além do JSON-LD. */
+/**
+ * Bloco Descrição do ML (ex.: .ui-pdp-collapsable__container > #description.ui-pdp-description).
+ * Usa innerText para manter o texto como na página; fallback no container inteiro.
+ */
 function extractDescriptionBlockFromMl(doc) {
   const root =
+    doc.querySelector(".ui-pdp-collapsable__container #description") ||
+    doc.querySelector(".ui-pdp-collapsable__container #description.ui-pdp-description") ||
+    doc.querySelector(".ui-pdp-collapsable__container .ui-pdp-description") ||
     doc.querySelector("div#description.ui-pdp-description") ||
     doc.querySelector("#description.ui-pdp-description") ||
+    doc.querySelector("#description") ||
     doc.querySelector(".ui-pdp-description");
-  const el = root
-    ? root.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
-      root.querySelector("p.ui-pdp-description__content") ||
-      root.querySelector('[data-testid="content"].ui-pdp-description__content')
-    : doc.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
-      doc.querySelector(".ui-pdp-description__content");
-  return el ? normalizeText(el.textContent) : null;
+
+  const readParagraphs = (container) => {
+    const ps = container.querySelectorAll(
+      'p.ui-pdp-description__content, p[data-testid="content"].ui-pdp-description__content, p[data-testid="content"]',
+    );
+    const parts = [];
+    for (const p of ps) {
+      const t = (p.innerText || p.textContent || "").trim();
+      if (t) parts.push(t);
+    }
+    return parts.length ? parts.join("\n\n") : "";
+  };
+
+  if (root) {
+    let text = readParagraphs(root);
+    if (!text) {
+      const pSingle =
+        root.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
+        root.querySelector("p.ui-pdp-description__content") ||
+        root.querySelector(".ui-pdp-description__content") ||
+        root.querySelector('[data-testid="content"]');
+      if (pSingle) text = (pSingle.innerText || pSingle.textContent || "").trim();
+    }
+    if (!text || text.length < 30) {
+      text = (root.innerText || root.textContent || "").trim();
+      text = text.replace(/^\s*Descrição\s*/i, "").trim();
+    } else {
+      text = text.replace(/^\s*Descrição\s*/i, "").trim();
+    }
+    const out = normalizeDescriptionBlockText(text);
+    return out || null;
+  }
+
+  const lone =
+    doc.querySelector('p[data-testid="content"].ui-pdp-description__content') ||
+    doc.querySelector("p.ui-pdp-description__content") ||
+    doc.querySelector(".ui-pdp-description__content");
+  if (!lone) return null;
+  let t = (lone.innerText || lone.textContent || "").trim();
+  t = t.replace(/^\s*Descrição\s*/i, "").trim();
+  const out = normalizeDescriptionBlockText(t);
+  return out || null;
 }
 
 function extractImagesFromMlDom(doc) {
@@ -215,25 +268,53 @@ function extractImagesFromMlDom(doc) {
     }
   };
 
+  /** Thumbnails / itens fora de .ui-pdp-gallery__figure ainda trazem data-zoom no HTML. */
+  const collectExtraDataZoomsInGallery = () => {
+    const gallery = doc.querySelector(".ui-pdp-gallery");
+    if (!gallery) return;
+    for (const el of gallery.querySelectorAll("[data-zoom]")) {
+      const u = el.getAttribute("data-zoom");
+      if (!u) continue;
+      addCandidate(normalizeUrl(u));
+    }
+  };
+
   collectOrderedFromFigures();
+  collectExtraDataZoomsInGallery();
   collectFromGalleryHtml();
 
-  const result = [];
-  if (orderedIdsFromHtml.length > 0) {
-    for (const id of orderedIdsFromHtml) {
-      if (allCandidatesById[id]) result.push(allCandidatesById[id]);
-    }
-  } else {
+  /** Ordem da galeria + dedupe por id ML; URLs sem id entram pelo URL. */
+  const buildOrderedUnique = () => {
     const seenIds = new Set();
+    const seenUrl = new Set();
+    const out = [];
     for (const url of orderedFromFigures) {
-      const id = getMlImageId(url);
-      if (id && !seenIds.has(id)) {
+      const nu = normalizeUrl(url);
+      if (!isValidUrl(nu)) continue;
+      const id = getMlImageId(nu);
+      if (id) {
+        if (seenIds.has(id)) continue;
         seenIds.add(id);
-        result.push(allCandidatesById[id] || url);
+        out.push(allCandidatesById[id] || nu);
+      } else {
+        if (seenUrl.has(nu)) continue;
+        seenUrl.add(nu);
+        out.push(nu);
       }
     }
-    Object.keys(allCandidatesById).filter((id) => !seenIds.has(id)).forEach((id) => result.push(allCandidatesById[id]));
-  }
+    for (const id of Object.keys(allCandidatesById)) {
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      out.push(allCandidatesById[id]);
+    }
+    return out;
+  };
+
+  const fromFigures = buildOrderedUnique();
+  const fromHtmlOrder = orderedIdsFromHtml.map((id) => allCandidatesById[id]).filter(Boolean);
+  /** HTML estático costuma trazer só 1 data-zoom; não pode substituir a lista das figures. */
+  let result =
+    fromHtmlOrder.length > fromFigures.length ? fromHtmlOrder : fromFigures.length ? fromFigures : fromHtmlOrder;
 
   if (result.length > 0) {
     return result.length > 30 ? result.slice(0, 30) : result;
@@ -268,21 +349,10 @@ function extractImagesFromMlDom(doc) {
     }
   }
 
-  if (orderedIdsFromHtml.length > 0) {
-    for (const id of orderedIdsFromHtml) {
-      if (allCandidatesById[id]) result.push(allCandidatesById[id]);
-    }
-  } else {
-    const seenIds2 = new Set();
-    for (const url of orderedFromFigures) {
-      const id = getMlImageId(url);
-      if (id && !seenIds2.has(id)) {
-        seenIds2.add(id);
-        result.push(allCandidatesById[id] || url);
-      }
-    }
-    Object.keys(allCandidatesById).filter((id) => !seenIds2.has(id)).forEach((id) => result.push(allCandidatesById[id]));
-  }
+  const fromHtmlOrder2 = orderedIdsFromHtml.map((id) => allCandidatesById[id]).filter(Boolean);
+  const fromFigures2 = buildOrderedUnique();
+  result =
+    fromHtmlOrder2.length > fromFigures2.length ? fromHtmlOrder2 : fromFigures2.length ? fromFigures2 : fromHtmlOrder2;
 
   return result.length > 30 ? result.slice(0, 30) : result;
 }

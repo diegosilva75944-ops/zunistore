@@ -175,24 +175,24 @@ export default async function ProdutoPage(props: {
               </div>
             ) : null}
           </div>
+        </div>
+      </section>
 
-          <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-4">
-            <div>
-              <h2 className="font-semibold mb-2">Descrição</h2>
-              <div className="text-sm text-zinc-700 whitespace-pre-wrap">
-                {product.description || "Sem descrição."}
-              </div>
-            </div>
-            {product.description_detail?.trim() ? (
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-800 mb-2">Descrição completa</h3>
-                <div className="text-base md:text-lg text-zinc-800 whitespace-pre-wrap leading-relaxed">
-                  {product.description_detail}
-                </div>
-              </div>
-            ) : null}
+      <section className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-4">
+        <div>
+          <h2 className="font-semibold mb-2">Descrição</h2>
+          <div className="text-sm text-zinc-700 whitespace-pre-wrap">
+            {product.description || "Sem descrição."}
           </div>
         </div>
+        {product.description_detail?.trim() ? (
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-800 mb-2">Descrição completa</h3>
+            <div className="text-base md:text-lg text-zinc-800 whitespace-pre-wrap leading-relaxed">
+              {product.description_detail}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {related.length ? (
