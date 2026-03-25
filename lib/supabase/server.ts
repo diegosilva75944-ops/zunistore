@@ -5,15 +5,28 @@ import { requireEnv } from "@/lib/env";
 
 /**
  * O @supabase/supabase-js faz `new URL("rest/v1", baseUrl)` para o PostgREST.
- * Se `SUPABASE_URL` já terminar em `/rest/v1`, o resultado vira `.../rest/rest/v1`
- * e o PostgREST responde PGRST125: "Invalid path specified in request URL".
+ * Qualquer sufixo após o host (incl. /rest/v1 ou paths errados) duplica ou quebra o path.
+ * Para projetos Supabase hospedados usamos só a origin (https://ref.supabase.co).
  */
 function supabaseProjectUrlForClient(raw: string): string {
-  let s = String(raw).trim().replace(/\/+$/, "");
-  if (/\/rest\/v1$/i.test(s)) {
-    s = s.replace(/\/rest\/v1$/i, "").replace(/\/+$/, "");
+  const s = String(raw).trim();
+  if (!s) return s;
+  try {
+    const u = new URL(s);
+    if (u.hostname.endsWith(".supabase.co") || u.hostname.endsWith(".supabase.in")) {
+      return u.origin;
+    }
+    if (u.port === "54321") {
+      return u.origin;
+    }
+  } catch {
+    return s.replace(/\/+$/, "");
   }
-  return s;
+  let out = s.replace(/\/+$/, "");
+  if (/\/rest\/v1$/i.test(out)) {
+    out = out.replace(/\/rest\/v1$/i, "").replace(/\/+$/, "");
+  }
+  return out;
 }
 
 export function getSupabaseAnonServerClient() {

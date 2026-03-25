@@ -6,9 +6,9 @@ import {
   postgrestPatch,
   postgrestDelete,
   postgrestGetWithCount,
+  postgrestRpc,
   inVal,
 } from "@/lib/postgrest/server";
-import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { randomToken, sha256Hex } from "@/lib/crypto";
 import { slugify } from "@/lib/slug";
 import { checkAffiliatePageContainsProduct } from "@/lib/affiliate-validate";
@@ -383,17 +383,13 @@ export async function adminPurgePriceHistory(opts: {
   const dateFromIso = hasDateFrom ? toDayStartUtcIso(opts.dateFrom!) : null;
   const dateToIso = hasDateTo ? toDayEndUtcIso(opts.dateTo!) : null;
 
-  const supabase = getSupabaseServiceRoleClient();
-  const { data, error } = await supabase.rpc("admin_purge_product_price_history", {
+  const raw = await postgrestRpc<unknown>("admin_purge_product_price_history", {
     p_delete_all: deleteAll,
     p_date_from: dateFromIso,
     p_date_to: dateToIso,
     p_category_id: categoryId || null,
   });
-  if (error) {
-    throw new Error(error.message);
-  }
-  const n = typeof data === "number" ? data : Number(data);
+  const n = typeof raw === "number" ? raw : Number(raw);
   return Number.isFinite(n) ? n : 0;
 }
 

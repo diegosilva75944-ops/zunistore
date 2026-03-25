@@ -7,9 +7,8 @@
  * fetches HTTP em lib/postgrest/fetch.ts baterem no endpoint certo.
  */
 function normalizePostgrestBaseUrl(raw: string): string {
-  const s = String(raw).replace(/\/+$/, "");
+  const s = String(raw).trim().replace(/\/+$/, "");
   if (!s) return "";
-  if (/\/rest\/v1$/i.test(s)) return s;
   try {
     const u = new URL(s);
     const host = u.hostname;
@@ -17,7 +16,8 @@ function normalizePostgrestBaseUrl(raw: string): string {
       host.endsWith(".supabase.co") || host.endsWith(".supabase.in");
     const supabaseLocalCli = u.port === "54321";
     if (supabaseCloud || supabaseLocalCli) {
-      return `${s}/rest/v1`;
+      // Sempre origin + /rest/v1 (ignora paths extras tipo .../rest/v1/foo que quebram o PostgREST)
+      return `${u.origin}/rest/v1`;
     }
   } catch {
     return s;
