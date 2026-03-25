@@ -2,12 +2,21 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SitePageLoader } from "@/components/SitePageLoader";
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+/** Data local no formato YYYY-MM-DD (inputs type="date"). */
+function todayLocalYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 type Category = { id: string; name: string };
@@ -72,12 +81,12 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [priceHistoryPage, setPriceHistoryPage] = useState(1);
   const [priceHistoryPerPage, setPriceHistoryPerPage] = useState(20);
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
-  /** Rascunho nos inputs; só entra na API após "Aplicar filtros". */
-  const [phDraftFrom, setPhDraftFrom] = useState("");
-  const [phDraftTo, setPhDraftTo] = useState("");
+  /** Rascunho nos inputs; só entra na API após "Aplicar filtros". Datas iniciam no dia atual. */
+  const [phDraftFrom, setPhDraftFrom] = useState(() => todayLocalYmd());
+  const [phDraftTo, setPhDraftTo] = useState(() => todayLocalYmd());
   const [phDraftCategory, setPhDraftCategory] = useState("");
-  const [phFrom, setPhFrom] = useState("");
-  const [phTo, setPhTo] = useState("");
+  const [phFrom, setPhFrom] = useState(() => todayLocalYmd());
+  const [phTo, setPhTo] = useState(() => todayLocalYmd());
   const [phCategory, setPhCategory] = useState("");
   const [expiredAffiliateCount, setExpiredAffiliateCount] = useState<number | null>(null);
   const [filterAffiliateExpired, setFilterAffiliateExpired] = useState(
@@ -85,6 +94,21 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   );
   const [validatingLinks, setValidatingLinks] = useState(false);
   const [validateResult, setValidateResult] = useState<string | null>(null);
+
+  const prevTabRef = useRef<"listagem" | "historico" | "precos" | null>(null);
+
+  /** Ao entrar na aba Histórico de preços vindo de outra aba, atualiza filtros para o dia atual. */
+  useEffect(() => {
+    if (tab === "precos" && prevTabRef.current !== null && prevTabRef.current !== "precos") {
+      const today = todayLocalYmd();
+      setPhDraftFrom(today);
+      setPhDraftTo(today);
+      setPhFrom(today);
+      setPhTo(today);
+      setPriceHistoryPage(1);
+    }
+    prevTabRef.current = tab;
+  }, [tab]);
 
   const replaceListingParams = useCallback(
     (updates: Record<string, string | null | undefined>) => {
