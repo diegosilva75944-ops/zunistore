@@ -33,6 +33,34 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   let originalPrice: number | null = null;
   let promoPrice: number | null = null;
 
+  // Prioridade: ui-pdp-price__main-container (quando existir, tenta 3 linhas em ordem).
+  // 1ª linha: preço normal (price)
+  // 2ª e 3ª linha: preço promocional / no cartão (promoPrice = menor entre elas, quando for menor que line1)
+  const mainMatch = html.match(/ui-pdp-price__main-container[\s\S]{0,3000}/i);
+  if (mainMatch) {
+    const mainBlock = mainMatch[0];
+    const amountRe =
+      /andes-money-amount(?![^>]*--previous)[\s\S]{0,450}?andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,150}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
+
+    const amounts: number[] = [];
+    for (const m of mainBlock.matchAll(amountRe)) {
+      const fractionStr = m[1]?.replace(/\./g, "");
+      const centsStr = (m[2] || "00").padStart(2, "0");
+      if (!fractionStr) continue;
+      const n = parseFloat(`${fractionStr}.${centsStr}`);
+      if (Number.isFinite(n) && n > 0) amounts.push(n);
+      if (amounts.length >= 3) break;
+    }
+
+    const line1 = amounts[0];
+    if (line1 != null) {
+      const promoCandidates = amounts.slice(1, 3);
+      const bestPromo = promoCandidates.length ? Math.min(...promoCandidates) : null;
+      const promo = bestPromo != null && bestPromo < line1 ? bestPromo : null;
+      return { price: line1, promoPrice: promo };
+    }
+  }
+
   // Original: aria-label="Antes: N reais (com N centavos)" (igual à extensão)
   const ariaMatch = html.match(/aria-label="Antes:\s*(\d+)\s*reais?\s*(?:com\s*)?(\d+)?\s*centavos?"/i);
   if (ariaMatch) {

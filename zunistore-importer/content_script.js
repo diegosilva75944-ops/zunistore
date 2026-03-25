@@ -23,6 +23,34 @@
   }
 
   function extractPricesFromMlDom(doc) {
+    // Preferir o componente principal de preço que pode ter até 3 linhas:
+    // 1ª linha: preço normal
+    // 2ª linha: preço promocional (quando existir)
+    // 3ª linha: preço no cartão (quando existir)
+    const mainContainer =
+      doc.querySelector(".ui-pdp-price__main-container") || doc.querySelector(".ui-pdp-price");
+
+    if (mainContainer) {
+      const amountEls = Array.from(mainContainer.querySelectorAll(".andes-money-amount"))
+        .filter((el) => !el.classList.contains("andes-money-amount--previous"));
+
+      const amounts: number[] = [];
+      for (const el of amountEls) {
+        const n = parseAndesMoney(el);
+        if (n != null && n > 0) amounts.push(n);
+        if (amounts.length >= 3) break;
+      }
+
+      const line1 = amounts[0];
+      if (line1 != null) {
+        const promoCandidates = amounts.slice(1, 3).filter((n): n is number => n != null);
+        const bestPromo = promoCandidates.length ? Math.min(...promoCandidates) : null;
+        const promoPrice = bestPromo != null && bestPromo < line1 ? bestPromo : null;
+        return { price: line1, promoPrice };
+      }
+    }
+
+    // Fallback (lógica antiga) para casos onde o ML não renderiza o componente esperado.
     let originalPrice = null;
     let promoPrice = null;
 
@@ -30,7 +58,7 @@
       doc.querySelector(".ui-pdp-price__original-value") ||
       doc.querySelector("s.andes-money-amount--previous") ||
       doc.querySelector(".andes-money-amount--previous");
-    
+
     if (originalEl) {
       originalPrice = parseAndesMoney(originalEl);
       if (originalPrice == null) {
