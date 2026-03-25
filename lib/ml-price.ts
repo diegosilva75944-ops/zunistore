@@ -146,18 +146,21 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
     domPromoPrice = promoLine != null && domPrice != null && promoLine < domPrice ? promoLine : null;
   }
 
+  // Igual à importação (extensão): se achou preço pelo container principal,
+  // não deve cair em fallbacks globais (meta/offers) que misturam outras ofertas.
+  if (domPrice != null) {
+    return { price: domPrice, promoPrice: domPromoPrice ?? null };
+  }
+
   // Prioridade: ui-pdp-price__main-container (quando existir, tenta 3 linhas em ordem).
   // 1ª linha: preço normal (price)
-  // 2ª e 3ª linha: preço promocional / no cartão (promoPrice = menor entre elas, quando for menor que line1)
+  // 2ª linha: promo (quando existir); 3ª costuma ser cartão/parcelas.
   const startIdx = lower.indexOf("ui-pdp-price__main-container");
   if (startIdx !== -1) {
-    // Em HTML bruto (server-side), o bloco pode ser maior que 3000 chars;
-    // aumentamos a janela para capturar 1ª, 2ª e 3ª linha.
+    // Em HTML bruto (server-side), o bloco pode ser maior; aumentamos a janela.
     const mainBlock = htmlToParse.slice(startIdx, startIdx + 20000);
 
     const amounts: number[] = [];
-    // Captura blocos de `andes-money-amount` e lê fraction+cents dentro de cada bloco.
-    // Depois filtramos os que contêm `--previous` (mesma lógica do content_script).
     const amountBlockRe =
       /<[^>]*class=["'][^"']*andes-money-amount[^"']*["'][^>]*>[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,300}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
 
@@ -176,12 +179,9 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
     const line1 = amounts[0];
     if (line1 != null) {
-      // A 3ª linha pode trazer o valor da parcela no cartão (ex: "6x de R$39,33"),
-      // então o preço promocional vem da 2ª linha.
       const promoLine = amounts[1];
       const promo = promoLine != null && promoLine < line1 ? promoLine : null;
-      domPrice = line1;
-      domPromoPrice = promo;
+      return { price: line1, promoPrice: promo };
     }
   }
 
@@ -260,7 +260,7 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
     }
   }
 
-  // Regra final (importação/extensão):
+  // Fallback (importação/extensão):
   // - Se existir "Antes: ...", o preço normal (price) deve vir desse original.
   // - A oferta (promoPrice) vem do preço atual detectado (meta/second-line/offers).
   if (originalPrice != null) {
@@ -273,11 +273,6 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   // Sem "Antes": usa promoPrice como preço (quando disponível)
   if (promoPrice != null) {
     return { price: promoPrice, promoPrice: null };
-  }
-
-  // Fallback: usa candidatos DOM-like
-  if (domPrice != null) {
-    return { price: domPrice, promoPrice: domPromoPrice ?? null };
   }
 
   return null;
@@ -346,11 +341,6 @@ function extractFromJsonLd(html: string): { price: number; promoPrice: number | 
         return { price: high, promoPrice: low };
       }
       if (p != null && p > 0) {
-        // Igual extensão: se só tem price, tentar original no HTML; se original > price -> oferta
-        const dom = extractPricesFromMlDomLike(html);
-        if (dom && dom.price > p) return { price: dom.price, promoPrice: p };
-        const regex = findPromoAndPrice(html);
-        if (regex.price != null && regex.price > p) return { price: regex.price, promoPrice: p };
         return { price: p, promoPrice: null };
       }
     }
@@ -358,38 +348,50 @@ function extractFromJsonLd(html: string): { price: number; promoPrice: number | 
   return null;
 }
 
+function htmlToVisibleText(html: string): string {
+  // Aproxima `document.body.innerText` usado na extensão, evitando regex em HTML cru.
+  const withoutScripts = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  return withoutScripts
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
-  // Prioridade semelhante ao fluxo da importação (extensão):
-  // 1) DOM-like (ui-pdp-price__main-container com até 3 linhas)
-  // 2) Se DOM não trouxer promo, comparar com JSON-LD
-  // 3) Regex R$ como fallback
-  const fromDom = extractPricesFromMlDomLike(html);
-  if (fromDom && fromDom.price != null && fromDom.price > 0) {
-    if (fromDom.promoPrice != null) return fromDom;
-
-    // Se o DOM não conseguiu promo, usamos apenas o JSON-LD como fallback
-    // para o campo "promoPrice" (não para o "price"), quando ele for menor.
-    const fromJsonLd = extractFromJsonLd(html);
-    if (
-      fromJsonLd &&
-      fromJsonLd.promoPrice != null &&
-      Number.isFinite(fromJsonLd.promoPrice) &&
-      fromJsonLd.promoPrice > 0 &&
-      fromJsonLd.promoPrice < fromDom.price
-    ) {
-      return { price: fromDom.price, promoPrice: fromJsonLd.promoPrice };
+  // Replica o fluxo da importação (extensão/popup):
+  // - tenta JSON-LD; se tiver, ajusta com DOM (quando DOM trouxer price+promo, ou quando DOM.price > json.price)
+  // - se JSON-LD não trouxer promo, tenta regex em texto visível (innerText-like)
+  // - se não houver JSON-LD, cai para DOM e depois regex.
+  const json = extractFromJsonLd(html);
+  if (json) {
+    const dom = extractPricesFromMlDomLike(html);
+    if (dom && dom.price != null && dom.promoPrice != null) {
+      return dom;
     }
-
-    return { price: fromDom.price, promoPrice: null };
+    if (dom && dom.price != null && json.price != null && dom.price > json.price) {
+      return { price: dom.price, promoPrice: json.price };
+    }
+    if (json.price != null && json.promoPrice == null) {
+      const textPrices = findPromoAndPrice(htmlToVisibleText(html));
+      if (textPrices.price != null && textPrices.promoPrice != null) {
+        return { price: textPrices.price, promoPrice: textPrices.promoPrice };
+      }
+    }
+    return json;
   }
 
-  const fromJsonLd = extractFromJsonLd(html);
-  if (fromJsonLd) return fromJsonLd;
+  const dom = extractPricesFromMlDomLike(html);
+  if (dom) return dom;
 
-  const fromRegex = findPromoAndPrice(html);
+  const fromRegex = findPromoAndPrice(htmlToVisibleText(html));
   if (fromRegex.price != null && fromRegex.price > 0) {
     return { price: fromRegex.price, promoPrice: fromRegex.promoPrice };
   }
