@@ -35,11 +35,17 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   // Para manter consistência com a importação/extensão, removemos
   // esse bloco da análise quando existir.
   const htmlToParse =
-    html.includes("ui-pdp-buy-box-offers__desktop")
-      ? html.replace(
-          /<[^>]*class=["'][^"']*ui-pdp-buy-box-offers__desktop[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
-          "",
-        )
+    html.includes("ui-pdp-buy-box-offers__desktop") || html.includes("ui-pdp-buybox-offers-wrapper")
+      ? html
+          // Remove blocks do ML que podem duplicar/alterar valores do preço.
+          .replace(
+            /<[^>]*class=["'][^"']*ui-pdp-buy-box-offers__desktop[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+            "",
+          )
+          .replace(
+            /<[^>]*class=["'][^"']*ui-pdp-buybox-offers-wrapper[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+            "",
+          )
       : html;
 
   let originalPrice: number | null = null;
