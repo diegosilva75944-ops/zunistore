@@ -23,6 +23,29 @@
   }
 
   function extractPricesFromMlDom(doc) {
+    // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
+    // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
+    const priceRow =
+      doc.querySelector(".ui-pdp-container__row--price") ||
+      doc.querySelector(".ui-pdp-container__row.ui-pdp-container__row--price");
+
+    if (priceRow) {
+      const amountEls = Array.from(priceRow.querySelectorAll(".andes-money-amount"));
+      const amounts = [];
+      for (const el of amountEls) {
+        const n = parseAndesMoney(el);
+        if (n != null && n > 0) amounts.push(n);
+        if (amounts.length >= 3) break;
+      }
+
+      const price = amounts[0];
+      const promoLine = amounts[1];
+      if (price != null) {
+        const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+        return { price, promoPrice };
+      }
+    }
+
     // Preferir o componente principal de preço que pode ter até 3 linhas:
     // 1ª linha: preço normal
     // 2ª linha: preço promocional (quando existir)

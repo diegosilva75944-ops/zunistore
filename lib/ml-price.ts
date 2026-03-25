@@ -33,10 +33,37 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   let originalPrice: number | null = null;
   let promoPrice: number | null = null;
 
+  // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
+  // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
+  // Isso evita que o parser confunda parcelas (ex: 39,33) como promo.
+  const lower = html.toLowerCase();
+  const priceRowIdx = lower.indexOf("ui-pdp-container__row--price");
+  if (priceRowIdx !== -1) {
+    const block = html.slice(priceRowIdx, priceRowIdx + 20000);
+    const amountRe =
+      /andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,250}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
+
+    const amounts: number[] = [];
+    for (const m of block.matchAll(amountRe)) {
+      const fractionStr = (m[1] || "").replace(/\./g, "");
+      const centsStr = (m[2] || "00").padStart(2, "0");
+      if (!fractionStr) continue;
+      const n = parseFloat(`${fractionStr}.${centsStr}`);
+      if (Number.isFinite(n) && n > 0) amounts.push(n);
+      if (amounts.length >= 3) break;
+    }
+
+    const price = amounts[0];
+    const promoLine = amounts[1];
+    if (price != null) {
+      const promo = promoLine != null && promoLine < price ? promoLine : null;
+      return { price, promoPrice: promo };
+    }
+  }
+
   // Prioridade: ui-pdp-price__main-container (quando existir, tenta 3 linhas em ordem).
   // 1ª linha: preço normal (price)
   // 2ª e 3ª linha: preço promocional / no cartão (promoPrice = menor entre elas, quando for menor que line1)
-  const lower = html.toLowerCase();
   const startIdx = lower.indexOf("ui-pdp-price__main-container");
   if (startIdx !== -1) {
     // Em HTML bruto (server-side), o bloco pode ser maior que 3000 chars;
