@@ -8,6 +8,7 @@ import {
   postgrestGetWithCount,
   inVal,
 } from "@/lib/postgrest/server";
+import { getSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { randomToken, sha256Hex } from "@/lib/crypto";
 import { slugify } from "@/lib/slug";
 import { checkAffiliatePageContainsProduct } from "@/lib/affiliate-validate";
@@ -313,16 +314,87 @@ export async function recordProductPriceChange(opts: {
   });
 }
 
-export async function adminListPriceHistory(opts: { page?: number; perPage?: number }) {
+function toDayStartUtcIso(dateYmd: string): string {
+  const s = String(dateYmd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  return `${s}T00:00:00.000Z`;
+}
+
+function toDayEndUtcIso(dateYmd: string): string {
+  const s = String(dateYmd || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  return `${s}T23:59:59.999Z`;
+}
+
+export async function adminListPriceHistory(opts: {
+  page?: number;
+  perPage?: number;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  categoryId?: string | null;
+}) {
   const { page = 1, perPage = 20 } = opts;
   const from = (page - 1) * perPage;
-  const { data, count } = await postgrestGetWithCount<any[]>("product_price_history", {
-    select: "id,product_id,old_price,new_price,old_promo_price,new_promo_price,changed_at,source,products:product_id(code6,title)",
+  const dateFromIso = opts.dateFrom ? toDayStartUtcIso(opts.dateFrom) : "";
+  const dateToIso = opts.dateTo ? toDayEndUtcIso(opts.dateTo) : "";
+  const categoryId = opts.categoryId?.trim() || "";
+
+  const selectEmbed = categoryId
+    ? "id,product_id,old_price,new_price,old_promo_price,new_promo_price,changed_at,source,products!inner(code6,title,category_id)"
+    : "id,product_id,old_price,new_price,old_promo_price,new_promo_price,changed_at,source,products:product_id(code6,title,category_id)";
+
+  const params: Record<string, string> = {
+    select: selectEmbed,
     order: "changed_at.desc",
     offset: String(from),
     limit: String(perPage),
-  });
+  };
+
+  if (categoryId) {
+    params["products.category_id"] = `eq.${categoryId}`;
+  }
+
+  const andParts: string[] = [];
+  if (dateFromIso) andParts.push(`changed_at.gte.${dateFromIso}`);
+  if (dateToIso) andParts.push(`changed_at.lte.${dateToIso}`);
+  if (andParts.length) {
+    params.and = `(${andParts.join(",")})`;
+  }
+
+  const { data, count } = await postgrestGetWithCount<any[]>("product_price_history", params);
   return { items: Array.isArray(data) ? data : [], total: count ?? 0 };
+}
+
+export async function adminPurgePriceHistory(opts: {
+  deleteAll: boolean;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  categoryId?: string | null;
+}): Promise<number> {
+  const { deleteAll } = opts;
+  const hasDateFrom = !!opts.dateFrom?.trim();
+  const hasDateTo = !!opts.dateTo?.trim();
+  const categoryId = opts.categoryId?.trim() || null;
+
+  if (!deleteAll && !hasDateFrom && !hasDateTo && !categoryId) {
+    throw new Error("Informe período (data) e/ou categoria, ou use exclusão total.");
+  }
+
+  const dateFromIso = hasDateFrom ? toDayStartUtcIso(opts.dateFrom!) : null;
+  const dateToIso = hasDateTo ? toDayEndUtcIso(opts.dateTo!) : null;
+
+  const supabase = getSupabaseServiceRoleClient();
+  const { data, error } = await supabase.rpc("admin_purge_product_price_history", {
+    p_delete_all: deleteAll,
+    p_date_from: dateFromIso,
+    p_date_to: dateToIso,
+    p_category_id: categoryId || null,
+  });
+  if (error) {
+    throw new Error(error.message);
+  }
+  const n = typeof data === "number" ? data : Number(data);
+  return Number.isFinite(n) ? n : 0;
 }
 
 export async function adminUpdateSiteColors(colors: Record<string, string>) {

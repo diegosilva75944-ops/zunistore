@@ -72,6 +72,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [priceHistoryPage, setPriceHistoryPage] = useState(1);
   const [priceHistoryPerPage, setPriceHistoryPerPage] = useState(20);
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+  /** Rascunho nos inputs; só entra na API após "Aplicar filtros". */
+  const [phDraftFrom, setPhDraftFrom] = useState("");
+  const [phDraftTo, setPhDraftTo] = useState("");
+  const [phDraftCategory, setPhDraftCategory] = useState("");
+  const [phFrom, setPhFrom] = useState("");
+  const [phTo, setPhTo] = useState("");
+  const [phCategory, setPhCategory] = useState("");
   const [expiredAffiliateCount, setExpiredAffiliateCount] = useState<number | null>(null);
   const [filterAffiliateExpired, setFilterAffiliateExpired] = useState(
     () => searchParams.get("affiliateExpired") === "true",
@@ -146,12 +153,15 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
     const params = new URLSearchParams();
     params.set("page", String(priceHistoryPage));
     params.set("perPage", String(priceHistoryPerPage));
+    if (phFrom.trim()) params.set("dateFrom", phFrom.trim());
+    if (phTo.trim()) params.set("dateTo", phTo.trim());
+    if (phCategory) params.set("categoryId", phCategory);
     const res = await fetch(`/api/admin/products/price-history?${params.toString()}`);
     const data = await res.json().catch(() => ({}));
     setPriceHistoryItems(Array.isArray(data?.items) ? data.items : []);
     setPriceHistoryTotal(Number(data?.total) ?? 0);
     setPriceHistoryLoading(false);
-  }, [priceHistoryPage, priceHistoryPerPage]);
+  }, [priceHistoryPage, priceHistoryPerPage, phFrom, phTo, phCategory]);
 
   useEffect(() => {
     if (tab === "precos") fetchPriceHistory();
@@ -277,6 +287,58 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
     }
   }
 
+  async function purgePriceHistory(deleteAll: boolean) {
+    if (deleteAll) {
+      if (
+        !confirm(
+          "Apagar TODOS os registros do histórico de preços? Esta ação não pode ser desfeita.",
+        )
+      ) {
+        return;
+      }
+    } else {
+      const hasRange = phFrom.trim() || phTo.trim();
+      const hasCat = !!phCategory;
+      if (!hasRange && !hasCat) {
+        alert(
+          "Aplique pelo menos um filtro (data inicial e/ou final e/ou categoria) antes de apagar.",
+        );
+        return;
+      }
+      if (
+        !confirm(
+          "Apagar apenas os registros que batem com os filtros aplicados (período e/ou categoria)?",
+        )
+      ) {
+        return;
+      }
+    }
+
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/products/price-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deleteAll,
+          dateFrom: phFrom.trim() || null,
+          dateTo: phTo.trim() || null,
+          categoryId: phCategory || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.error ?? "Falha ao apagar histórico.");
+        return;
+      }
+      alert(`Removidos ${data.deleted ?? 0} registro(s).`);
+      setPriceHistoryPage(1);
+      await fetchPriceHistory();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const allChecked = items.length > 0 && items.every((p) => selected[p.id]);
   const deletedTotalPages = Math.max(1, Math.ceil(deletedTotal / deletedPerPage));
 
@@ -323,9 +385,87 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           <p className="text-sm text-zinc-600">
             Alterações de preço detectadas na sincronização. Útil para alertar quando um produto teve o preço alterado.
           </p>
+
+          <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-3">
+            <div className="text-sm font-semibold text-zinc-700">Filtros</div>
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Data inicial</label>
+                <input
+                  type="date"
+                  value={phDraftFrom}
+                  onChange={(e) => setPhDraftFrom(e.target.value)}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Data final</label>
+                <input
+                  type="date"
+                  value={phDraftTo}
+                  onChange={(e) => setPhDraftTo(e.target.value)}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Categoria</label>
+                <select
+                  value={phDraftCategory}
+                  onChange={(e) => setPhDraftCategory(e.target.value)}
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm min-w-[160px]"
+                >
+                  <option value="">Todas</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPhFrom(phDraftFrom);
+                  setPhTo(phDraftTo);
+                  setPhCategory(phDraftCategory);
+                  setPriceHistoryPage(1);
+                }}
+                className="rounded-full bg-zuni-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              >
+                Aplicar filtros
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-red-50/80 ring-1 ring-red-200/80 p-4 space-y-3">
+            <div className="text-sm font-semibold text-red-900">Excluir histórico</div>
+            <p className="text-xs text-red-800/90">
+              Use os filtros acima e depois &quot;Apagar conforme filtros&quot; para remover só um período ou categoria.
+              &quot;Apagar tudo&quot; remove todos os registros sem usar filtros.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => purgePriceHistory(false)}
+                className="rounded-full bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-50"
+              >
+                Apagar conforme filtros aplicados
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => purgePriceHistory(true)}
+                className="rounded-full border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-50"
+              >
+                Apagar todos os registros
+              </button>
+            </div>
+          </div>
+
           {priceHistoryLoading ? (
-            <div className="rounded-2xl ring-1 ring-zinc-200 p-8 text-center text-sm text-zinc-500">
-              Carregando…
+            <div className="rounded-2xl ring-1 ring-zinc-200 p-6 py-12 flex justify-center">
+              <SitePageLoader compact />
             </div>
           ) : (
             <>

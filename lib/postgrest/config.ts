@@ -1,14 +1,36 @@
 /**
  * PostgREST config - resolve env vars for API base URL and keys.
  * Compatible with SUPABASE_* and DB_* aliases.
+ *
+ * Supabase Cloud / CLI local expõem a REST API em .../rest/v1, mas SUPABASE_URL
+ * costuma vir sem esse sufixo (igual ao createClient). Ajustamos aqui para os
+ * fetches HTTP em lib/postgrest/fetch.ts baterem no endpoint certo.
  */
+function normalizePostgrestBaseUrl(raw: string): string {
+  const s = String(raw).replace(/\/+$/, "");
+  if (!s) return "";
+  if (/\/rest\/v1$/i.test(s)) return s;
+  try {
+    const u = new URL(s);
+    const host = u.hostname;
+    const supabaseCloud =
+      host.endsWith(".supabase.co") || host.endsWith(".supabase.in");
+    const supabaseLocalCli = u.port === "54321";
+    if (supabaseCloud || supabaseLocalCli) {
+      return `${s}/rest/v1`;
+    }
+  } catch {
+    return s;
+  }
+  return s;
+}
 
 export function getPostgrestBaseUrl(): string {
   const base =
     process.env.DB_API_URL ??
     process.env.SUPABASE_URL ??
     "";
-  return String(base).replace(/\/+$/, "");
+  return normalizePostgrestBaseUrl(base);
 }
 
 export function getPostgrestAnonKey(): string {
