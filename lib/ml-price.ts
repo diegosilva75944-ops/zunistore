@@ -22,9 +22,41 @@ function parseAndesMoneyFromHtml(block: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Remove seção "outros vendedores" (preços paralelos que não são do anúncio principal). */
+function stripOtherSellersBlocks(html: string): string {
+  let out = html;
+  let guard = 0;
+  while (guard++ < 80) {
+    const match = /<div[^>]*\bclass=["'][^"']*\bother-sellers\b[^"']*["'][^>]*>/i.exec(out);
+    if (!match) break;
+    const start = match.index;
+    let depth = 1;
+    let i = start + match[0].length;
+    while (i < out.length && depth > 0) {
+      const nextOpen = out.indexOf("<div", i);
+      const nextClose = out.indexOf("</div>", i);
+      if (nextClose === -1) {
+        out = out.slice(0, start) + out.slice(start + match[0].length);
+        break;
+      }
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        depth += 1;
+        i = nextOpen + 4;
+      } else {
+        depth -= 1;
+        i = nextClose + 6;
+      }
+    }
+    if (depth === 0) {
+      out = out.slice(0, start) + out.slice(i);
+    }
+  }
+  return out;
+}
+
 /** Remove blocos de buy-box/sticky que duplicam preços no HTML (mantém os mesmos critérios já usados no sync). */
 function sanitizeMlHtmlForPrice(html: string): string {
-  return html
+  return stripOtherSellersBlocks(html)
     .replace(
       /<[^>]*class=["'][^"']*ui-pdp-buy-box-offers__desktop[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
       "",

@@ -456,12 +456,45 @@ function parseAndesMoney(el) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Preços em "Outros vendedores" (classe *other-sellers*) não entram no produto principal. */
+function isInsideOtherSellers(el) {
+  if (!el || typeof el.closest !== "function") return false;
+  try {
+    return !!el.closest("[class*='other-sellers']");
+  } catch {
+    return false;
+  }
+}
+
+function firstElementNotInOtherSellers(doc, selector) {
+  const nodes = doc.querySelectorAll(selector);
+  for (const n of nodes) {
+    if (!isInsideOtherSellers(n)) return n;
+  }
+  return null;
+}
+
+function getBodyInnerTextExcludingOtherSellers(doc) {
+  const body = doc.body;
+  if (!body) return "";
+  try {
+    const clone = body.cloneNode(true);
+    let node;
+    let guard = 0;
+    while (guard++ < 200 && (node = clone.querySelector("[class*='other-sellers']"))) {
+      node.remove();
+    }
+    return clone.innerText || "";
+  } catch {
+    return body.innerText || "";
+  }
+}
+
 function extractPricesFromMlDom(doc) {
   // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
   // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
   const priceRow =
-    doc.querySelector(".ui-pdp-container__row--price") ||
-    doc.querySelector(".ui-pdp-container__row.ui-pdp-container__row--price");
+    firstElementNotInOtherSellers(doc, ".ui-pdp-container__row--price, .ui-pdp-container__row.ui-pdp-container__row--price");
 
   if (priceRow) {
     const amountEls = Array.from(priceRow.querySelectorAll(".andes-money-amount"));
@@ -482,7 +515,8 @@ function extractPricesFromMlDom(doc) {
 
   // Preferir o componente principal de preço que pode ter até 3 linhas.
   const mainContainer =
-    doc.querySelector(".ui-pdp-price__main-container") || doc.querySelector(".ui-pdp-price");
+    firstElementNotInOtherSellers(doc, ".ui-pdp-price__main-container") ||
+    firstElementNotInOtherSellers(doc, ".ui-pdp-price");
 
   if (mainContainer) {
     const amountEls = Array.from(mainContainer.querySelectorAll(".andes-money-amount"))
@@ -509,10 +543,23 @@ function extractPricesFromMlDom(doc) {
   let originalPrice = null;
   let promoPrice = null;
 
-  const originalEl = doc.querySelector("s.ui-pdp-price__original-value") ||
-    doc.querySelector(".ui-pdp-price__original-value") ||
-    doc.querySelector("s.andes-money-amount--previous") ||
-    doc.querySelector(".andes-money-amount--previous");
+  const originalSelectors = [
+    "s.ui-pdp-price__original-value",
+    ".ui-pdp-price__original-value",
+    "s.andes-money-amount--previous",
+    ".andes-money-amount--previous",
+  ];
+  let originalEl = null;
+  for (const sel of originalSelectors) {
+    const els = doc.querySelectorAll(sel);
+    for (const el of els) {
+      if (!isInsideOtherSellers(el)) {
+        originalEl = el;
+        break;
+      }
+    }
+    if (originalEl) break;
+  }
 
   if (originalEl) {
     originalPrice = parseAndesMoney(originalEl);
@@ -537,15 +584,15 @@ function extractPricesFromMlDom(doc) {
   }
 
   if (promoPrice == null) {
-    const secondLine = doc.querySelector(".ui-pdp-price__second-line");
+    const secondLine = firstElementNotInOtherSellers(doc, ".ui-pdp-price__second-line");
     if (secondLine) {
       const promoEl = secondLine.querySelector(".andes-money-amount:not(.andes-money-amount--previous)");
-      if (promoEl) promoPrice = parseAndesMoney(promoEl);
+      if (promoEl && !isInsideOtherSellers(promoEl)) promoPrice = parseAndesMoney(promoEl);
     }
   }
 
   if (promoPrice == null) {
-    const promoEl = doc.querySelector('[itemprop="offers"] .andes-money-amount');
+    const promoEl = firstElementNotInOtherSellers(doc, '[itemprop="offers"] .andes-money-amount');
     if (promoEl) promoPrice = parseAndesMoney(promoEl);
   }
 
@@ -559,7 +606,7 @@ function extractPricesFromMlDom(doc) {
     return { price: promoPrice, promoPrice: null };
   }
 
-  const bodyText = doc.body?.innerText || "";
+  const bodyText = getBodyInnerTextExcludingOtherSellers(doc);
   return findPromoAndPrice(bodyText);
 }
 
@@ -659,9 +706,8 @@ function extractFromDocument(doc, sourceUrl) {
     const categoryPath = breadcrumb;
     const categoryName = breadcrumb.length ? breadcrumb[breadcrumb.length - 1] : "";
     let promo = extractPricesFromMlDom(doc);
-    if (!promo) {
-      const bodyText = doc.body ? doc.body.innerText : "";
-      promo = findPromoAndPrice(bodyText);
+    if (!promo || promo.price == null) {
+      promo = findPromoAndPrice(getBodyInnerTextExcludingOtherSellers(doc));
     }
     let imgs = extractImagesFromMlDom(doc);
     if (imgs.length === 0) {
@@ -689,8 +735,7 @@ function extractFromDocument(doc, sourceUrl) {
   }
 
   function fromRegex() {
-    const bodyText = doc.body ? doc.body.innerText : "";
-    const promo = findPromoAndPrice(bodyText);
+    const promo = findPromoAndPrice(getBodyInnerTextExcludingOtherSellers(doc));
     return {
       title: null,
       description: null,
@@ -717,7 +762,7 @@ function extractFromDocument(doc, sourceUrl) {
       jsonResult.promoPrice = jsonResult.price;
       jsonResult.price = domPrices.price;
     } else if (jsonResult.price != null && jsonResult.promoPrice == null) {
-      const textPrices = findPromoAndPrice(doc.body?.innerText || "");
+      const textPrices = findPromoAndPrice(getBodyInnerTextExcludingOtherSellers(doc));
       if (textPrices && textPrices.price != null && textPrices.promoPrice != null) {
         jsonResult.price = textPrices.price;
         jsonResult.promoPrice = textPrices.promoPrice;
