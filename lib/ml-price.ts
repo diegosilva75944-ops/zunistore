@@ -202,15 +202,27 @@ export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
-  // 1) JSON-LD (igual extensão: fromJsonLd)
+  // Prioridade semelhante ao fluxo da importação (extensão):
+  // 1) DOM-like (ui-pdp-price__main-container com até 3 linhas)
+  // 2) Se DOM não trouxer promo, comparar com JSON-LD
+  // 3) Regex R$ como fallback
+  const fromDom = extractPricesFromMlDomLike(html);
+  if (fromDom && fromDom.price != null && fromDom.price > 0) {
+    if (fromDom.promoPrice != null) return fromDom;
+
+    // Se o DOM não conseguiu promo (promoPrice null),
+    // tenta usar o JSON-LD como "promo" quando ele estiver abaixo do preço DOM.
+    const fromJsonLd = extractFromJsonLd(html);
+    if (fromJsonLd && fromJsonLd.price != null && fromJsonLd.price > 0 && fromJsonLd.price < fromDom.price) {
+      return { price: fromDom.price, promoPrice: fromJsonLd.price };
+    }
+
+    return { price: fromDom.price, promoPrice: null };
+  }
+
   const fromJsonLd = extractFromJsonLd(html);
   if (fromJsonLd) return fromJsonLd;
 
-  // 2) DOM-like: meta, aria, classes ML (igual extensão: extractPricesFromMlDom)
-  const fromDom = extractPricesFromMlDomLike(html);
-  if (fromDom) return fromDom;
-
-  // 3) Regex R$ (igual extensão: findPromoAndPrice no body)
   const fromRegex = findPromoAndPrice(html);
   if (fromRegex.price != null && fromRegex.price > 0) {
     return { price: fromRegex.price, promoPrice: fromRegex.promoPrice };
