@@ -14,6 +14,13 @@ async function isValid(token: string) {
   }
 }
 
+const importMlCors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Max-Age": "86400",
+} as const;
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -23,6 +30,16 @@ export async function middleware(req: NextRequest) {
   const isLoginPage = pathname === "/admin/login";
   const isLoginApi = pathname === "/api/admin/login" || pathname === "/api/admin/logout";
   const isImportApi = pathname === "/api/admin/import/mercadolivre";
+
+  /** Extensão Chrome (origin chrome-extension://) precisa de CORS explícito no preflight e na resposta. */
+  if (isImportApi) {
+    if (req.method === "OPTIONS") {
+      return new NextResponse(null, { status: 204, headers: { ...importMlCors } });
+    }
+    const res = NextResponse.next();
+    Object.entries(importMlCors).forEach(([k, v]) => res.headers.set(k, v));
+    return res;
+  }
 
   if (isAdminPage && !isLoginPage) {
     const token = req.cookies.get(cookieName)?.value;

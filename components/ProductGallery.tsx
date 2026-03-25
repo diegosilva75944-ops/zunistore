@@ -8,6 +8,9 @@ type ProductGalleryProps = {
   title: string;
 };
 
+const lightboxControlBtn =
+  "flex items-center justify-center rounded-full bg-white/55 backdrop-blur-md text-zinc-800 shadow-lg ring-1 ring-white/45 hover:bg-white/70 transition-colors";
+
 export function ProductGallery({ images, title }: ProductGalleryProps) {
   const [selected, setSelected] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -181,7 +184,7 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
               e.stopPropagation();
               setLightboxOpen(false);
             }}
-            className="absolute left-3 top-3 z-[110] flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-zinc-900 shadow-lg ring-1 ring-zinc-200 hover:bg-white text-2xl font-light leading-none"
+            className={`absolute right-3 top-3 z-[110] h-11 w-11 ${lightboxControlBtn} text-2xl font-light leading-none`}
             aria-label="Fechar"
           >
             ×
@@ -194,7 +197,7 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
                   e.stopPropagation();
                   goPrev();
                 }}
-                className="absolute left-2 md:left-4 top-1/2 z-[110] -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-zinc-900 shadow-md ring-1 ring-zinc-200 hover:bg-white md:h-14 md:w-14"
+                className={`absolute left-2 md:left-4 top-1/2 z-[110] -translate-y-1/2 h-12 w-12 md:h-14 md:w-14 text-xl md:text-2xl ${lightboxControlBtn}`}
                 aria-label="Imagem anterior"
               >
                 ‹
@@ -205,7 +208,7 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
                   e.stopPropagation();
                   goNext();
                 }}
-                className="absolute right-2 md:right-4 top-1/2 z-[110] -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-zinc-900 shadow-md ring-1 ring-zinc-200 hover:bg-white md:h-14 md:w-14"
+                className={`absolute right-2 md:right-4 top-1/2 z-[110] -translate-y-1/2 h-12 w-12 md:h-14 md:w-14 text-xl md:text-2xl ${lightboxControlBtn}`}
                 aria-label="Próxima imagem"
               >
                 ›
