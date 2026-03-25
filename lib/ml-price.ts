@@ -89,6 +89,34 @@ function stripOtherSellersBlocks(html: string): string {
   return out;
 }
 
+/**
+ * O HTML do ML (fetch) inclui bundles JS com strings como "ui-pdp-container__row--price".
+ * Regex/indexOf nesses trechos gera pares de preço falsos. JSON-LD fica em &lt;script&gt; e é
+ * tratado à parte em extractFromJsonLd — aqui só queremos markup real.
+ * Vários &lt;script&gt; seguidos exigem várias passadas.
+ */
+function stripScriptsAndStyles(html: string): string {
+  let out = html;
+  let prev = "";
+  let guard = 0;
+  while (out !== prev && guard++ < 200) {
+    prev = out;
+    out = out
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<!--[\s\S]*?-->/g, " ");
+  }
+  return out;
+}
+
+/** JSON embutido no HTML (estado / outras ofertas) traz "price" de outro vendedor — não é o PDP. */
+function stripMlBuyingOptionsJson(html: string): string {
+  return html.replace(
+    /\{"buying_option_id"\s*:\s*"CHEAPER"[\s\S]*?"price"\s*:\s*[\d.]+[^}]*\}/gi,
+    "{}",
+  );
+}
+
 /** Remove blocos de buy-box/sticky que duplicam preços no HTML (mantém os mesmos critérios já usados no sync). */
 function sanitizeMlHtmlForPrice(html: string): string {
   return stripOtherSellersBlocks(html)
@@ -144,7 +172,9 @@ function pairTwoMeaningfulPrices(sortedDesc: number[]): { price: number; promoPr
  */
 /** `htmlRaw` deve vir de sanitizeMlHtmlForPrice (evita ruído de buy-box / sticky). */
 function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPrice: number | null } | null {
-  const htmlToParse = sliceHtmlBeforeOtherSellers(htmlRaw);
+  const htmlToParse = sliceHtmlBeforeOtherSellers(
+    stripMlBuyingOptionsJson(stripScriptsAndStyles(htmlRaw)),
+  );
   let originalPrice: number | null = null;
   let promoPrice: number | null = null;
   // Candidatos a partir de blocos "de preço" renderizados pelo ML (DOM-like via regex).
@@ -449,15 +479,16 @@ export function extractPricesFromHtml(html: string): {
 } {
   const htmlSan = sanitizeMlHtmlForPrice(html);
   const htmlMain = sliceHtmlBeforeOtherSellers(htmlSan);
+  const htmlDom = stripMlBuyingOptionsJson(stripScriptsAndStyles(htmlMain));
   const json = extractFromJsonLd(html);
 
   // Alinha com a página real: JSON-LD costuma trazer o preço atual (oferta); o "Antes:"
   // no bloco de preço é o preço normal. Isso estabiliza o sync quando a ordem dos
   // .andes-money-amount no HTML difere da ordem no DOM do navegador.
-  const lower = htmlMain.toLowerCase();
+  const lower = htmlDom.toLowerCase();
   const rowIdx = lower.indexOf("ui-pdp-container__row--price");
   const priceRowSlice =
-    rowIdx !== -1 ? htmlMain.slice(rowIdx, rowIdx + 30000) : htmlMain;
+    rowIdx !== -1 ? htmlDom.slice(rowIdx, rowIdx + 30000) : htmlDom;
   const antes = extractAntesPriceFromAria(priceRowSlice);
   if (json?.price != null && antes != null && antes > json.price) {
     return { price: antes, promoPrice: json.price };
@@ -469,6 +500,23 @@ export function extractPricesFromHtml(html: string): {
   // - se não houver JSON-LD, cai para DOM e depois regex.
   if (json) {
     const dom = extractPricesFromMlDomLike(htmlSan);
+    /**
+     * JSON-LD com oferta única (só `price`): não aceitar "promo" vinda de JSON embutido
+     * (outro vendedor mais barato) quando o DOM-like casa dom.price ≈ json.price e um valor menor.
+     * Com "Antes:" real no slice, o bloco acima já devolveu antes + promo.
+     */
+    if (
+      json.promoPrice == null &&
+      json.price != null &&
+      dom &&
+      dom.price != null &&
+      dom.promoPrice != null &&
+      Math.abs(dom.price - json.price) < 0.02 &&
+      dom.promoPrice < dom.price &&
+      (antes == null || !(antes > json.price))
+    ) {
+      return { price: json.price, promoPrice: null };
+    }
     if (dom && dom.price != null && dom.promoPrice != null) {
       return dom;
     }
