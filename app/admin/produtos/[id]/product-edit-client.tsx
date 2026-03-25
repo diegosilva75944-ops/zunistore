@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SitePageLoader } from "@/components/SitePageLoader";
 
 export function ProductEditClient({
   product,
@@ -172,6 +173,19 @@ export function ProductEditClient({
       >
         {busy ? "Salvando…" : "Salvar"}
       </button>
+
+      {busy ? (
+        <div
+          className="fixed inset-0 z-100 flex items-center justify-center bg-white/85 backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="rounded-2xl bg-white shadow-xl ring-1 ring-zinc-200 px-10 py-8 max-w-[min(90vw,420px)]">
+            <SitePageLoader />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

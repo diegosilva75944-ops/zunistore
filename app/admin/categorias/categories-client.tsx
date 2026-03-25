@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SitePageLoader } from "@/components/SitePageLoader";
 
 type Category = {
   id: string;
@@ -113,7 +114,7 @@ export function CategoriesClient() {
   const rootCategories = list.filter((c) => !c.parent_id);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       <form onSubmit={handleCreate} className="rounded-2xl bg-zinc-50 p-4 space-y-3 max-w-md">
         <h2 className="text-sm font-semibold text-zinc-700">Nova categoria</h2>
         <div>
@@ -236,6 +237,19 @@ export function CategoriesClient() {
           </ul>
         )}
       </div>
+
+      {busy ? (
+        <div
+          className="fixed inset-0 z-100 flex items-center justify-center bg-white/85 backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="rounded-2xl bg-white shadow-xl ring-1 ring-zinc-200 px-10 py-8 max-w-[min(90vw,420px)]">
+            <SitePageLoader />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

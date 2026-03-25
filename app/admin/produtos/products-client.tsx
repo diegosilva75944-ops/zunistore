@@ -3,6 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { SitePageLoader } from "@/components/SitePageLoader";
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
@@ -27,13 +29,24 @@ type ProductRow = {
 };
 
 export function ProductsClient({ categories }: { categories: Category[] }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [items, setItems] = useState<ProductRow[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState<10 | 20 | 50>(20);
-  const [filterQ, setFilterQ] = useState("");
-  const [filterCode6, setFilterCode6] = useState("");
-  const [filterCategoryId, setFilterCategoryId] = useState("");
+  const [page, setPage] = useState(() =>
+    Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1),
+  );
+  const [perPage, setPerPage] = useState<10 | 20 | 50>(() => {
+    const pp = parseInt(searchParams.get("perPage") || "20", 10);
+    return ([10, 20, 50].includes(pp) ? pp : 20) as 10 | 20 | 50;
+  });
+  const [filterQ, setFilterQ] = useState(() => searchParams.get("q") ?? "");
+  const [filterCode6, setFilterCode6] = useState(() => searchParams.get("code6") ?? "");
+  const [filterCategoryId, setFilterCategoryId] = useState(
+    () => searchParams.get("categoryId") ?? "",
+  );
   const [filterVersion, setFilterVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -45,7 +58,10 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
   const [syncingProductId, setSyncingProductId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"listagem" | "historico" | "precos">("listagem");
+  const [tab, setTab] = useState<"listagem" | "historico" | "precos">(() => {
+    const t = searchParams.get("tab");
+    return t === "historico" || t === "precos" ? t : "listagem";
+  });
   const [deletedItems, setDeletedItems] = useState<any[]>([]);
   const [deletedTotal, setDeletedTotal] = useState(0);
   const [deletedPage, setDeletedPage] = useState(1);
@@ -57,9 +73,37 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [priceHistoryPerPage, setPriceHistoryPerPage] = useState(20);
   const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
   const [expiredAffiliateCount, setExpiredAffiliateCount] = useState<number | null>(null);
-  const [filterAffiliateExpired, setFilterAffiliateExpired] = useState(false);
+  const [filterAffiliateExpired, setFilterAffiliateExpired] = useState(
+    () => searchParams.get("affiliateExpired") === "true",
+  );
   const [validatingLinks, setValidatingLinks] = useState(false);
   const [validateResult, setValidateResult] = useState<string | null>(null);
+
+  const replaceListingParams = useCallback(
+    (updates: Record<string, string | null | undefined>) => {
+      const p = new URLSearchParams(searchParams.toString());
+      for (const [k, v] of Object.entries(updates)) {
+        if (v == null || v === "") p.delete(k);
+        else p.set(k, v);
+      }
+      const qs = p.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  useEffect(() => {
+    setFilterQ(searchParams.get("q") ?? "");
+    setFilterCode6(searchParams.get("code6") ?? "");
+    setFilterCategoryId(searchParams.get("categoryId") ?? "");
+    const pg = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+    setPage(pg);
+    const pp = parseInt(searchParams.get("perPage") || "20", 10);
+    setPerPage(([10, 20, 50].includes(pp) ? pp : 20) as 10 | 20 | 50);
+    const t = searchParams.get("tab");
+    setTab(t === "historico" || t === "precos" ? t : "listagem");
+    setFilterAffiliateExpired(searchParams.get("affiliateExpired") === "true");
+  }, [searchParams]);
 
   const fetchProducts = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -147,7 +191,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       alert("Falha ao executar ação.");
       return;
     }
-    window.location.reload();
+    setSelected({});
+    await fetchProducts(true);
+    fetch("/api/admin/products/affiliate-expired-count")
+      .then((r) => r.json().catch(() => ({})))
+      .then((data) => setExpiredAffiliateCount(typeof data?.count === "number" ? data.count : 0));
   }
 
   async function runBulkChangeCategory() {
@@ -167,7 +215,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       alert("Falha ao alterar categoria.");
       return;
     }
-    window.location.reload();
+    setSelected({});
+    await fetchProducts(true);
+    fetch("/api/admin/products/affiliate-expired-count")
+      .then((r) => r.json().catch(() => ({})))
+      .then((data) => setExpiredAffiliateCount(typeof data?.count === "number" ? data.count : 0));
   }
 
   async function syncProductPrice(productId: string) {
@@ -213,10 +265,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       
       const deletedPart = data.deleted ? `, Removidos (não encontrados): ${data.deleted}` : "";
       setSyncResult(`Sincronizado! Total: ${data.total}, Atualizados: ${data.updated}, Ignorados: ${data.skipped}, Falhas: ${data.failed}${deletedPart}`);
-      
-      setTimeout(() => {
-        window.location.reload();
-      }, 2000);
+
+      await fetchProducts(true);
+      fetch("/api/admin/products/affiliate-expired-count")
+        .then((r) => r.json().catch(() => ({})))
+        .then((d) => setExpiredAffiliateCount(typeof d?.count === "number" ? d.count : 0));
     } catch (e) {
       setSyncResult("Erro ao conectar com o servidor.");
     } finally {
@@ -232,7 +285,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       <div className="flex items-center gap-2 border-b border-zinc-200">
         <button
           type="button"
-          onClick={() => setTab("listagem")}
+          onClick={() => replaceListingParams({ tab: null })}
           className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition ${
             tab === "listagem"
               ? "border-zuni-primary text-zuni-primary bg-white"
@@ -243,7 +296,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         </button>
         <button
           type="button"
-          onClick={() => setTab("historico")}
+          onClick={() => replaceListingParams({ tab: "historico" })}
           className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition ${
             tab === "historico"
               ? "border-zuni-primary text-zuni-primary bg-white"
@@ -254,7 +307,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         </button>
         <button
           type="button"
-          onClick={() => setTab("precos")}
+          onClick={() => replaceListingParams({ tab: "precos" })}
           className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition ${
             tab === "precos"
               ? "border-zuni-primary text-zuni-primary bg-white"
@@ -479,9 +532,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           <button
             type="button"
             onClick={() => {
-              setFilterAffiliateExpired((v) => !v);
-              setPage(1);
-              setFilterVersion((f) => f + 1);
+              const next = !filterAffiliateExpired;
+              replaceListingParams({
+                affiliateExpired: next ? "true" : null,
+                page: "1",
+              });
             }}
             className="rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
           >
@@ -600,7 +655,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               onChange={(e) => setFilterQ(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  setPage(1);
+                  replaceListingParams({
+                    q: filterQ.trim() || null,
+                    code6: filterCode6.trim() || null,
+                    categoryId: filterCategoryId || null,
+                    page: "1",
+                    affiliateExpired: filterAffiliateExpired ? "true" : null,
+                  });
                   setSelected({});
                   setFilterVersion((v) => v + 1);
                 }
@@ -617,7 +678,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               onChange={(e) => setFilterCode6(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
-                  setPage(1);
+                  replaceListingParams({
+                    q: filterQ.trim() || null,
+                    code6: filterCode6.trim() || null,
+                    categoryId: filterCategoryId || null,
+                    page: "1",
+                    affiliateExpired: filterAffiliateExpired ? "true" : null,
+                  });
                   setSelected({});
                   setFilterVersion((v) => v + 1);
                 }
@@ -632,9 +699,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               id="filterAffiliateExpired"
               checked={filterAffiliateExpired}
               onChange={() => {
-                setFilterAffiliateExpired((v) => !v);
-                setPage(1);
-                setFilterVersion((f) => f + 1);
+                const next = !filterAffiliateExpired;
+                replaceListingParams({
+                  affiliateExpired: next ? "true" : null,
+                  page: "1",
+                });
               }}
               className="rounded border-zinc-300"
             />
@@ -646,7 +715,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
             <label className="block text-xs text-zinc-500 mb-1">Categoria</label>
             <select
               value={filterCategoryId}
-              onChange={(e) => setFilterCategoryId(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                replaceListingParams({ categoryId: v || null, page: "1" });
+                setSelected({});
+              }}
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm min-w-[140px]"
             >
               <option value="">Todas</option>
@@ -662,8 +735,8 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
             <select
               value={perPage}
               onChange={(e) => {
-                setPerPage(Number(e.target.value) as 10 | 20 | 50);
-                setPage(1);
+                const n = Number(e.target.value) as 10 | 20 | 50;
+                replaceListingParams({ perPage: String(n), page: "1" });
               }}
               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
             >
@@ -675,7 +748,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           <button
             type="button"
             onClick={() => {
-              setPage(1);
+              replaceListingParams({
+                q: filterQ.trim() || null,
+                code6: filterCode6.trim() || null,
+                categoryId: filterCategoryId || null,
+                page: "1",
+                affiliateExpired: filterAffiliateExpired ? "true" : null,
+              });
               setSelected({});
               setFilterVersion((v) => v + 1);
             }}
@@ -741,8 +820,8 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       </div>
 
       {loading ? (
-        <div className="rounded-2xl ring-1 ring-zinc-200 p-8 text-center text-sm text-zinc-500">
-          Carregando produtos…
+        <div className="rounded-2xl ring-1 ring-zinc-200 p-6 py-16 min-h-[240px] flex items-center justify-center">
+          <SitePageLoader />
         </div>
       ) : (
       <div className="overflow-auto rounded-2xl ring-1 ring-zinc-200">
@@ -893,7 +972,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           <button
             type="button"
             disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => replaceListingParams({ page: String(Math.max(1, page - 1)) })}
             className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-50"
           >
             ← Anterior
@@ -901,7 +980,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           <button
             type="button"
             disabled={page >= totalPages}
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            onClick={() => replaceListingParams({ page: String(Math.min(totalPages, page + 1)) })}
             className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-50"
           >
             Próxima →
@@ -909,6 +988,19 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         </div>
       </div>
         </>
+      )}
+
+      {(busy || syncing || syncingProductId !== null) && (
+        <div
+          className="fixed inset-0 z-100 flex items-center justify-center bg-white/85 backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="rounded-2xl bg-white shadow-xl ring-1 ring-zinc-200 px-10 py-8 max-w-[min(90vw,420px)]">
+            <SitePageLoader />
+          </div>
+        </div>
       )}
     </div>
   );

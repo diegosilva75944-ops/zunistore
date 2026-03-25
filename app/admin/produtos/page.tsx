@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import { adminListCategories } from "@/lib/admin/db";
 import { ProductsClient } from "@/app/admin/produtos/products-client";
+import { SitePageLoader } from "@/components/SitePageLoader";
 
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -16,7 +18,9 @@ export default async function AdminProdutosPage() {
         </p>
       </div>
 
-      <ProductsClient categories={categories} />
+      <Suspense fallback={<SitePageLoader />}>
+        <ProductsClient categories={categories} />
+      </Suspense>
     </div>
   );
 }
