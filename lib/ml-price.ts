@@ -32,6 +32,10 @@ function parseAndesMoneyFromHtml(block: string): number | null {
 function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: number | null } | null {
   let originalPrice: number | null = null;
   let promoPrice: number | null = null;
+  // Candidatos a partir de blocos "de preço" renderizados pelo ML (DOM-like via regex).
+  // Usamos como fallback, mas quando existir "original" (Antes: ...), o preço normal deve vir dele.
+  let domPrice: number | null = null;
+  let domPromoPrice: number | null = null;
 
   // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
   // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
@@ -55,12 +59,9 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
     // Modelo da extensão (content_script): usa a ordem DOM para
     // 1ª linha = preço normal, 2ª linha = promo (se existir).
-    const price = amounts[0] ?? null;
-    if (price != null) {
-      const promoLine = amounts[1] ?? null;
-      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-      return { price, promoPrice };
-    }
+    domPrice = amounts[0] ?? null;
+    const promoLine = amounts[1] ?? null;
+    domPromoPrice = promoLine != null && domPrice != null && promoLine < domPrice ? promoLine : null;
   }
 
   // Prioridade: ui-pdp-price__main-container (quando existir, tenta 3 linhas em ordem).
@@ -97,7 +98,8 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
       // então o preço promocional vem da 2ª linha.
       const promoLine = amounts[1];
       const promo = promoLine != null && promoLine < line1 ? promoLine : null;
-      return { price: line1, promoPrice: promo };
+      domPrice = line1;
+      domPromoPrice = promo;
     }
   }
 
@@ -151,15 +153,26 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
     }
   }
 
-  if (originalPrice != null && promoPrice != null && promoPrice < originalPrice) {
-    return { price: originalPrice, promoPrice };
-  }
-  if (originalPrice != null && promoPrice == null) {
+  // Regra final (importação/extensão):
+  // - Se existir "Antes: ...", o preço normal (price) deve vir desse original.
+  // - A oferta (promoPrice) vem do preço atual detectado (meta/second-line/offers).
+  if (originalPrice != null) {
+    if (promoPrice != null && promoPrice < originalPrice) {
+      return { price: originalPrice, promoPrice };
+    }
     return { price: originalPrice, promoPrice: null };
   }
-  if (promoPrice != null && originalPrice == null) {
+
+  // Sem "Antes": usa promoPrice como preço (quando disponível)
+  if (promoPrice != null) {
     return { price: promoPrice, promoPrice: null };
   }
+
+  // Fallback: usa candidatos DOM-like
+  if (domPrice != null) {
+    return { price: domPrice, promoPrice: domPromoPrice ?? null };
+  }
+
   return null;
 }
 
