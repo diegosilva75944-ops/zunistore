@@ -30,6 +30,18 @@ function parseAndesMoneyFromHtml(block: string): number | null {
  * 4) Promo se null: [itemprop="offers"] .andes-money-amount
  */
 function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: number | null } | null {
+  // Em algumas páginas, o ML renderiza um "buy box offers" que pode
+  // conter valores duplicados (ou alternativos) do preço.
+  // Para manter consistência com a importação/extensão, removemos
+  // esse bloco da análise quando existir.
+  const htmlToParse =
+    html.includes("ui-pdp-buy-box-offers__desktop")
+      ? html.replace(
+          /<[^>]*class=["'][^"']*ui-pdp-buy-box-offers__desktop[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+          "",
+        )
+      : html;
+
   let originalPrice: number | null = null;
   let promoPrice: number | null = null;
   // Candidatos a partir de blocos "de preço" renderizados pelo ML (DOM-like via regex).
@@ -50,7 +62,7 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
     // Você mostrou o caso:
     // data-testid="price-part" ... aria-label="Antes: 369 reais" ...
     // Aqui extraímos do aria-label dentro do "price-part".
-    const m = html.match(
+    const m = htmlToParse.match(
       /data-testid=["']price-part["'][\s\S]{0,1200}?aria-label=["']Antes:\s*([\d.]+)\s*reais(?:\s*com\s*(\d+)\s*centavos?)?["']/i,
     );
     if (!m) return null;
@@ -91,10 +103,10 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
   // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
   // Isso evita que o parser confunda parcelas (ex: 39,33) como promo.
-  const lower = html.toLowerCase();
+  const lower = htmlToParse.toLowerCase();
   const priceRowIdx = lower.indexOf("ui-pdp-container__row--price");
   if (priceRowIdx !== -1) {
-    const block = html.slice(priceRowIdx, priceRowIdx + 20000);
+    const block = htmlToParse.slice(priceRowIdx, priceRowIdx + 20000);
     const amountRe =
       /andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,250}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
 
@@ -122,7 +134,7 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   if (startIdx !== -1) {
     // Em HTML bruto (server-side), o bloco pode ser maior que 3000 chars;
     // aumentamos a janela para capturar 1ª, 2ª e 3ª linha.
-    const mainBlock = html.slice(startIdx, startIdx + 20000);
+    const mainBlock = htmlToParse.slice(startIdx, startIdx + 20000);
 
     const amounts: number[] = [];
     // Captura blocos de `andes-money-amount` e lê fraction+cents dentro de cada bloco.
@@ -158,7 +170,7 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   originalPrice = extractOriginalFromPricePart();
   // Fallback: aria-label "Antes:" fora do price-part (casos variantes)
   if (originalPrice == null) {
-    const ariaMatch = html.match(
+    const ariaMatch = htmlToParse.match(
       /aria-label=["']Antes:\s*([\d.]+)\s*reais?\s*(?:com\s*)?(\d+)?\s*centavos?["']/i,
     );
     if (ariaMatch) {
@@ -187,7 +199,9 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
   // Promo (fallback): meta itemprop="price" global (quando não achamos no second-line)
   if (promoPrice == null) {
-    const metaMatch = html.match(/<meta[^>]+itemprop="price"[^>]+content="([\d.]+)"/i);
+    const metaMatch = htmlToParse.match(
+      /<meta[^>]+itemprop="price"[^>]+content="([\d.]+)"/i,
+    );
     if (metaMatch) {
       const n = Number(String(metaMatch[1] ?? "").trim().replace(",", "."));
       if (Number.isFinite(n) && n > 0) promoPrice = n;
@@ -196,7 +210,9 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
   // Promo se null: .ui-pdp-price__second-line (segundo preço é o atual; primeiro pode ser "previous")
   if (promoPrice == null) {
-    const secondLineBlock = html.match(/ui-pdp-price__second-line[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,200}?andes-money-amount__cents[^>]*>(\d{1,2})/i);
+    const secondLineBlock = htmlToParse.match(
+      /ui-pdp-price__second-line[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,200}?andes-money-amount__cents[^>]*>(\d{1,2})/i,
+    );
     if (secondLineBlock) {
       const frac = secondLineBlock[1].replace(/\./g, "");
       const cents = (secondLineBlock[2] || "00").padStart(2, "0");
@@ -204,7 +220,9 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
       if (Number.isFinite(n) && n > 0) promoPrice = n;
     }
     if (promoPrice == null) {
-      const secondLineAlt = html.match(/ui-pdp-price__second-line[\s\S]*?andes-money-amount(?!.*--previous)[\s\S]{0,400}?andes-money-amount__fraction[^>]*>([\d.]+)/i);
+    const secondLineAlt = htmlToParse.match(
+      /ui-pdp-price__second-line[\s\S]*?andes-money-amount(?!.*--previous)[\s\S]{0,400}?andes-money-amount__fraction[^>]*>([\d.]+)/i,
+    );
       if (secondLineAlt) {
         const n = parseFloat(secondLineAlt[1].replace(/\./g, ""));
         if (Number.isFinite(n) && n > 0) promoPrice = n;
@@ -214,7 +232,9 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
   // Promo se null: [itemprop="offers"] .andes-money-amount
   if (promoPrice == null) {
-    const offersBlock = html.match(/itemprop="offers"[\s\S]{0,500}?andes-money-amount__fraction[^>]*>([\d.]+)/i);
+    const offersBlock = htmlToParse.match(
+      /itemprop="offers"[\s\S]{0,500}?andes-money-amount__fraction[^>]*>([\d.]+)/i,
+    );
     if (offersBlock) {
       const n = parseFloat(offersBlock[1].replace(/\./g, ""));
       if (Number.isFinite(n) && n > 0) promoPrice = n;
