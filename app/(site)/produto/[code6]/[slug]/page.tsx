@@ -175,25 +175,32 @@ export default async function ProdutoPage(props: {
               </div>
             ) : null}
           </div>
+
+          {product.description?.trim() ? (
+            <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-3">
+              <h2 className="text-base font-semibold text-zinc-900">Informações do Produto</h2>
+              <div className="text-sm text-zinc-700 space-y-1.5">
+                {splitDescriptionIntoLines(product.description).map((line, i) => (
+                  <p key={i} className="leading-relaxed">
+                    {line}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
 
-      <section className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-4">
-        <div>
-          <h2 className="font-semibold mb-2">Descrição</h2>
-          <div className="text-sm text-zinc-700 whitespace-pre-wrap">
-            {product.description || "Sem descrição."}
-          </div>
-        </div>
-        {product.description_detail?.trim() ? (
+      {product.description_detail?.trim() ? (
+        <section className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-4">
           <div>
-            <h3 className="text-sm font-semibold text-zinc-800 mb-2">Descrição completa</h3>
+            <h2 className="text-lg md:text-xl font-semibold text-zinc-900 mb-3">Descrição completa</h2>
             <div className="text-base md:text-lg text-zinc-800 whitespace-pre-wrap leading-relaxed">
               {product.description_detail}
             </div>
           </div>
-        ) : null}
-      </section>
+        </section>
+      ) : null}
 
       {related.length ? (
         <section
@@ -238,6 +245,14 @@ export default async function ProdutoPage(props: {
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+/** Cada trecho separado por | vira uma linha (em vez de pipe inline). */
+function splitDescriptionIntoLines(text: string): string[] {
+  const t = String(text || "").trim();
+  if (!t) return [];
+  if (!t.includes("|")) return [t];
+  return t.split(/\|/).map((s) => s.trim()).filter(Boolean);
 }
 
 function buildProductJsonLd(product: any, pageUrl: string) {
