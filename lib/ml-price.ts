@@ -53,11 +53,22 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
       if (amounts.length >= 3) break;
     }
 
-    const price = amounts[0];
-    const promoLine = amounts[1];
+    const uniq = Array.from(
+      new Map(amounts.map((x) => [Number(x.toFixed(2)).toString(), x])).values()
+    ).sort((a, b) => b - a);
+
+    const price = uniq[0] ?? null;
     if (price != null) {
-      const promo = promoLine != null && promoLine < price ? promoLine : null;
-      return { price, promoPrice: promo };
+      const promoCandidate = uniq[1] ?? null;
+      if (promoCandidate != null && promoCandidate < price) {
+        // Parcela no cartão costuma ser muito menor do que os preços principais.
+        // Se o "promo" for parecido com parcela, descartamos como promo.
+        const installmentLikeThreshold = 0.75; // evita confundir parcela como promo
+        const promo =
+          promoCandidate >= price * installmentLikeThreshold ? promoCandidate : null;
+        return { price, promoPrice: promo };
+      }
+      return { price, promoPrice: null };
     }
   }
 
