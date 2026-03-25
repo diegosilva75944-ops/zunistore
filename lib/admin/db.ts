@@ -384,10 +384,12 @@ export async function adminPurgePriceHistory(opts: {
   const dateToIso = hasDateTo ? toDayEndUtcIso(opts.dateTo!) : null;
 
   const raw = await postgrestRpc<unknown>("admin_purge_product_price_history", {
-    p_delete_all: deleteAll,
-    p_date_from: dateFromIso,
-    p_date_to: dateToIso,
-    p_category_id: categoryId || null,
+    payload: {
+      p_delete_all: deleteAll,
+      p_date_from: dateFromIso,
+      p_date_to: dateToIso,
+      p_category_id: categoryId || null,
+    },
   });
   const n = typeof raw === "number" ? raw : Number(raw);
   return Number.isFinite(n) ? n : 0;

@@ -1,8 +1,8 @@
--- RPC purge do histórico de preços (1 argumento jsonb — compatível PostgREST, evita PGRST202).
--- Se ainda existir a versão antiga (4 args), aplique também 20250326.
+-- PostgREST: RPC com vários args nomeados costuma gerar PGRST202; uma única
+-- função (payload jsonb) é resolvida de forma estável.
 
+-- Quem já tinha a versão antiga (4 argumentos) precisa desta migração.
 drop function if exists public.admin_purge_product_price_history(boolean, timestamptz, timestamptz, uuid);
-drop function if exists public.admin_purge_product_price_history(jsonb);
 
 create or replace function public.admin_purge_product_price_history(payload jsonb)
 returns integer
@@ -51,4 +51,5 @@ $$;
 revoke all on function public.admin_purge_product_price_history(jsonb) from PUBLIC;
 grant execute on function public.admin_purge_product_price_history(jsonb) to service_role;
 
+-- Recarrega o cache de schema do PostgREST (se disponível)
 notify pgrst, 'reload schema';
