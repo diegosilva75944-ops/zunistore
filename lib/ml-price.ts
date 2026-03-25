@@ -22,6 +22,52 @@ function parseAndesMoneyFromHtml(block: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Remove blocos de buy-box/sticky que duplicam preços no HTML (mantém os mesmos critérios já usados no sync). */
+function sanitizeMlHtmlForPrice(html: string): string {
+  return html
+    .replace(
+      /<[^>]*class=["'][^"']*ui-pdp-buy-box-offers__desktop[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+      "",
+    )
+    .replace(
+      /<[^>]*class=["'][^"']*ui-pdp-buybox-offers-wrapper[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+      "",
+    )
+    .replace(
+      /<div[^>]*class=["'][^"']*ui-pdp--sticky-wrapper[^"']*ui-pdp--sticky-wrapper-right[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+      "",
+    )
+    .replace(
+      /<li[^>]*class=["'][^"']*ui-pdp-buy-box-offers__offer-list-item[^"']*["'][^>]*>[\s\S]*?<\/li>/gi,
+      "",
+    );
+}
+
+/** "Antes: 499 reais com 90 centavos" dentro do próprio HTML (ex.: aria-label da faixa de preço). */
+function extractAntesPriceFromAria(fragment: string): number | null {
+  const m = fragment.match(
+    /aria-label=["']Antes:\s*([\d.]+)\s*reais(?:\s*com\s*(\d+)\s*centavos?)?["']/i,
+  );
+  if (!m) return null;
+  const reais = Number(String(m[1] ?? "").replace(/\./g, ""));
+  const centavos = m[2] ? Number(m[2]) : 0;
+  if (!Number.isFinite(reais) || !Number.isFinite(centavos)) return null;
+  const v = reais + centavos / 100;
+  return v > 0 ? v : null;
+}
+
+/** Evita tratar parcelamento (ex.: "10x" de R$ 10,00) como "2º preço" do produto. */
+function pairTwoMeaningfulPrices(sortedDesc: number[]): { price: number; promoPrice: number | null } | null {
+  const uniq = [...new Set(sortedDesc)].sort((a, b) => b - a);
+  if (uniq.length === 0) return null;
+  if (uniq.length === 1) return { price: uniq[0], promoPrice: null };
+  const a0 = uniq[0];
+  const a1 = uniq[1];
+  const plausiblePair = a1 >= a0 * 0.12 || (a1 >= 50 && a0 > 100);
+  if (plausiblePair && a0 > a1) return { price: a0, promoPrice: a1 };
+  return { price: a0, promoPrice: null };
+}
+
 /**
  * Replica extractPricesFromMlDom da extensão (content_script) usando regex no HTML.
  * 1) Preço original: .ui-pdp-price__original-value ou .andes-money-amount--previous (parseAndesMoney ou aria-label)
@@ -29,38 +75,8 @@ function parseAndesMoneyFromHtml(block: string): number | null {
  * 3) Promo se null: .ui-pdp-price__second-line .andes-money-amount (não --previous)
  * 4) Promo se null: [itemprop="offers"] .andes-money-amount
  */
-function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: number | null } | null {
-  // Em algumas páginas, o ML renderiza um "buy box offers" que pode
-  // conter valores duplicados (ou alternativos) do preço.
-  // Para manter consistência com a importação/extensão, removemos
-  // esse bloco da análise quando existir.
-  const htmlToParse =
-    html.includes("ui-pdp-buy-box-offers__desktop") ||
-    html.includes("ui-pdp-buybox-offers-wrapper") ||
-    html.includes("ui-pdp--sticky-wrapper-right") ||
-    html.includes("ui-pdp-buy-box-offers__offer-list-item")
-      ? html
-          // Remove blocks do ML que podem duplicar/alterar valores do preço.
-          .replace(
-            /<[^>]*class=["'][^"']*ui-pdp-buy-box-offers__desktop[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
-            "",
-          )
-          .replace(
-            /<[^>]*class=["'][^"']*ui-pdp-buybox-offers-wrapper[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
-            "",
-          )
-          // Remove sticky wrapper (coluna direita) inteiro para evitar capturar preços de ofertas/listas.
-          .replace(
-            /<div[^>]*class=["'][^"']*ui-pdp--sticky-wrapper[^"']*ui-pdp--sticky-wrapper-right[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
-            "",
-          )
-          // Remove cada item da lista de ofertas do buybox (Parcelamento, Loja oficial, Melhor preço, etc.).
-          .replace(
-            /<li[^>]*class=["'][^"']*ui-pdp-buy-box-offers__offer-list-item[^"']*["'][^>]*>[\s\S]*?<\/li>/gi,
-            "",
-          )
-      : html;
-
+/** `htmlToParse` deve vir de sanitizeMlHtmlForPrice (evita ruído de buy-box / sticky). */
+function extractPricesFromMlDomLike(htmlToParse: string): { price: number; promoPrice: number | null } | null {
   let originalPrice: number | null = null;
   let promoPrice: number | null = null;
   // Candidatos a partir de blocos "de preço" renderizados pelo ML (DOM-like via regex).
@@ -96,14 +112,14 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
     // Caso de oferta:
     // ui-pdp-price__second-line ... itemprop="offers" ... andes-money-amount__fraction[data-andes-money-amount-fraction] > VALOR
     // (às vezes tem também andes-money-amount__cents; quando existir, somamos fraction+cents)
-    const blockMatch = html.match(
+    const blockMatch = htmlToParse.match(
       /ui-pdp-price__second-line[\s\S]{0,8000}?itemprop=["']offers["'][\s\S]{0,5000}?andes-money-amount__fraction[^>]*data-andes-money-amount-fraction[^>]*>\s*([^<]+?)\s*</i,
     );
     if (!blockMatch) return null;
     const fraction = parseNumberLikeMl(blockMatch[1] ?? "");
     if (fraction == null) return null;
 
-    const centsMatch = html.match(
+    const centsMatch = htmlToParse.match(
       /ui-pdp-price__second-line[\s\S]{0,8000}?itemprop=["']offers["'][\s\S]{0,5000}?andes-money-amount__cents[^>]*>\s*(\d{1,2})\s*</i,
     );
 
@@ -136,14 +152,16 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
       if (!fractionStr) continue;
       const n = parseFloat(`${fractionStr}.${centsStr}`);
       if (Number.isFinite(n) && n > 0) amounts.push(n);
-      if (amounts.length >= 3) break;
     }
 
-    // Modelo da extensão (content_script): usa a ordem DOM para
-    // 1ª linha = preço normal, 2ª linha = promo (se existir).
-    domPrice = amounts[0] ?? null;
-    const promoLine = amounts[1] ?? null;
-    domPromoPrice = promoLine != null && domPrice != null && promoLine < domPrice ? promoLine : null;
+    // Ordem no HTML nem sempre coincide com a ordem no DOM (navegador). Para o mesmo
+    // bloco, o par "normal + oferta" costuma ser o maior e o menor valor relevantes;
+    // valores muito pequenos (ex.: parcela "10x") são descartados por plausibilidade.
+    const pair = pairTwoMeaningfulPrices(amounts);
+    if (pair) {
+      domPrice = pair.price;
+      domPromoPrice = pair.promoPrice;
+    }
   }
 
   // Igual à importação (extensão): se achou preço pelo container principal,
@@ -174,15 +192,10 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
       const n = parseFloat(`${fractionStr}.${centsStr}`);
       if (Number.isFinite(n) && n > 0) amounts.push(n);
-      if (amounts.length >= 3) break;
     }
 
-    const line1 = amounts[0];
-    if (line1 != null) {
-      const promoLine = amounts[1];
-      const promo = promoLine != null && promoLine < line1 ? promoLine : null;
-      return { price: line1, promoPrice: promo };
-    }
+    const pairMain = pairTwoMeaningfulPrices(amounts);
+    if (pairMain) return pairMain;
   }
 
   // Original: aria-label="Antes: N reais (com N centavos)" (igual à extensão)
@@ -203,7 +216,7 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
   // Original: bloco com andes-money-amount--previous ou ui-pdp-price__original-value (parseAndesMoney)
   if (originalPrice == null) {
-    const previousBlock = html.match(
+    const previousBlock = htmlToParse.match(
       /(?:andes-money-amount--previous|ui-pdp-price__original-value)[^>]*(?:>|[\s\S]{0,800}?)([\s\S]{0,500})/i,
     );
     if (previousBlock) {
@@ -366,13 +379,27 @@ export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
+  const htmlSan = sanitizeMlHtmlForPrice(html);
+  const json = extractFromJsonLd(html);
+
+  // Alinha com a página real: JSON-LD costuma trazer o preço atual (oferta); o "Antes:"
+  // no bloco de preço é o preço normal. Isso estabiliza o sync quando a ordem dos
+  // .andes-money-amount no HTML difere da ordem no DOM do navegador.
+  const lower = htmlSan.toLowerCase();
+  const rowIdx = lower.indexOf("ui-pdp-container__row--price");
+  const priceRowSlice =
+    rowIdx !== -1 ? htmlSan.slice(rowIdx, rowIdx + 30000) : htmlSan;
+  const antes = extractAntesPriceFromAria(priceRowSlice);
+  if (json?.price != null && antes != null && antes > json.price) {
+    return { price: antes, promoPrice: json.price };
+  }
+
   // Replica o fluxo da importação (extensão/popup):
   // - tenta JSON-LD; se tiver, ajusta com DOM (quando DOM trouxer price+promo, ou quando DOM.price > json.price)
   // - se JSON-LD não trouxer promo, tenta regex em texto visível (innerText-like)
   // - se não houver JSON-LD, cai para DOM e depois regex.
-  const json = extractFromJsonLd(html);
   if (json) {
-    const dom = extractPricesFromMlDomLike(html);
+    const dom = extractPricesFromMlDomLike(htmlSan);
     if (dom && dom.price != null && dom.promoPrice != null) {
       return dom;
     }
@@ -380,7 +407,7 @@ export function extractPricesFromHtml(html: string): {
       return { price: dom.price, promoPrice: json.price };
     }
     if (json.price != null && json.promoPrice == null) {
-      const textPrices = findPromoAndPrice(htmlToVisibleText(html));
+      const textPrices = findPromoAndPrice(htmlToVisibleText(htmlSan));
       if (textPrices.price != null && textPrices.promoPrice != null) {
         return { price: textPrices.price, promoPrice: textPrices.promoPrice };
       }
@@ -388,10 +415,10 @@ export function extractPricesFromHtml(html: string): {
     return json;
   }
 
-  const dom = extractPricesFromMlDomLike(html);
+  const dom = extractPricesFromMlDomLike(htmlSan);
   if (dom) return dom;
 
-  const fromRegex = findPromoAndPrice(htmlToVisibleText(html));
+  const fromRegex = findPromoAndPrice(htmlToVisibleText(htmlSan));
   if (fromRegex.price != null && fromRegex.price > 0) {
     return { price: fromRegex.price, promoPrice: fromRegex.promoPrice };
   }
