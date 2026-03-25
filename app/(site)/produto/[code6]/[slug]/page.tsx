@@ -62,7 +62,7 @@ export default async function ProdutoPage(props: {
 
   const category = await getCategoryById(product.category_id);
   const related = await listRelatedProducts({
-    categoryId: product.category_id,
+    categoryId: product.category_id?.trim() || null,
     title: product.title,
     excludeCode6: product.code6,
     limit: 8,
@@ -186,8 +186,30 @@ export default async function ProdutoPage(props: {
       </section>
 
       {related.length ? (
-        <section className="space-y-4">
-          <h2 className="text-xl font-semibold">Relacionados</h2>
+        <section
+          className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 md:p-6 space-y-4"
+          aria-labelledby="related-products-heading"
+        >
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-zinc-100 pb-4">
+            <div>
+              <h2 id="related-products-heading" className="text-xl font-semibold text-zinc-900">
+                Produtos Relacionados
+              </h2>
+              <p className="text-sm text-zinc-600 mt-1">
+                {category
+                  ? `Outras opções em ${category.name}`
+                  : "Outras opções que podem te interessar"}
+              </p>
+            </div>
+            {category ? (
+              <Link
+                href={`/categoria/${category.slug}`}
+                className="text-sm font-semibold text-zuni-primary hover:underline shrink-0"
+              >
+                Ver categoria completa
+              </Link>
+            ) : null}
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {related.map((p) => (
               <ProductCard key={p.id} product={p} />

@@ -319,32 +319,41 @@ export async function listCarouselProducts() {
 }
 
 export async function listRelatedProducts(opts: {
-  categoryId: string;
+  categoryId: string | null;
   title: string;
   excludeCode6: string;
   limit?: number;
 }) {
+  const { limit = 8, categoryId, excludeCode6, title } = opts;
   try {
-    const { limit = 12 } = opts;
-    const tokens = opts.title
+    const { items } = await listProducts({
+      categoryId: categoryId ?? undefined,
+      page: 1,
+      perPage: 50,
+      sort: "recentes",
+    });
+    const others = items.filter((p) => p.code6 !== excludeCode6);
+    if (!others.length) return [];
+
+    const tokens = title
       .toLowerCase()
       .split(/\s+/)
-      .map((t) => t.trim())
-      .filter((t) => t.length >= 4)
-      .slice(0, 6);
+      .map((t) => t.replace(/[^\wÀ-ÿ]/gi, ""))
+      .filter((t) => t.length >= 3)
+      .slice(0, 8);
 
-    const params: Record<string, string> = {
-      select: "id,code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url,rating,reviews_count,category_id",
-      category_id: `eq.${opts.categoryId}`,
-      code6: `neq.${encodeURIComponent(opts.excludeCode6)}`,
-      limit: String(limit),
-    };
-    if (tokens.length) {
-      params.or = `(${tokens.map((t) => `title.ilike.${encodeURIComponent("%" + t + "%")}`).join(",")})`;
-    }
-
-    const data = await getWithPublicFallback<any[]>("products", params);
-    return (Array.isArray(data) ? data : []).map(normalizeProduct);
+    const scored = others.map((p) => {
+      const low = p.title.toLowerCase();
+      const score = tokens.reduce((acc, t) => acc + (low.includes(t) ? 1 : 0), 0);
+      return { p, score };
+    });
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const br = (b.p.rating ?? 0) - (a.p.rating ?? 0);
+      if (br !== 0) return br;
+      return (b.p.reviews_count ?? 0) - (a.p.reviews_count ?? 0);
+    });
+    return scored.slice(0, limit).map((x) => x.p);
   } catch {
     return [];
   }
