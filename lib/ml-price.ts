@@ -35,7 +35,9 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   // Para manter consistência com a importação/extensão, removemos
   // esse bloco da análise quando existir.
   const htmlToParse =
-    html.includes("ui-pdp-buy-box-offers__desktop") || html.includes("ui-pdp-buybox-offers-wrapper")
+    html.includes("ui-pdp-buy-box-offers__desktop") ||
+    html.includes("ui-pdp-buybox-offers-wrapper") ||
+    html.includes("ui-pdp--sticky-wrapper-right")
       ? html
           // Remove blocks do ML que podem duplicar/alterar valores do preço.
           .replace(
@@ -44,6 +46,11 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
           )
           .replace(
             /<[^>]*class=["'][^"']*ui-pdp-buybox-offers-wrapper[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
+            "",
+          )
+          // Remove sticky wrapper (coluna direita) inteiro para evitar capturar preços de ofertas/listas.
+          .replace(
+            /<div[^>]*class=["'][^"']*ui-pdp--sticky-wrapper[^"']*ui-pdp--sticky-wrapper-right[^"']*["'][^>]*>[\s\S]*?<\/div>/gi,
             "",
           )
       : html;
