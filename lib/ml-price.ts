@@ -22,34 +22,69 @@ function parseAndesMoneyFromHtml(block: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Remove seção "outros vendedores" (preços paralelos que não são do anúncio principal). */
-function stripOtherSellersBlocks(html: string): string {
+/**
+ * HTML do ML costuma ter "Outros vendedores" depois do buy box; tudo após a primeira
+ * tag com classe *other-sellers* pode trazer preços paralelos — não entra no parse.
+ * (Evita cortar no meio de script/string que mencione a palavra sem ser classe.)
+ */
+function sliceHtmlBeforeOtherSellers(html: string): string {
+  const re =
+    /<[a-z][a-z0-9]*[^>]*\bclass\s*=\s*["'][^"']*\bother-sellers\b[^"']*["'][^>]*>/gi;
+  let m: RegExpExecArray | null;
+  let first: number | null = null;
+  while ((m = re.exec(html)) !== null) {
+    if (first === null || m.index < first) first = m.index;
+  }
+  if (first === null) return html;
+  return html.slice(0, first);
+}
+
+/** Remove tags aninhadas com classe *other-sellers* (div, section, article, aside). */
+function stripBalancedBlockByTag(
+  html: string,
+  tagName: string,
+): string {
+  const openNeedle = new RegExp(
+    `<${tagName}[^>]*\\bclass=["'][^"']*\\bother-sellers\\b[^"']*["'][^>]*>`,
+    "i",
+  );
+  const openTag = `<${tagName.toLowerCase()}`;
+  const closeTag = `</${tagName.toLowerCase()}>`;
   let out = html;
   let guard = 0;
   while (guard++ < 80) {
-    const match = /<div[^>]*\bclass=["'][^"']*\bother-sellers\b[^"']*["'][^>]*>/i.exec(out);
+    const match = openNeedle.exec(out);
     if (!match) break;
     const start = match.index;
     let depth = 1;
     let i = start + match[0].length;
     while (i < out.length && depth > 0) {
-      const nextOpen = out.indexOf("<div", i);
-      const nextClose = out.indexOf("</div>", i);
+      const nextOpen = out.toLowerCase().indexOf(openTag, i);
+      const nextClose = out.toLowerCase().indexOf(closeTag, i);
       if (nextClose === -1) {
         out = out.slice(0, start) + out.slice(start + match[0].length);
         break;
       }
       if (nextOpen !== -1 && nextOpen < nextClose) {
         depth += 1;
-        i = nextOpen + 4;
+        i = nextOpen + openTag.length;
       } else {
         depth -= 1;
-        i = nextClose + 6;
+        i = nextClose + closeTag.length;
       }
     }
     if (depth === 0) {
       out = out.slice(0, start) + out.slice(i);
     }
+  }
+  return out;
+}
+
+/** Remove seção "outros vendedores" (vários formatos de tag no ML). */
+function stripOtherSellersBlocks(html: string): string {
+  let out = html;
+  for (const tag of ["div", "section", "article", "aside"] as const) {
+    out = stripBalancedBlockByTag(out, tag);
   }
   return out;
 }
@@ -107,8 +142,9 @@ function pairTwoMeaningfulPrices(sortedDesc: number[]): { price: number; promoPr
  * 3) Promo se null: .ui-pdp-price__second-line .andes-money-amount (não --previous)
  * 4) Promo se null: [itemprop="offers"] .andes-money-amount
  */
-/** `htmlToParse` deve vir de sanitizeMlHtmlForPrice (evita ruído de buy-box / sticky). */
-function extractPricesFromMlDomLike(htmlToParse: string): { price: number; promoPrice: number | null } | null {
+/** `htmlRaw` deve vir de sanitizeMlHtmlForPrice (evita ruído de buy-box / sticky). */
+function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPrice: number | null } | null {
+  const htmlToParse = sliceHtmlBeforeOtherSellers(htmlRaw);
   let originalPrice: number | null = null;
   let promoPrice: number | null = null;
   // Candidatos a partir de blocos "de preço" renderizados pelo ML (DOM-like via regex).
@@ -412,15 +448,16 @@ export function extractPricesFromHtml(html: string): {
   promoPrice: number | null;
 } {
   const htmlSan = sanitizeMlHtmlForPrice(html);
+  const htmlMain = sliceHtmlBeforeOtherSellers(htmlSan);
   const json = extractFromJsonLd(html);
 
   // Alinha com a página real: JSON-LD costuma trazer o preço atual (oferta); o "Antes:"
   // no bloco de preço é o preço normal. Isso estabiliza o sync quando a ordem dos
   // .andes-money-amount no HTML difere da ordem no DOM do navegador.
-  const lower = htmlSan.toLowerCase();
+  const lower = htmlMain.toLowerCase();
   const rowIdx = lower.indexOf("ui-pdp-container__row--price");
   const priceRowSlice =
-    rowIdx !== -1 ? htmlSan.slice(rowIdx, rowIdx + 30000) : htmlSan;
+    rowIdx !== -1 ? htmlMain.slice(rowIdx, rowIdx + 30000) : htmlMain;
   const antes = extractAntesPriceFromAria(priceRowSlice);
   if (json?.price != null && antes != null && antes > json.price) {
     return { price: antes, promoPrice: json.price };
@@ -439,7 +476,7 @@ export function extractPricesFromHtml(html: string): {
       return { price: dom.price, promoPrice: json.price };
     }
     if (json.price != null && json.promoPrice == null) {
-      const textPrices = findPromoAndPrice(htmlToVisibleText(htmlSan));
+      const textPrices = findPromoAndPrice(htmlToVisibleText(htmlMain));
       if (textPrices.price != null && textPrices.promoPrice != null) {
         return { price: textPrices.price, promoPrice: textPrices.promoPrice };
       }
@@ -450,7 +487,7 @@ export function extractPricesFromHtml(html: string): {
   const dom = extractPricesFromMlDomLike(htmlSan);
   if (dom) return dom;
 
-  const fromRegex = findPromoAndPrice(htmlToVisibleText(htmlSan));
+  const fromRegex = findPromoAndPrice(htmlToVisibleText(htmlMain));
   if (fromRegex.price != null && fromRegex.price > 0) {
     return { price: fromRegex.price, promoPrice: fromRegex.promoPrice };
   }
