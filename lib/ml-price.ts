@@ -500,35 +500,31 @@ export function extractPricesFromHtml(html: string): {
   // - se não houver JSON-LD, cai para DOM e depois regex.
   if (json) {
     const dom = extractPricesFromMlDomLike(htmlSan);
-    /**
-     * JSON-LD com oferta única (só `price`): não aceitar "promo" vinda de JSON embutido
-     * (outro vendedor mais barato) quando o DOM-like casa dom.price ≈ json.price e um valor menor.
-     * Com "Antes:" real no slice, o bloco acima já devolveu antes + promo.
-     */
-    if (
-      json.promoPrice == null &&
-      json.price != null &&
-      dom &&
-      dom.price != null &&
-      dom.promoPrice != null &&
-      Math.abs(dom.price - json.price) < 0.02 &&
-      dom.promoPrice < dom.price &&
-      (antes == null || !(antes > json.price))
-    ) {
-      return { price: json.price, promoPrice: null };
-    }
-    if (dom && dom.price != null && dom.promoPrice != null) {
-      return dom;
-    }
-    if (dom && dom.price != null && json.price != null && dom.price > json.price) {
-      return { price: dom.price, promoPrice: json.price };
-    }
-    if (json.price != null && json.promoPrice == null) {
+    // Se JSON-LD trouxe `promo` explícita, confia nele.
+    if (json.promoPrice != null) return json;
+
+    // Se só existe `offers.price` (sem low/high), nunca "inventar" promo a partir do DOM-like.
+    // Quando houver desconto no texto ("de R$ ..."), usamos isso; caso contrário, mantemos apenas `json.price`.
+    if (json.price != null) {
       const textPrices = findPromoAndPrice(htmlToVisibleText(htmlMain));
-      if (textPrices.price != null && textPrices.promoPrice != null) {
+      if (
+        textPrices.price != null &&
+        textPrices.promoPrice != null &&
+        textPrices.price > textPrices.promoPrice &&
+        Math.abs(textPrices.promoPrice - json.price) < 0.02
+      ) {
         return { price: textPrices.price, promoPrice: textPrices.promoPrice };
       }
     }
+
+    // DOM-like só pode ser usado como "antes" quando o promo inferido bate com o `json.price`.
+    if (json.price != null && dom && dom.price != null && dom.promoPrice != null) {
+      const matchesPromo = Math.abs(dom.promoPrice - json.price) < 0.02;
+      if (matchesPromo && dom.price > dom.promoPrice) {
+        return { price: dom.price, promoPrice: json.price };
+      }
+    }
+
     return json;
   }
 
