@@ -37,6 +37,19 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   let domPrice: number | null = null;
   let domPromoPrice: number | null = null;
 
+  function extractOfferFromSecondLine(maybeHtml: string): number | null {
+    // Quando existe oferta, o ML costuma colocar:
+    // <div class="ui-pdp-price__second-line"> ... <meta itemprop="price" content="359"> ...
+    const m = maybeHtml.match(
+      /ui-pdp-price__second-line[\s\S]*?<meta[^>]+itemprop=["']price["'][^>]+content=["']([^"']+)["']/i,
+    );
+    if (!m) return null;
+    const raw = String(m[1] ?? "").trim();
+    if (!raw) return null;
+    const n = Number(raw.replace(",", "."));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
   // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
   // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
   // Isso evita que o parser confunda parcelas (ex: 39,33) como promo.
@@ -122,9 +135,18 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
     }
   }
 
-  // Promo: meta itemprop="price" (igual à extensão)
-  const metaMatch = html.match(/<meta[^>]+itemprop="price"[^>]+content="([\d.]+)"/i);
-  if (metaMatch) promoPrice = parseFloat(metaMatch[1]);
+  // Promo (prioridade): oferta no "second-line" (itemprop="offers") com meta itemprop="price"
+  // Ex.: ... ui-pdp-price__second-line ... <meta itemprop="price" content="359">
+  promoPrice = extractOfferFromSecondLine(html);
+
+  // Promo (fallback): meta itemprop="price" global (quando não achamos no second-line)
+  if (promoPrice == null) {
+    const metaMatch = html.match(/<meta[^>]+itemprop="price"[^>]+content="([\d.]+)"/i);
+    if (metaMatch) {
+      const n = Number(String(metaMatch[1] ?? "").trim().replace(",", "."));
+      if (Number.isFinite(n) && n > 0) promoPrice = n;
+    }
+  }
 
   // Promo se null: .ui-pdp-price__second-line (segundo preço é o atual; primeiro pode ser "previous")
   if (promoPrice == null) {
