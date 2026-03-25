@@ -37,17 +37,55 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   let domPrice: number | null = null;
   let domPromoPrice: number | null = null;
 
-  function extractOfferFromSecondLine(maybeHtml: string): number | null {
-    // Quando existe oferta, o ML costuma colocar:
-    // <div class="ui-pdp-price__second-line"> ... <meta itemprop="price" content="359"> ...
-    const m = maybeHtml.match(
-      /ui-pdp-price__second-line[\s\S]*?<meta[^>]+itemprop=["']price["'][^>]+content=["']([^"']+)["']/i,
+  function parseNumberLikeMl(raw: string): number | null {
+    const s = String(raw ?? "").trim();
+    if (!s) return null;
+    // Remove separador de milhar "." e converte decimal "," -> "."
+    const normalized = s.replace(/\./g, "").replace(",", ".");
+    const n = Number(normalized);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  function extractOriginalFromPricePart(): number | null {
+    // Você mostrou o caso:
+    // data-testid="price-part" ... aria-label="Antes: 369 reais" ...
+    // Aqui extraímos do aria-label dentro do "price-part".
+    const m = html.match(
+      /data-testid=["']price-part["'][\s\S]{0,1200}?aria-label=["']Antes:\s*([\d.]+)\s*reais(?:\s*com\s*(\d+)\s*centavos?)?["']/i,
     );
     if (!m) return null;
-    const raw = String(m[1] ?? "").trim();
-    if (!raw) return null;
-    const n = Number(raw.replace(",", "."));
-    return Number.isFinite(n) && n > 0 ? n : null;
+    const reais = Number(String(m[1] ?? "").replace(/\./g, ""));
+    const centavos = m[2] ? Number(m[2]) : 0;
+    if (!Number.isFinite(reais) || !Number.isFinite(centavos)) return null;
+    const v = reais + centavos / 100;
+    return v > 0 ? v : null;
+  }
+
+  function extractOfferFromSecondLine(): number | null {
+    // Caso de oferta:
+    // ui-pdp-price__second-line ... itemprop="offers" ... andes-money-amount__fraction[data-andes-money-amount-fraction] > VALOR
+    // (às vezes tem também andes-money-amount__cents; quando existir, somamos fraction+cents)
+    const blockMatch = html.match(
+      /ui-pdp-price__second-line[\s\S]{0,8000}?itemprop=["']offers["'][\s\S]{0,5000}?andes-money-amount__fraction[^>]*data-andes-money-amount-fraction[^>]*>\s*([^<]+?)\s*</i,
+    );
+    if (!blockMatch) return null;
+    const fraction = parseNumberLikeMl(blockMatch[1] ?? "");
+    if (fraction == null) return null;
+
+    const centsMatch = html.match(
+      /ui-pdp-price__second-line[\s\S]{0,8000}?itemprop=["']offers["'][\s\S]{0,5000}?andes-money-amount__cents[^>]*>\s*(\d{1,2})\s*</i,
+    );
+
+    if (centsMatch?.[1]) {
+      const cents = Number(centsMatch[1]);
+      if (Number.isFinite(cents)) {
+        // fraction pode vir sem centavos; tratamos como "reais"
+        const combined = Math.floor(fraction) + cents / 100;
+        return combined > 0 ? combined : null;
+      }
+    }
+
+    return fraction;
   }
 
   // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
@@ -117,11 +155,19 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
   }
 
   // Original: aria-label="Antes: N reais (com N centavos)" (igual à extensão)
-  const ariaMatch = html.match(/aria-label="Antes:\s*(\d+)\s*reais?\s*(?:com\s*)?(\d+)?\s*centavos?"/i);
-  if (ariaMatch) {
-    const reais = parseInt(ariaMatch[1], 10);
-    const centavos = ariaMatch[2] ? parseInt(ariaMatch[2], 10) : 0;
-    originalPrice = reais + centavos / 100;
+  originalPrice = extractOriginalFromPricePart();
+  // Fallback: aria-label "Antes:" fora do price-part (casos variantes)
+  if (originalPrice == null) {
+    const ariaMatch = html.match(
+      /aria-label=["']Antes:\s*([\d.]+)\s*reais?\s*(?:com\s*)?(\d+)?\s*centavos?["']/i,
+    );
+    if (ariaMatch) {
+      const reais = Number(String(ariaMatch[1] ?? "").replace(/\./g, ""));
+      const centavos = ariaMatch[2] ? Number(ariaMatch[2]) : 0;
+      if (Number.isFinite(reais) && Number.isFinite(centavos)) {
+        originalPrice = reais + centavos / 100;
+      }
+    }
   }
 
   // Original: bloco com andes-money-amount--previous ou ui-pdp-price__original-value (parseAndesMoney)
@@ -137,7 +183,7 @@ function extractPricesFromMlDomLike(html: string): { price: number; promoPrice: 
 
   // Promo (prioridade): oferta no "second-line" (itemprop="offers") com meta itemprop="price"
   // Ex.: ... ui-pdp-price__second-line ... <meta itemprop="price" content="359">
-  promoPrice = extractOfferFromSecondLine(html);
+  promoPrice = extractOfferFromSecondLine();
 
   // Promo (fallback): meta itemprop="price" global (quando não achamos no second-line)
   if (promoPrice == null) {
