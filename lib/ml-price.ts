@@ -1,6 +1,13 @@
 /**
  * Extração de preços da página do Mercado Livre — mesma lógica da extensão (content_script + popup).
  * Ordem: 1) JSON-LD (Product/offers)  2) DOM-like (meta, aria, classes ML)  3) findPromoAndPrice (regex R$).
+ *
+ * PDP (buy box): o ML renderiza valores em `.andes-money-amount` com `.andes-money-amount__fraction`
+ * e `.andes-money-amount__cents` (às vezes `andes-money-amount__cents--superscript-36`). No HTML do
+ * fetch/SSR esses spans podem divergir do preço que o usuário vê após hidratação. O mesmo bloco
+ * costuma ter `aria-label="N reais com NN centavos"` (ou `Antes: …`) no elemento acessível — essa
+ * string costuma ser a fonte correta; por isso priorizamos `extractAriaLabelPriceSequenceFromFragment`
+ * dentro de `ui-pdp-price__main-container` / `ui-pdp-container__row--price` antes de parear fraction+cents.
  */
 
 function parseBRL(text: string): number | null {
@@ -151,6 +158,62 @@ function extractAntesPriceFromAria(fragment: string): number | null {
   return v > 0 ? v : null;
 }
 
+/**
+ * Parseia aria-label de preço do ML: "35 reais com 72 centavos" ou "Antes: 1.234 reais com 56 centavos".
+ * Os nós com `.andes-money-amount__fraction` / `__cents` no HTML do fetch podem refletir valores SSR
+ * diferentes do anunciado ao leitor de tela; o `aria-label` costuma ser a fonte correta quando presente.
+ */
+export function parseMlAriaLabelReaisCentavos(label: string): number | null {
+  const s = String(label ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!s) return null;
+
+  let m = s.match(/^Antes:\s*([\d.]+)\s*reais(?:\s*com\s*(\d+)\s*centavos?)?$/i);
+  if (m) {
+    const reais = Number(String(m[1]).replace(/\./g, ""));
+    const centavos = m[2] ? Number(m[2]) : 0;
+    if (Number.isFinite(reais) && Number.isFinite(centavos)) {
+      const v = reais + centavos / 100;
+      return v > 0 ? v : null;
+    }
+  }
+
+  m = s.match(/^([\d.]+)\s*reais\s*com\s*(\d+)\s*centavos?$/i);
+  if (m) {
+    const reais = Number(String(m[1]).replace(/\./g, ""));
+    const centavos = Number(m[2]);
+    if (Number.isFinite(reais) && Number.isFinite(centavos)) {
+      const v = reais + centavos / 100;
+      return v > 0 ? v : null;
+    }
+  }
+
+  return null;
+}
+
+/** Ignora ruído tipo frete "2 reais com 82 centavos" no mesmo documento. */
+const MIN_ARIA_PLAUSIBLE_PRICE_BRL = 3;
+
+/**
+ * Ordem de aparição no HTML: 1º = preço normal (de), 2º = promocional quando menor que o 1º.
+ */
+export function extractAriaLabelPriceSequenceFromFragment(fragment: string): number[] {
+  const re = /aria-label=["']([^"']+)["']/gi;
+  const out: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(fragment)) !== null) {
+    const v = parseMlAriaLabelReaisCentavos(m[1]);
+    if (v != null && v >= MIN_ARIA_PLAUSIBLE_PRICE_BRL) {
+      if (out.length === 0 || Math.abs(out[out.length - 1] - v) > 0.009) {
+        out.push(v);
+      }
+    }
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
 /** Evita tratar parcelamento (ex.: "10x" de R$ 10,00) como "2º preço" do produto. */
 function pairTwoMeaningfulPrices(sortedDesc: number[]): { price: number; promoPrice: number | null } | null {
   const uniq = [...new Set(sortedDesc)].sort((a, b) => b - a);
@@ -233,13 +296,62 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
     return fraction;
   }
 
-  // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
-  // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
-  // Isso evita que o parser confunda parcelas (ex: 39,33) como promo.
   const lower = htmlToParse.toLowerCase();
+
+  // ui-pdp-price__main-container ANTES de ui-pdp-container__row--price: no fetch HTML o
+  // row--price pode trazer só um valor (ex.: JSON/catalogo) e retornar cedo, impedindo
+  // de ler o bloco principal onde estão "de" + promocional (fraction+cents em ordem).
+  const mainIdx = lower.indexOf("ui-pdp-price__main-container");
+  if (mainIdx !== -1) {
+    const mainBlock = htmlToParse.slice(mainIdx, mainIdx + 20000);
+
+    // Prioridade: aria-label "X reais com Y centavos" (acessibilidade) — os spans fraction/cents
+    // no SSR podem divergir (ex.: 30,64 visível vs 35,72 no aria).
+    const ariaMain = extractAriaLabelPriceSequenceFromFragment(mainBlock);
+    if (ariaMain.length >= 1) {
+      const price = ariaMain[0];
+      const promoLine = ariaMain[1];
+      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+      return { price, promoPrice };
+    }
+
+    const mainAmounts: number[] = [];
+    const pairSeqRe =
+      /andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,800}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
+
+    for (const m of mainBlock.matchAll(pairSeqRe)) {
+      const fractionStr = (m[1] || "").replace(/\./g, "");
+      const centsStr = (m[2] || "00").padStart(2, "0");
+      if (!fractionStr) continue;
+
+      const n = parseFloat(`${fractionStr}.${centsStr}`);
+      if (Number.isFinite(n) && n > 0) mainAmounts.push(n);
+      if (mainAmounts.length >= 3) break;
+    }
+
+    if (mainAmounts.length >= 1) {
+      const price = mainAmounts[0];
+      const promoLine = mainAmounts[1];
+      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+      return { price, promoPrice };
+    }
+  }
+
+  // ui-pdp-container__row--price: fallback quando não há main-container no HTML cru.
   const priceRowIdx = lower.indexOf("ui-pdp-container__row--price");
   if (priceRowIdx !== -1) {
     const block = htmlToParse.slice(priceRowIdx, priceRowIdx + 20000);
+
+    const ariaRow = extractAriaLabelPriceSequenceFromFragment(block);
+    if (ariaRow.length >= 1) {
+      const price = ariaRow[0];
+      const promoLine = ariaRow[1];
+      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+      domPrice = price;
+      domPromoPrice = promoPrice;
+    }
+
+    if (domPrice == null) {
     const amountRe =
       /andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,250}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
 
@@ -252,50 +364,16 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
       if (Number.isFinite(n) && n > 0) amounts.push(n);
     }
 
-    // Ordem no HTML nem sempre coincide com a ordem no DOM (navegador). Para o mesmo
-    // bloco, o par "normal + oferta" costuma ser o maior e o menor valor relevantes;
-    // valores muito pequenos (ex.: parcela "10x") são descartados por plausibilidade.
     const pair = pairTwoMeaningfulPrices(amounts);
     if (pair) {
       domPrice = pair.price;
       domPromoPrice = pair.promoPrice;
     }
+    }
   }
 
-  // Igual à importação (extensão): se achou preço pelo container principal,
-  // não deve cair em fallbacks globais (meta/offers) que misturam outras ofertas.
   if (domPrice != null) {
     return { price: domPrice, promoPrice: domPromoPrice ?? null };
-  }
-
-  // ui-pdp-price__main-container: o ML costuma colocar o preço "de" (às vezes riscado,
-  // andes-money-amount--previous) como 1º par fraction+cents e o promocional em seguida.
-  // Centavos podem usar andes-money-amount__cents--superscript-36; o par é sempre
-  // fraction seguido do cents mais próximo (ordem do documento).
-  const startIdx = lower.indexOf("ui-pdp-price__main-container");
-  if (startIdx !== -1) {
-    const mainBlock = htmlToParse.slice(startIdx, startIdx + 20000);
-
-    const amounts: number[] = [];
-    const pairSeqRe =
-      /andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,800}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
-
-    for (const m of mainBlock.matchAll(pairSeqRe)) {
-      const fractionStr = (m[1] || "").replace(/\./g, "");
-      const centsStr = (m[2] || "00").padStart(2, "0");
-      if (!fractionStr) continue;
-
-      const n = parseFloat(`${fractionStr}.${centsStr}`);
-      if (Number.isFinite(n) && n > 0) amounts.push(n);
-      if (amounts.length >= 3) break;
-    }
-
-    if (amounts.length >= 1) {
-      const price = amounts[0];
-      const promoLine = amounts[1];
-      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-      return { price, promoPrice };
-    }
   }
 
   // Original: aria-label="Antes: N reais (com N centavos)" (igual à extensão)
@@ -502,11 +580,34 @@ export function extractPricesFromHtml(html: string): {
   // - se não houver JSON-LD, cai para DOM e depois regex.
   if (json) {
     const dom = extractPricesFromMlDomLike(htmlSan);
-    // Se JSON-LD trouxe `promo` explícita, confia nele.
+
+    // Par fraction+cents no HTML (main-container / fallbacks) reflete o PDP como no navegador.
+    // JSON-LD pode trazer só offers.price, ou highPrice/lowPrice de catálogo — às vezes
+    // diverge (ex.: 30,64/28,69 no schema vs 35,72/31,25 na página). Se o par do DOM for
+    // coerente, ele manda; só confiamos no JSON-LD quando bate com esse par.
+    if (
+      dom &&
+      dom.price != null &&
+      dom.promoPrice != null &&
+      dom.price > dom.promoPrice
+    ) {
+      if (json.promoPrice != null) {
+        const schemaMatchesDom =
+          Math.abs(json.price - dom.price) < 0.02 &&
+          Math.abs(json.promoPrice - dom.promoPrice) < 0.02;
+        return schemaMatchesDom ? json : { price: dom.price, promoPrice: dom.promoPrice };
+      }
+      if (json.price != null) {
+        const jsonNearPromo = Math.abs(json.price - dom.promoPrice) < 0.02;
+        if (jsonNearPromo) {
+          return { price: dom.price, promoPrice: json.price };
+        }
+        return { price: dom.price, promoPrice: dom.promoPrice };
+      }
+    }
+
     if (json.promoPrice != null) return json;
 
-    // Se só existe `offers.price` (sem low/high), nunca "inventar" promo a partir do DOM-like.
-    // Quando houver desconto no texto ("de R$ ..."), usamos isso; caso contrário, mantemos apenas `json.price`.
     if (json.price != null) {
       const textPrices = findPromoAndPrice(htmlToVisibleText(htmlMain));
       if (
@@ -516,14 +617,6 @@ export function extractPricesFromHtml(html: string): {
         Math.abs(textPrices.promoPrice - json.price) < 0.02
       ) {
         return { price: textPrices.price, promoPrice: textPrices.promoPrice };
-      }
-    }
-
-    // DOM-like só pode ser usado como "antes" quando o promo inferido bate com o `json.price`.
-    if (json.price != null && dom && dom.price != null && dom.promoPrice != null) {
-      const matchesPromo = Math.abs(dom.promoPrice - json.price) < 0.02;
-      if (matchesPromo && dom.price > dom.promoPrice) {
-        return { price: dom.price, promoPrice: json.price };
       }
     }
 
@@ -571,13 +664,12 @@ export async function fetchPricesFromUrl(url: string): Promise<{
 
     if (!initial || !initial.price || !Number.isFinite(initial.price) || initial.price <= 0) return null;
 
-    // Se a extração por HTML veio sem promo, fazemos fallback via DOM renderizado
-    // (Playwright) para bater com a lógica do import (extensão).
-    if (initial.promoPrice == null) {
-      const dom = await fetchPricesFromUrlWithPlaywright(url);
-      if (dom && dom.price > 0 && (dom.promoPrice != null || Math.abs(dom.price - initial.price) > 0.01)) {
-        return dom;
-      }
+    // O HTML do fetch costuma ser SSR: os mesmos seletores do PDP podem trazer valores
+    // diferentes dos que o React hidrata depois — a importação vê o DOM pós-hidratação.
+    // Por isso, quando o Playwright está disponível, usamos o DOM renderizado (como na extensão).
+    const rendered = await fetchPricesFromUrlWithPlaywright(url);
+    if (rendered && rendered.price > 0 && Number.isFinite(rendered.price)) {
+      return rendered;
     }
 
     return { price: initial.price, promoPrice: initial.promoPrice };
@@ -594,11 +686,15 @@ async function fetchPricesFromUrlWithPlaywright(url: string): Promise<{
     const { chromium } = await import("playwright");
     const userAgent = (ML_FETCH_HEADERS["User-Agent"] as string) || undefined;
 
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch({
+      headless: true,
+      args: ["--disable-blink-features=AutomationControlled"],
+    });
     const context = await browser.newContext({ userAgent });
     const page = await context.newPage();
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.goto(url, { waitUntil: "load", timeout: 60000 });
+    await page.waitForLoadState("networkidle", { timeout: 45000 }).catch(() => {});
 
     // Aceita banner de cookies quando existir.
     try {
@@ -617,6 +713,9 @@ async function fetchPricesFromUrlWithPlaywright(url: string): Promise<{
         { timeout: 20000 },
       )
       .catch(() => {});
+
+    // Preços no buy box costumam atualizar após hidratação e chamadas de rede (SSR ≠ valor final).
+    await new Promise((r) => setTimeout(r, 4000));
 
     const data = await page.evaluate(() => {
       const parseAndesMoney = (el: Element | null): number | null => {
@@ -651,6 +750,9 @@ async function fetchPricesFromUrlWithPlaywright(url: string): Promise<{
         firstNotInOtherSellers(".ui-pdp-container__row--price, .ui-pdp-container__row.ui-pdp-container__row--price") ||
         null;
 
+      const mainContainer =
+        firstNotInOtherSellers(".ui-pdp-price__main-container") || firstNotInOtherSellers(".ui-pdp-price");
+
       const parseAndesMoneyFromFractionCents = (fracEl: Element, centsEl: Element): number | null => {
         const fraction = fracEl.textContent?.trim();
         const cents = centsEl.textContent?.trim();
@@ -671,6 +773,50 @@ async function fetchPricesFromUrlWithPlaywright(url: string): Promise<{
           }
           return true;
         });
+      };
+
+      const parseAriaLabelReaisCentavos = (label: string): number | null => {
+        const s = String(label ?? "")
+          .trim()
+          .replace(/\s+/g, " ");
+        if (!s) return null;
+        let m = s.match(/^Antes:\s*([\d.]+)\s*reais(?:\s*com\s*(\d+)\s*centavos?)?$/i);
+        if (m) {
+          const reais = Number(String(m[1]).replace(/\./g, ""));
+          const centavos = m[2] ? Number(m[2]) : 0;
+          if (Number.isFinite(reais) && Number.isFinite(centavos)) {
+            const v = reais + centavos / 100;
+            return Number.isFinite(v) && v > 0 ? v : null;
+          }
+        }
+        m = s.match(/^([\d.]+)\s*reais\s*com\s*(\d+)\s*centavos?$/i);
+        if (m) {
+          const reais = Number(String(m[1]).replace(/\./g, ""));
+          const centavos = Number(m[2]);
+          if (Number.isFinite(reais) && Number.isFinite(centavos)) {
+            const v = reais + centavos / 100;
+            return Number.isFinite(v) && v > 0 ? v : null;
+          }
+        }
+        return null;
+      };
+
+      const collectAriaLabelPricesFromContainer = (container: Element): number[] => {
+        const MIN = 3;
+        const seq: number[] = [];
+        const nodes = container.querySelectorAll("[aria-label]");
+        for (const el of nodes) {
+          const label = el.getAttribute("aria-label");
+          if (!label) continue;
+          const v = parseAriaLabelReaisCentavos(label);
+          if (v != null && v >= MIN) {
+            if (seq.length === 0 || Math.abs(seq[seq.length - 1] - v) > 0.009) {
+              seq.push(v);
+            }
+          }
+          if (seq.length >= 3) break;
+        }
+        return seq;
       };
 
       const collectAmountsFromPriceBlock = (container: Element): number[] => {
@@ -702,27 +848,38 @@ async function fetchPricesFromUrlWithPlaywright(url: string): Promise<{
         return amounts;
       };
 
-      if (priceRow) {
-        const amounts = collectAmountsFromPriceBlock(priceRow);
-        const price = amounts[0];
-        const promoLine = amounts[1];
-        if (price != null) {
-          const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-          return { price, promoPrice };
-        }
-      }
-
-      const mainContainer =
-        firstNotInOtherSellers(".ui-pdp-price__main-container") ||
-        firstNotInOtherSellers(".ui-pdp-price");
-
+      // main-container antes de row--price (igual extractPricesFromMlDomLike / extensão).
       if (mainContainer) {
+        const ar = collectAriaLabelPricesFromContainer(mainContainer);
+        if (ar.length >= 1) {
+          const line1 = ar[0];
+          const promoLine = ar[1];
+          const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
+          return { price: line1, promoPrice };
+        }
         const amounts = collectAmountsFromPriceBlock(mainContainer);
         const line1 = amounts[0];
         if (line1 != null) {
           const promoLine = amounts[1];
           const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
           return { price: line1, promoPrice };
+        }
+      }
+
+      if (priceRow) {
+        const ar = collectAriaLabelPricesFromContainer(priceRow);
+        if (ar.length >= 1) {
+          const price = ar[0];
+          const promoLine = ar[1];
+          const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+          return { price, promoPrice };
+        }
+        const amounts = collectAmountsFromPriceBlock(priceRow);
+        const price = amounts[0];
+        const promoLine = amounts[1];
+        if (price != null) {
+          const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+          return { price, promoPrice };
         }
       }
 

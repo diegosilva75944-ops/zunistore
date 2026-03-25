@@ -468,6 +468,49 @@ function parseAndesMoneyFromFractionCents(fracEl, centsEl) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** aria-label "35 reais com 72 centavos" / "Antes: …" — prioridade sobre fraction/cents no DOM. */
+function parseMlAriaLabelReaisCentavos(label) {
+  const s = String(label ?? "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!s) return null;
+  let m = s.match(/^Antes:\s*([\d.]+)\s*reais(?:\s*com\s*(\d+)\s*centavos?)?$/i);
+  if (m) {
+    const reais = Number(String(m[1]).replace(/\./g, ""));
+    const centavos = m[2] ? Number(m[2]) : 0;
+    if (Number.isFinite(reais) && Number.isFinite(centavos)) {
+      const v = reais + centavos / 100;
+      return v > 0 ? v : null;
+    }
+  }
+  m = s.match(/^([\d.]+)\s*reais\s*com\s*(\d+)\s*centavos?$/i);
+  if (m) {
+    const reais = Number(String(m[1]).replace(/\./g, ""));
+    const centavos = Number(m[2]);
+    if (Number.isFinite(reais) && Number.isFinite(centavos)) {
+      const v = reais + centavos / 100;
+      return v > 0 ? v : null;
+    }
+  }
+  return null;
+}
+
+function collectAriaLabelPricesFromContainer(container) {
+  const MIN = 3;
+  const seq = [];
+  const nodes = container.querySelectorAll("[aria-label]");
+  for (const el of nodes) {
+    const label = el.getAttribute("aria-label");
+    if (!label) continue;
+    const v = parseMlAriaLabelReaisCentavos(label);
+    if (v != null && v >= MIN) {
+      if (seq.length === 0 || Math.abs(seq[seq.length - 1] - v) > 0.009) seq.push(v);
+    }
+    if (seq.length >= 3) break;
+  }
+  return seq;
+}
+
 /** Evita contar o mesmo preço duas vezes quando há .andes-money-amount aninhados. */
 function filterTopLevelAndesMoney(container) {
   const all = Array.from(container.querySelectorAll(".andes-money-amount"));
@@ -545,34 +588,45 @@ function getBodyInnerTextExcludingOtherSellers(doc) {
 }
 
 function extractPricesFromMlDom(doc) {
-  // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
-  // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
-  const priceRow =
-    firstElementNotInOtherSellers(doc, ".ui-pdp-container__row--price, .ui-pdp-container__row.ui-pdp-container__row--price");
-
-  if (priceRow) {
-    const amounts = collectAmountsFromPriceBlock(priceRow);
-    const price = amounts[0];
-    const promoLine = amounts[1];
-    if (price != null) {
-      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-      return { price, promoPrice };
-    }
-  }
-
-  // Preferir o componente principal de preço que pode ter até 3 linhas.
+  // ui-pdp-price__main-container antes de row--price (igual lib/ml-price.ts).
   const mainContainer =
     firstElementNotInOtherSellers(doc, ".ui-pdp-price__main-container") ||
     firstElementNotInOtherSellers(doc, ".ui-pdp-price");
 
   if (mainContainer) {
-    // 1º par fraction+cents = preço "de" (pode ser andes-money-amount--previous); 2º = promocional.
+    const ar = collectAriaLabelPricesFromContainer(mainContainer);
+    if (ar.length >= 1) {
+      const line1 = ar[0];
+      const promoLine = ar[1];
+      const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
+      return { price: line1, promoPrice };
+    }
     const amounts = collectAmountsFromPriceBlock(mainContainer);
     const line1 = amounts[0];
     if (line1 != null) {
       const promoLine = amounts[1];
       const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
       return { price: line1, promoPrice };
+    }
+  }
+
+  const priceRow =
+    firstElementNotInOtherSellers(doc, ".ui-pdp-container__row--price, .ui-pdp-container__row.ui-pdp-container__row--price");
+
+  if (priceRow) {
+    const ar = collectAriaLabelPricesFromContainer(priceRow);
+    if (ar.length >= 1) {
+      const price = ar[0];
+      const promoLine = ar[1];
+      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+      return { price, promoPrice };
+    }
+    const amounts = collectAmountsFromPriceBlock(priceRow);
+    const price = amounts[0];
+    const promoLine = amounts[1];
+    if (price != null) {
+      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+      return { price, promoPrice };
     }
   }
 

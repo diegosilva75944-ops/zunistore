@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "replace": "node scripts/replace-all.js"
+    "replace": "node scripts/replace-all.js",
+    "playwright:install": "playwright install chromium",
+    "postinstall": "playwright install chromium"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2",
