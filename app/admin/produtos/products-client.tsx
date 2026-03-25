@@ -820,8 +820,8 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       </div>
 
       {loading ? (
-        <div className="rounded-2xl ring-1 ring-zinc-200 p-6 py-16 min-h-[240px] flex items-center justify-center">
-          <SitePageLoader />
+        <div className="flex justify-center py-10">
+          <SitePageLoader compact />
         </div>
       ) : (
       <div className="overflow-auto rounded-2xl ring-1 ring-zinc-200">
@@ -992,14 +992,12 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
 
       {(busy || syncing || syncingProductId !== null) && (
         <div
-          className="fixed inset-0 z-100 flex items-center justify-center bg-white/85 backdrop-blur-sm"
+          className="fixed inset-0 z-100 flex items-center justify-center bg-white/50 backdrop-blur-md"
           role="status"
           aria-live="polite"
           aria-busy="true"
         >
-          <div className="rounded-2xl bg-white shadow-xl ring-1 ring-zinc-200 px-10 py-8 max-w-[min(90vw,420px)]">
-            <SitePageLoader />
-          </div>
+          <SitePageLoader compact />
         </div>
       )}
     </div>

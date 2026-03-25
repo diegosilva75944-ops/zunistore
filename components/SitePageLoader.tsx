@@ -5,10 +5,19 @@ import cartLoader from "@/lib/lottie/cart-loader.json";
 
 const Lottie = dynamic(() => import("lottie-react"), { ssr: false });
 
-export function SitePageLoader() {
+type SitePageLoaderProps = {
+  /** Sem área mínima alta — use em overlays/modais só com a animação. */
+  compact?: boolean;
+};
+
+export function SitePageLoader({ compact = false }: SitePageLoaderProps) {
   return (
     <div
-      className="flex min-h-[50vh] w-full flex-col items-center justify-center gap-4 py-16"
+      className={
+        compact
+          ? "flex flex-col items-center justify-center gap-2"
+          : "flex min-h-[50vh] w-full flex-col items-center justify-center gap-4 py-16"
+      }
       role="status"
       aria-live="polite"
       aria-busy="true"
