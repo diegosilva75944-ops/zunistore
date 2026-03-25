@@ -7,6 +7,7 @@ import {
   postgrestDelete,
   postgrestGetWithCount,
   postgrestRpc,
+  PostgrestError,
   inVal,
 } from "@/lib/postgrest/server";
 import { randomToken, sha256Hex } from "@/lib/crypto";
@@ -326,6 +327,75 @@ function toDayEndUtcIso(dateYmd: string): string {
   return `${s}T23:59:59.999Z`;
 }
 
+function isPgrstFunctionMissing(e: unknown): boolean {
+  if (!(e instanceof PostgrestError)) return false;
+  const d = e.details as { code?: string } | undefined;
+  if (d?.code === "PGRST202") return true;
+  return String(e.message).includes("PGRST202");
+}
+
+/**
+ * Purge sem RPC (só DELETE em product_price_history) — funciona mesmo sem a função SQL no banco.
+ * Apaga em lotes por id para compatibilidade com PostgREST puro.
+ */
+async function purgePriceHistoryViaTableDelete(opts: {
+  deleteAll: boolean;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  categoryId?: string | null;
+}): Promise<number> {
+  const { deleteAll } = opts;
+  const hasDateFrom = !!opts.dateFrom?.trim();
+  const hasDateTo = !!opts.dateTo?.trim();
+  const categoryId = opts.categoryId?.trim() || null;
+  const dateFromIso = hasDateFrom ? toDayStartUtcIso(opts.dateFrom!) : "";
+  const dateToIso = hasDateTo ? toDayEndUtcIso(opts.dateTo!) : "";
+
+  const batchLimit = "500";
+  const order = "changed_at.asc";
+
+  const andDateParts: string[] = [];
+  if (dateFromIso) andDateParts.push(`changed_at.gte.${dateFromIso}`);
+  if (dateToIso) andDateParts.push(`changed_at.lte.${dateToIso}`);
+  const andDate =
+    andDateParts.length > 0 ? `(${andDateParts.join(",")})` : null;
+
+  const baseListParams = (): Record<string, string> => {
+    if (deleteAll) {
+      return { select: "id", order, limit: batchLimit };
+    }
+    if (categoryId) {
+      const p: Record<string, string> = {
+        select: "id,products!inner(category_id)",
+        order,
+        limit: batchLimit,
+        "products.category_id": `eq.${categoryId}`,
+      };
+      if (andDate) p.and = andDate;
+      return p;
+    }
+    const p: Record<string, string> = {
+      select: "id",
+      order,
+      limit: batchLimit,
+    };
+    if (andDate) p.and = andDate;
+    return p;
+  };
+
+  let deleted = 0;
+  for (;;) {
+    const rows = await postgrestGet<any[]>("product_price_history", baseListParams());
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) break;
+    const ids = list.map((r) => r.id).filter(Boolean);
+    if (!ids.length) break;
+    await postgrestDelete("product_price_history", { id: inVal(ids) });
+    deleted += ids.length;
+  }
+  return deleted;
+}
+
 export async function adminListPriceHistory(opts: {
   page?: number;
   perPage?: number;
@@ -383,16 +453,28 @@ export async function adminPurgePriceHistory(opts: {
   const dateFromIso = hasDateFrom ? toDayStartUtcIso(opts.dateFrom!) : null;
   const dateToIso = hasDateTo ? toDayEndUtcIso(opts.dateTo!) : null;
 
-  const raw = await postgrestRpc<unknown>("admin_purge_product_price_history", {
-    payload: {
-      p_delete_all: deleteAll,
-      p_date_from: dateFromIso,
-      p_date_to: dateToIso,
-      p_category_id: categoryId || null,
-    },
-  });
-  const n = typeof raw === "number" ? raw : Number(raw);
-  return Number.isFinite(n) ? n : 0;
+  try {
+    const raw = await postgrestRpc<unknown>("admin_purge_product_price_history", {
+      payload: {
+        p_delete_all: deleteAll,
+        p_date_from: dateFromIso,
+        p_date_to: dateToIso,
+        p_category_id: categoryId || null,
+      },
+    });
+    const n = typeof raw === "number" ? raw : Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  } catch (e) {
+    if (isPgrstFunctionMissing(e)) {
+      return purgePriceHistoryViaTableDelete({
+        deleteAll,
+        dateFrom: opts.dateFrom,
+        dateTo: opts.dateTo,
+        categoryId,
+      });
+    }
+    throw e;
+  }
 }
 
 export async function adminUpdateSiteColors(colors: Record<string, string>) {
