@@ -87,7 +87,7 @@ export async function postgrestGetWithCount<T = unknown>(
   role: PostgrestRole = "service",
 ): Promise<{ data: T; count: number }> {
   const base = getPostgrestBaseUrl();
-  if (!base) throw new Error("DB_API_URL ou SUPABASE_URL não configurado.");
+  if (!base) throw new Error("POSTGREST_URL, DB_API_URL ou SUPABASE_URL não configurado.");
   const baseNorm = base.replace(/\/+$/, "");
   const path = table.startsWith("rpc/") ? table : table;
   const url = new URL(path, baseNorm + "/");

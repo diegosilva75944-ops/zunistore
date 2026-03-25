@@ -1,7 +1,7 @@
 /**
- * PostgREST HTTP helpers - fetch direto para API compatível com PostgREST puro.
- * URLs no formato: {base}/{table} ou {base}/rpc/{function}
- * Sem sufixo /rest/v1 (PostgREST puro at root).
+ * PostgREST HTTP helpers - fetch direto para API compatível com PostgREST.
+ * URLs: `{base}/{table}` e `{base}/rpc/{function}` (base vem de getPostgrestBaseUrl:
+ * PostgREST na raiz, ou …/rest/v1 se o proxy / Supabase Cloud assim expuser).
  */
 
 import { getPostgrestBaseUrl, getPostgrestAnonKey, getPostgrestServiceKey } from "./config";
@@ -14,7 +14,7 @@ function getKey(role: PostgrestRole): string {
 
 function buildUrl(tableOrRpc: string, params?: Record<string, string>): string {
   const base = getPostgrestBaseUrl();
-  if (!base) throw new Error("DB_API_URL ou SUPABASE_URL não configurado.");
+  if (!base) throw new Error("POSTGREST_URL, DB_API_URL ou SUPABASE_URL não configurado.");
   const baseNorm = base.replace(/\/+$/, "");
   const path = tableOrRpc.startsWith("rpc/") ? tableOrRpc : tableOrRpc;
   const url = new URL(path, baseNorm + "/");
@@ -93,7 +93,7 @@ export async function postgrestPost<T = unknown>(
   opts?: { select?: string; returning?: boolean; upsert?: boolean; onConflict?: string },
 ): Promise<T> {
   const base = getPostgrestBaseUrl();
-  if (!base) throw new Error("DB_API_URL ou SUPABASE_URL não configurado.");
+  if (!base) throw new Error("POSTGREST_URL, DB_API_URL ou SUPABASE_URL não configurado.");
   const baseNorm = base.replace(/\/+$/, "");
   const path = table.startsWith("rpc/") ? table : table;
   const url = new URL(path, baseNorm + "/");

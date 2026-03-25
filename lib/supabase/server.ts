@@ -4,9 +4,10 @@ import { createClient } from "@supabase/supabase-js";
 import { requireEnv } from "@/lib/env";
 
 /**
- * O @supabase/supabase-js faz `new URL("rest/v1", baseUrl)` para o PostgREST.
- * Qualquer sufixo após o host (incl. /rest/v1 ou paths errados) duplica ou quebra o path.
- * Para projetos Supabase hospedados usamos só a origin (https://ref.supabase.co).
+ * @supabase/supabase-js é um cliente HTTP PostgREST; aqui usamos o mesmo backend
+ * que lib/postgrest/fetch (PostgreSQL + PostgREST), não “o banco Supabase” como produto.
+ * O SDK faz `new URL("rest/v1", baseUrl)`; paths extras quebram a URL. Em *.supabase.co
+ * usamos só origin; em outros hosts removemos sufixo /rest/v1 se existir.
  */
 function supabaseProjectUrlForClient(raw: string): string {
   const s = String(raw).trim();
