@@ -57,7 +57,7 @@ export async function getBaseUrl(): Promise<string> {
   try {
     const h = await headers();
     const forwardedHost = headerFirst("x-forwarded-host", h);
-    let host = forwardedHost || headerFirst("host", h);
+    const host = forwardedHost || headerFirst("host", h);
     if (!host || isInvalidPublicHost(host)) {
       return rawPublicSiteUrl();
     }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 export function AdminLoginClient({ nextPath }: { nextPath: string }) {
@@ -77,12 +78,12 @@ export function AdminLoginClient({ nextPath }: { nextPath: string }) {
             >
               {loading ? "Entrando…" : "Entrar"}
             </button>
-            <a
+            <Link
               href="/"
               className="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 text-center"
             >
               Sair
-            </a>
+            </Link>
           </div>
         </form>
       </div>

@@ -10,6 +10,7 @@
  * Exclui: node_modules, .git, .next, arquivos binários
  */
 
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require("fs");
 const path = require("path");
 

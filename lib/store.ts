@@ -187,6 +187,8 @@ export async function searchProductsByTerms(opts: {
       offset: String(from),
       limit: String(perPage),
     };
+    // Só exibir itens ativos no site.
+    params.is_active = "eq.true";
     if (categoryId) params.category_id = `eq.${categoryId}`;
     if (terms.length) params.search_tsv = `wfts.portuguese.${encodeURIComponent(terms.join(" "))}`;
 
@@ -255,6 +257,8 @@ export async function listProducts(opts: {
       offset: String(from),
       limit: String(perPage),
     };
+    // Só exibir itens ativos no site.
+    params.is_active = "eq.true";
     if (categoryId) params.category_id = `eq.${categoryId}`;
     if (onlyOffers) params.is_offer = "eq.true";
     if (typeof min === "number" && typeof max === "number") {
@@ -281,6 +285,7 @@ export async function getProductByCode6(code6: string): Promise<Product | null> 
     const rows = await getWithPublicFallback<any[]>("products", {
       select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
       code6: `eq.${encodeURIComponent(code6)}`,
+      is_active: "eq.true",
       limit: "1",
     });
     const data = Array.isArray(rows) ? rows[0] : null;
@@ -294,6 +299,7 @@ export async function listCarouselProducts() {
   try {
     const data = await getWithPublicFallback<any[]>("carousel_items", {
       select: "id,product_id,sort_order,size,products:product_id(code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url)",
+      "products.is_active": "eq.true",
       order: "sort_order.asc",
     });
     const items = Array.isArray(data) ? data : [];

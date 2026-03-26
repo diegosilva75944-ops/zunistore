@@ -46,6 +46,7 @@ create table if not exists public.products (
   last_seen_at timestamptz null,
   affiliate_valid_checked_at timestamptz null,
   affiliate_valid boolean null,
+  is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   search_tsv tsvector generated always as (
@@ -60,10 +61,63 @@ create index if not exists products_effective_price_idx on public.products(effec
 create index if not exists products_offer_idx on public.products(is_offer);
 create index if not exists products_off_percent_idx on public.products(off_percent desc);
 create index if not exists products_search_tsv_idx on public.products using gin(search_tsv);
+create index if not exists products_is_active_idx on public.products(is_active) where is_active = true;
 
 create trigger set_products_updated_at
 before update on public.products
 for each row execute function public.set_updated_at();
+
+-- Vínculo de produtos importados por fontes externas (ex.: Mercado Livre público)
+create table if not exists public.product_external_listings (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null unique references public.products(id) on delete cascade,
+
+  origin text not null default 'mercadolivre',
+  origin_tipo text not null default 'public_listing',
+  external_id text not null,
+  external_permalink text not null,
+  seller_id text null,
+  seller_nickname text null,
+  external_category_id text null,
+  external_category_name text null,
+
+  external_currency text null,
+  external_price_current numeric null,
+  external_price_original numeric null,
+  external_is_promo boolean null,
+  external_discount_percent int null,
+
+  external_brand text null,
+  external_model text null,
+  external_gtin text null,
+  external_attributes jsonb null,
+  external_payload jsonb null,
+
+  external_thumbnail text null,
+  external_main_image text null,
+  external_images jsonb null,
+
+  imported_at timestamptz not null default now(),
+  last_synced_at timestamptz null,
+  import_mode text not null default 'admin_internal',
+  external_status text null,
+  external_active boolean not null default true
+);
+
+create unique index if not exists product_external_listings_external_id_uq
+  on public.product_external_listings(origin, external_id);
+
+create unique index if not exists product_external_listings_permalink_uq
+  on public.product_external_listings(origin, external_permalink);
+
+create index if not exists product_external_listings_product_id_idx
+  on public.product_external_listings(product_id);
+
+create index if not exists product_external_listings_seller_id_idx
+  on public.product_external_listings(seller_id);
+
+create index if not exists product_external_listings_seller_nickname_idx
+  on public.product_external_listings(seller_nickname);
 
 -- histórico de produtos removidos (ex.: não encontrado na URL na sincronização)
 create table if not exists public.deleted_products_history (
@@ -230,6 +284,7 @@ $$;
 -- RLS (leitura pública apenas nas tabelas públicas)
 alter table public.categories enable row level security;
 alter table public.products enable row level security;
+alter table public.product_external_listings enable row level security;
 alter table public.carousel_items enable row level security;
 alter table public.site_settings enable row level security;
 alter table public.contact_settings enable row level security;

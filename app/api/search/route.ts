@@ -15,6 +15,7 @@ export async function GET(req: Request) {
 
   const byText = await postgrestGet<any[]>("products", {
     select: "code6,slug,title",
+    is_active: "eq.true",
     or: `(title.ilike.${pat},description.ilike.${pat})`,
     order: "created_at.desc",
     limit: "8",
@@ -30,6 +31,7 @@ export async function GET(req: Request) {
   if (categoryIds.length > 0) {
     const data = await postgrestGet<any[]>("products", {
       select: "code6,slug,title",
+      is_active: "eq.true",
       category_id: inVal(categoryIds),
       order: "created_at.desc",
       limit: "8",
