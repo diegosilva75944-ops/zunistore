@@ -468,7 +468,10 @@ function extractOrderedPolyMoneyAmounts(block: string): number[] {
 /**
  * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
  * Só o primeiro card: até o próximo `poly-component__price` — evita “Quem viu também comprou”.
- * Dentro do card: 1º preço (ordem no HTML) = normal; 2º = promocional. Parcelas (`poly-price__installments`) são ignoradas.
+ * 1º/2º `andes-money-amount__fraction` no card = normal / promocional (parcelas cortadas antes).
+ * Exceção: quando o ML expõe “Antes: N reais” sem centavos no aria e “Agora: … com … centavos”, o à vista no
+ * HTML nem sempre é o que a loja quer exibir no sync — usamos só o 1º valor (lista). Ofertas com
+ * “Agora: 999 reais” (sem “centavos” no label) continuam com 2º preço.
  */
 function extractPricesFromPolyComponent(html: string): {
   price: number;
@@ -499,13 +502,28 @@ function extractPricesFromPolyComponent(html: string): {
       if (n != null && n > 0) fromText.push(n);
     }
     if (fromText.length === 0) return null;
-    // Mesma regra: 1º e 2º valores no texto visível do card.
     const p1 = fromText[0];
     const p2 = fromText.length >= 2 ? fromText[1] : null;
+    const promoText = p2 != null && p2 !== p1 ? p2 : null;
+    if (
+      promoText != null &&
+      /aria-label=["']Agora:[^"']*centavos/i.test(block) &&
+      !/aria-label=["']Antes:[^"']*centavos/i.test(block)
+    ) {
+      return { price: p1, promoPrice: null };
+    }
     return {
       price: p1,
-      promoPrice: p2 != null && p2 !== p1 ? p2 : null,
+      promoPrice: promoText,
     };
+  }
+
+  if (
+    amounts.length >= 2 &&
+    /aria-label=["']Agora:[^"']*centavos/i.test(block) &&
+    !/aria-label=["']Antes:[^"']*centavos/i.test(block)
+  ) {
+    return { price: amounts[0], promoPrice: null };
   }
 
   const normal = amounts[0];
