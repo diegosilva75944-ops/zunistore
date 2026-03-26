@@ -543,18 +543,13 @@ function extractPricesFromPolyComponent(html: string): {
   return { price: p1, promoPrice: p2 != null && p2 !== p1 ? p2 : null };
 }
 
-/**
- * Payload embutido no HTML: primeiro par `previous_price` + `current_price` (ordem no documento).
- * Em páginas de perfil/afiliado costuma ser o card em destaque; prioridade acima do DOM do primeiro card.
- */
-function extractFirstMlHydrationPricePair(html: string): {
+const ML_HYDRATION_PRICE_PAIR_RE =
+  /"previous_price":\{"value":([0-9.]+)[^}]*\},"current_price":\{"value":([0-9.]+)/;
+
+function parseMlHydrationPricePairMatch(m: RegExpMatchArray): {
   price: number;
   promoPrice: number | null;
 } | null {
-  const m = html.match(
-    /"previous_price":\{"value":([0-9.]+)[^}]*\},"current_price":\{"value":([0-9.]+)/,
-  );
-  if (!m) return null;
   const price = Number(m[1]);
   const promo = Number(m[2]);
   if (!Number.isFinite(price) || price <= 0) return null;
@@ -563,17 +558,68 @@ function extractFirstMlHydrationPricePair(html: string): {
   return { price, promoPrice: null };
 }
 
+/**
+ * Payload embutido: primeiro par `previous_price` + `current_price` na ordem do documento (fallback).
+ */
+function extractFirstMlHydrationPricePair(html: string): {
+  price: number;
+  promoPrice: number | null;
+} | null {
+  const m = html.match(ML_HYDRATION_PRICE_PAIR_RE);
+  if (!m) return null;
+  return parseMlHydrationPricePairMatch(m);
+}
+
+/**
+ * Perfil/afiliado: o par de preços do **primeiro card** (`poly-component__price`) está no payload
+ * associado ao mesmo `MLB…` do link "Ir para produto". Assim não pegamos o N-ésimo item do array
+ * (ex.: recomendações com ~~591~~) quando a ordem do JSON mudar.
+ */
+function extractHydrationPricePairForFeaturedPoly(html: string): {
+  price: number;
+  promoPrice: number | null;
+} | null {
+  const lower = html.toLowerCase();
+  const polyIdx = lower.indexOf("poly-component__price");
+  if (polyIdx === -1) return null;
+
+  const polyHead = html.slice(polyIdx, polyIdx + 16_000);
+  const mlb =
+    polyHead.match(/\/p\/(MLB\d+)/i)?.[1] ?? polyHead.match(/\b(MLB\d{6,})\b/)?.[1];
+  if (!mlb) return null;
+
+  let searchPos = 0;
+  while (searchPos < html.length) {
+    const idPos = html.indexOf(mlb, searchPos);
+    if (idPos === -1) break;
+    const win = html.slice(idPos, idPos + 5000);
+    const pm = win.match(ML_HYDRATION_PRICE_PAIR_RE);
+    const parsed = pm ? parseMlHydrationPricePairMatch(pm) : null;
+    if (parsed) return parsed;
+    searchPos = idPos + 1;
+  }
+  return null;
+}
+
 export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
-  // 1) Payload embutido (previous_price + current_price), quando existir
-  const hydrated = extractFirstMlHydrationPricePair(html);
+  const lower = html.toLowerCase();
+  // 1) Payload ancorado ao MLB do primeiro card (perfil social)
+  let hydrated =
+    lower.includes("poly-component__price") ?
+      extractHydrationPricePairForFeaturedPoly(html)
+    : null;
+  // 2) Primeiro par no payload (fallback)
+  if (hydrated == null) {
+    hydrated = extractFirstMlHydrationPricePair(html);
+  }
   if (hydrated != null) {
     return { price: hydrated.price, promoPrice: hydrated.promoPrice };
   }
 
-  // 2) Primeiro card poly-component__price (DOM)
+  // 3) Primeiro card poly-component__price (DOM)
   const poly = extractPricesFromPolyComponent(html);
   if (poly != null && poly.price > 0) {
     return { price: poly.price, promoPrice: poly.promoPrice };
