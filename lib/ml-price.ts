@@ -544,9 +544,8 @@ function extractPricesFromPolyComponent(html: string): {
 }
 
 /**
- * Perfil social / afiliado: o HTML costuma incluir o estado de preço no payload (primeiro par
- * `previous_price` + `current_price` = card em destaque). Evita confundir com outros cards no DOM
- * e alinha ao valor numérico que o ML envia junto da página.
+ * Payload embutido no HTML: primeiro par `previous_price` + `current_price` (ordem no documento).
+ * Em páginas de perfil/afiliado costuma ser o card em destaque; prioridade acima do DOM do primeiro card.
  */
 function extractFirstMlHydrationPricePair(html: string): {
   price: number;
@@ -568,14 +567,13 @@ export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
-  const lower = html.toLowerCase();
-  if (lower.includes("poly-component__price")) {
-    const hydrated = extractFirstMlHydrationPricePair(html);
-    if (hydrated != null) {
-      return { price: hydrated.price, promoPrice: hydrated.promoPrice };
-    }
+  // 1) Payload embutido (previous_price + current_price), quando existir
+  const hydrated = extractFirstMlHydrationPricePair(html);
+  if (hydrated != null) {
+    return { price: hydrated.price, promoPrice: hydrated.promoPrice };
   }
 
+  // 2) Primeiro card poly-component__price (DOM)
   const poly = extractPricesFromPolyComponent(html);
   if (poly != null && poly.price > 0) {
     return { price: poly.price, promoPrice: poly.promoPrice };
