@@ -214,6 +214,83 @@ export function extractAriaLabelPriceSequenceFromFragment(fragment: string): num
   return out;
 }
 
+/** Conteúdo de `<meta itemprop="price" content="…">` no HTML (fora de scripts). */
+function parseMetaItempropPriceContent(raw: string): number | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const normalized = s.includes(",")
+    ? s.replace(/\./g, "").replace(",", ".")
+    : s.replace(/,/g, "");
+  const n = Number(normalized);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function extractMetaItempropPriceFromFragment(fragment: string): number | null {
+  const m =
+    fragment.match(/<meta[^>]+itemprop=["']price["'][^>]*content=["']([^"']+)["']/i) ??
+    fragment.match(/<meta[^>]+content=["']([^"']+)["'][^>]*itemprop=["']price["']/i);
+  if (!m?.[1]) return null;
+  return parseMetaItempropPriceContent(m[1]);
+}
+
+const ML_PRICE_MISMATCH_EPS = 0.05;
+
+/**
+ * Quando fraction+cents no SSR divergem do `meta itemprop="price"` (e o aria “acompanha” o
+ * fraction errado ou não há aria), usamos o itemprop como preço base no sync — mantém o cron útil.
+ */
+function resolvePriceWhenFractionDesyncedWithMeta(opts: {
+  mainBlock: string;
+  htmlFallback: string;
+  fracFirst: number;
+  ariaFirst: number | null;
+  ariaSeq: number[];
+}): { price: number; promoPrice: number | null } | null {
+  const metaP =
+    extractMetaItempropPriceFromFragment(opts.mainBlock) ??
+    extractMetaItempropPriceFromFragment(opts.htmlFallback);
+  if (metaP == null || Math.abs(opts.fracFirst - metaP) <= ML_PRICE_MISMATCH_EPS) {
+    return null;
+  }
+
+  const antes = extractAntesPriceFromAria(opts.mainBlock);
+  if (antes != null && antes > metaP + ML_PRICE_MISMATCH_EPS) {
+    return { price: antes, promoPrice: metaP };
+  }
+
+  const aria = opts.ariaFirst;
+  const ariaEchoesBadFraction =
+    aria != null &&
+    Math.abs(aria - opts.fracFirst) <= ML_PRICE_MISMATCH_EPS &&
+    Math.abs(aria - metaP) > ML_PRICE_MISMATCH_EPS;
+
+  if (aria != null && !ariaEchoesBadFraction && Math.abs(aria - metaP) <= ML_PRICE_MISMATCH_EPS) {
+    const price = opts.ariaSeq[0];
+    const promoLine = opts.ariaSeq[1];
+    const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+    return { price, promoPrice };
+  }
+
+  if (aria != null && !ariaEchoesBadFraction && opts.ariaSeq.length >= 1) {
+    return null;
+  }
+
+  return { price: metaP, promoPrice: null };
+}
+
+function firstAndesFractionCentsPairFromBlock(block: string): number | null {
+  const pairSeqRe =
+    /andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,800}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
+  for (const m of block.matchAll(pairSeqRe)) {
+    const fractionStr = (m[1] || "").replace(/\./g, "");
+    const centsStr = (m[2] || "00").padStart(2, "0");
+    if (!fractionStr) continue;
+    const n = parseFloat(`${fractionStr}.${centsStr}`);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
 /** Evita tratar parcelamento (ex.: "10x" de R$ 10,00) como "2º preço" do produto. */
 function pairTwoMeaningfulPrices(sortedDesc: number[]): { price: number; promoPrice: number | null } | null {
   const uniq = [...new Set(sortedDesc)].sort((a, b) => b - a);
@@ -304,11 +381,24 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
   const mainIdx = lower.indexOf("ui-pdp-price__main-container");
   if (mainIdx !== -1) {
     const mainBlock = htmlToParse.slice(mainIdx, mainIdx + 20000);
+    const htmlFallback = htmlToParse.slice(0, 150000);
 
     // Prioridade: aria-label "X reais com Y centavos" (acessibilidade) — os spans fraction/cents
     // no SSR podem divergir (ex.: 30,64 visível vs 35,72 no aria).
     const ariaMain = extractAriaLabelPriceSequenceFromFragment(mainBlock);
+    const fracFirstMain = firstAndesFractionCentsPairFromBlock(mainBlock);
+
     if (ariaMain.length >= 1) {
+      if (fracFirstMain != null) {
+        const fixedMain = resolvePriceWhenFractionDesyncedWithMeta({
+          mainBlock,
+          htmlFallback,
+          fracFirst: fracFirstMain,
+          ariaFirst: ariaMain[0] ?? null,
+          ariaSeq: ariaMain,
+        });
+        if (fixedMain) return fixedMain;
+      }
       const price = ariaMain[0];
       const promoLine = ariaMain[1];
       const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
@@ -330,6 +420,15 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
     }
 
     if (mainAmounts.length >= 1) {
+      const fracFirst = mainAmounts[0];
+      const fixedNoAria = resolvePriceWhenFractionDesyncedWithMeta({
+        mainBlock,
+        htmlFallback,
+        fracFirst,
+        ariaFirst: null,
+        ariaSeq: [],
+      });
+      if (fixedNoAria) return fixedNoAria;
       const price = mainAmounts[0];
       const promoLine = mainAmounts[1];
       const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
@@ -341,9 +440,22 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
   const priceRowIdx = lower.indexOf("ui-pdp-container__row--price");
   if (priceRowIdx !== -1) {
     const block = htmlToParse.slice(priceRowIdx, priceRowIdx + 20000);
+    const htmlFallback = htmlToParse.slice(0, 150000);
 
     const ariaRow = extractAriaLabelPriceSequenceFromFragment(block);
+    const fracFirstRow = firstAndesFractionCentsPairFromBlock(block);
+
     if (ariaRow.length >= 1) {
+      if (fracFirstRow != null) {
+        const fixedRow = resolvePriceWhenFractionDesyncedWithMeta({
+          mainBlock: block,
+          htmlFallback,
+          fracFirst: fracFirstRow,
+          ariaFirst: ariaRow[0] ?? null,
+          ariaSeq: ariaRow,
+        });
+        if (fixedRow) return fixedRow;
+      }
       const price = ariaRow[0];
       const promoLine = ariaRow[1];
       const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
@@ -352,23 +464,35 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
     }
 
     if (domPrice == null) {
-    const amountRe =
-      /andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,250}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
+      const amountRe =
+        /andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,250}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
 
-    const amounts: number[] = [];
-    for (const m of block.matchAll(amountRe)) {
-      const fractionStr = (m[1] || "").replace(/\./g, "");
-      const centsStr = (m[2] || "00").padStart(2, "0");
-      if (!fractionStr) continue;
-      const n = parseFloat(`${fractionStr}.${centsStr}`);
-      if (Number.isFinite(n) && n > 0) amounts.push(n);
-    }
+      const amounts: number[] = [];
+      for (const m of block.matchAll(amountRe)) {
+        const fractionStr = (m[1] || "").replace(/\./g, "");
+        const centsStr = (m[2] || "00").padStart(2, "0");
+        if (!fractionStr) continue;
+        const n = parseFloat(`${fractionStr}.${centsStr}`);
+        if (Number.isFinite(n) && n > 0) amounts.push(n);
+      }
 
-    const pair = pairTwoMeaningfulPrices(amounts);
-    if (pair) {
-      domPrice = pair.price;
-      domPromoPrice = pair.promoPrice;
-    }
+      const pair = pairTwoMeaningfulPrices(amounts);
+      if (pair) {
+        const fixedAmounts = resolvePriceWhenFractionDesyncedWithMeta({
+          mainBlock: block,
+          htmlFallback,
+          fracFirst: amounts[0] ?? pair.price,
+          ariaFirst: null,
+          ariaSeq: [],
+        });
+        if (fixedAmounts) {
+          domPrice = fixedAmounts.price;
+          domPromoPrice = fixedAmounts.promoPrice;
+        } else {
+          domPrice = pair.price;
+          domPromoPrice = pair.promoPrice;
+        }
+      }
     }
   }
 

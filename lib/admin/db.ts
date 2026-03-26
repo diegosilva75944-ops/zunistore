@@ -188,6 +188,34 @@ export async function adminListProducts(opts: {
   }
 }
 
+/** Produtos com link Mercado Livre — para abrir PDPs no navegador do admin (pré-hidratação / preços). */
+export async function adminListMercadolivreProductsForBrowserSync(opts: {
+  page?: number;
+  perPage?: number;
+  q?: string | null;
+}) {
+  const page = Math.max(1, opts.page ?? 1);
+  const perPage = Math.min(50, Math.max(5, opts.perPage ?? 20));
+  const offset = (page - 1) * perPage;
+  const mlPat = encodeURIComponent("%mercadolivre%");
+  const q = opts.q?.trim();
+  const params: Record<string, string> = {
+    select: "id,title,source_url,affiliate_url,price,promo_price",
+    order: "created_at.desc",
+    offset: String(offset),
+    limit: String(perPage),
+  };
+  if (q) {
+    const qp = encodeURIComponent(`%${q}%`);
+    params.and = `(or(source_url.ilike.${mlPat},affiliate_url.ilike.${mlPat}),title.ilike.${qp})`;
+  } else {
+    params.or = `(source_url.ilike.${mlPat},affiliate_url.ilike.${mlPat})`;
+  }
+  const { data, count } = await postgrestGetWithCount<any[]>("products", params);
+  const items = Array.isArray(data) ? data : [];
+  return { items, total: count ?? 0, page, perPage };
+}
+
 export async function adminValidateProductAffiliateLink(productId: string): Promise<{
   valid: boolean;
   error?: string;

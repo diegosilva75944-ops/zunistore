@@ -59,6 +59,12 @@ export default function AdminLayoutWrapper({
               <NavLink href="/admin/categorias" active={pathname.startsWith("/admin/categorias")}>
                 Categorias
               </NavLink>
+              <NavLink
+                href="/admin/sincronizacao-precos"
+                active={pathname.startsWith("/admin/sincronizacao-precos")}
+              >
+                Sync ML
+              </NavLink>
               <NavLink href="/admin/importacao" active={pathname === "/admin/importacao"}>
                 Importação
               </NavLink>

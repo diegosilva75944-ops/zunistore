@@ -29,10 +29,11 @@ export async function middleware(req: NextRequest) {
 
   const isLoginPage = pathname === "/admin/login";
   const isLoginApi = pathname === "/api/admin/login" || pathname === "/api/admin/logout";
-  const isImportApi = pathname === "/api/admin/import/mercadolivre";
+  /** Import ML + sync de preços via extensão (Bearer token); sem cookie de admin. */
+  const isImportMlApi = pathname.startsWith("/api/admin/import/mercadolivre");
 
   /** Extensão Chrome (origin chrome-extension://) precisa de CORS explícito no preflight e na resposta. */
-  if (isImportApi) {
+  if (isImportMlApi) {
     if (req.method === "OPTIONS") {
       return new NextResponse(null, { status: 204, headers: { ...importMlCors } });
     }
@@ -51,7 +52,7 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  if (isAdminApi && !isLoginApi && !isImportApi) {
+  if (isAdminApi && !isLoginApi && !isImportMlApi) {
     const token = req.cookies.get(cookieName)?.value;
     if (!token || !(await isValid(token))) {
       return NextResponse.json({ ok: false, error: "Não autorizado." }, { status: 401 });

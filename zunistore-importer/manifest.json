@@ -1,10 +1,18 @@
 {
   "manifest_version": 3,
   "name": "ZuniStore Importer",
-  "version": "1.0.0",
-  "description": "Importa produtos do Mercado Livre para o ZuniStore (via JSON-LD + fallback DOM).",
-  "permissions": ["storage", "activeTab"],
-  "host_permissions": ["https://*.mercadolivre.com.br/*"],
+  "version": "1.1.0",
+  "description": "Importa produtos do Mercado Livre para o ZuniStore (via JSON-LD + fallback DOM). Sincroniza preços a partir do admin.",
+  "permissions": ["storage", "activeTab", "tabs"],
+  "host_permissions": [
+    "https://*.mercadolivre.com.br/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "https://*.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_title": "ZuniStore Importer",
     "default_popup": "popup.html",
@@ -19,6 +27,17 @@
     {
       "matches": ["https://*.mercadolivre.com.br/*"],
       "js": ["content_script.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://localhost:3000/admin/sincronizacao-precos*",
+        "http://127.0.0.1:3000/admin/sincronizacao-precos*",
+        "https://*.vercel.app/admin/sincronizacao-precos*",
+        "https://zunistore.com.br/admin/sincronizacao-precos*",
+        "https://www.zunistore.com.br/admin/sincronizacao-precos*"
+      ],
+      "js": ["admin_bridge.js"],
       "run_at": "document_idle"
     }
   ]

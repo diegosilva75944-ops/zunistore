@@ -16,14 +16,15 @@
   <body>
     <h1>ZuniStore Importer — Opções</h1>
     <p style="font-size:12px;color:#666;margin:0;">
-      Configure a URL do seu ZuniStore e o Token criado no Admin.
+      A mesma URL e token são usados na importação pelo popup e na sincronização de preços (Admin →
+      Sync ML), via extensão.
     </p>
 
     <label for="baseUrl">Base URL do ZuniStore</label>
     <input id="baseUrl" placeholder="http://www.zunistore.com.br" />
 
-    <label for="token">Import Token</label>
-    <input id="token" placeholder="Cole o token aqui" />
+    <label for="token">Token (importação + sync de preços)</label>
+    <input id="token" placeholder="Cole o token criado no Admin → Tokens" />
 
     <button id="saveBtn">Salvar</button>
 

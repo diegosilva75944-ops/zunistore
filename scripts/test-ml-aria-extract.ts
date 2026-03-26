@@ -37,7 +37,40 @@ ${frag}
   const r = extractPricesFromHtml(html);
   assert(r.price === 35.72 && r.promoPrice === 31.25, `extractPricesFromHtml=${JSON.stringify(r)}`);
 
-  console.log("OK: aria-label tem prioridade sobre fraction/cents; 35.72 / 31.25 extraídos.");
+  const noAriaWrongFrac = `<!DOCTYPE html><html><body>
+<div class="ui-pdp-price__main-container">
+  <meta itemprop="price" content="359" />
+  <span class="andes-money-amount">
+    <span class="andes-money-amount__fraction">999</span>
+    <span class="andes-money-amount__cents">99</span>
+  </span>
+</div>
+</body></html>`;
+  const r2 = extractPricesFromHtml(noAriaWrongFrac);
+  assert(
+    r2.price === 359 && r2.promoPrice === null,
+    `itemprop quando só fraction errado: ${JSON.stringify(r2)}`,
+  );
+
+  const antesMetaWrong = `<!DOCTYPE html><html><body>
+<div class="ui-pdp-price__main-container">
+  <meta itemprop="price" content="359" />
+  <span role="img" aria-label="Antes: 499 reais com 90 centavos"></span>
+  <span class="andes-money-amount">
+    <span class="andes-money-amount__fraction">999</span>
+    <span class="andes-money-amount__cents">99</span>
+  </span>
+</div>
+</body></html>`;
+  const r3 = extractPricesFromHtml(antesMetaWrong);
+  assert(
+    r3.price === 499.9 && r3.promoPrice === 359,
+    `Antes + itemprop com fraction SSR errado: ${JSON.stringify(r3)}`,
+  );
+
+  console.log(
+    "OK: aria-label; itemprop em dessincronia com fraction; Antes+itemprop com SSR errado.",
+  );
 }
 
 main();
