@@ -37,7 +37,6 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({
-      ok: true,
       ...result,
       productUrl: `/produto/${result.code6}/${result.slug}`,
     });

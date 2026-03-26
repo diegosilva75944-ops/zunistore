@@ -23,8 +23,7 @@ export class MercadoLivreError extends Error {
     this.code = code;
     this.status = opts?.status;
     this.details = opts?.details;
-    // @ts-expect-error - TS lib dom older targets don't type `cause` well
-    if (opts?.cause) this.cause = opts.cause;
+    if (opts?.cause) (this as any).cause = opts.cause;
   }
 }
 
