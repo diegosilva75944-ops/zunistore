@@ -35,7 +35,7 @@ export type MlSearchListing = {
   seller_nickname: string | null;
 };
 
-function normalizeSearchListing(raw: unknown): MlSearchListing | null {
+export function normalizeSearchListing(raw: unknown): MlSearchListing | null {
   const parsed = searchItemSchema.safeParse(raw);
   if (!parsed.success) return null;
   const r = parsed.data;

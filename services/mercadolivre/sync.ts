@@ -1,7 +1,7 @@
 import "server-only";
 
 import { postgrestGet } from "@/lib/postgrest/server";
-import { mlFetchListingByItemId } from "@/services/mercadolivre/importer";
+import { mlFetchListingByItemIdAuth } from "@/services/mercadolivre/auth-importer";
 import { mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
 
 function sleep(ms: number) {
@@ -21,7 +21,7 @@ export async function mlSyncImportedProduct(productId: string) {
     throw new Error("Produto não tem vínculo externo do Mercado Livre (external_id).");
   }
 
-  const { normalized } = await mlFetchListingByItemId(externalId);
+  const { normalized } = await mlFetchListingByItemIdAuth(externalId);
   return mlImportOrUpdateProduct({ normalized, updateIfExists: true });
 }
 

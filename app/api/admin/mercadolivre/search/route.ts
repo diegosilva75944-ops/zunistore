@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { mlSearchListings } from "@/services/mercadolivre/search";
-import { MercadoLivreError } from "@/services/mercadolivre/errors";
+import { mlSearchAuth, mapMlApiError } from "@/services/mercadolivre/auth-api";
+import { normalizeSearchListing } from "@/services/mercadolivre/search";
 
 export const runtime = "nodejs";
 
@@ -25,27 +25,30 @@ export async function GET(req: Request) {
     offset: searchParams.get("offset") ?? undefined,
   });
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: "Parâmetros inválidos." }, { status: 400 });
+    return NextResponse.json({ success: false, error: "Parâmetros inválidos." }, { status: 400 });
   }
 
   try {
     const { kind, limit, offset } = parsed.data;
-    const res =
-      kind === "term"
-        ? await mlSearchListings({ kind: "term", term: parsed.data.term ?? "", limit, offset })
-        : kind === "seller_id"
-          ? await mlSearchListings({ kind: "seller_id", sellerId: parsed.data.sellerId ?? "", limit, offset })
-          : await mlSearchListings({ kind: "nickname", nickname: parsed.data.nickname ?? "", limit, offset });
+    // Usa API autenticada (oficial). Mantemos o normalizador de itens do search existente.
+    const q: Record<string, string | number> = {
+      limit: limit ?? 20,
+      offset: offset ?? 0,
+    };
+    if (kind === "term") q.q = parsed.data.term ?? "";
+    if (kind === "seller_id") q.seller_id = String(parsed.data.sellerId ?? "");
+    if (kind === "nickname") q.nickname = parsed.data.nickname ?? "";
 
-    return NextResponse.json({ ok: true, ...res });
+    const raw = await mlSearchAuth({ siteId: "MLB", query: q });
+    const items = (Array.isArray(raw.results) ? raw.results : [])
+      .map(normalizeSearchListing)
+      .filter(Boolean);
+
+    return NextResponse.json({ success: true, total: raw.total, offset: raw.offset, limit: raw.limit, items });
   } catch (e) {
-    if (e instanceof MercadoLivreError) {
-      const status =
-        e.code === "rate_limited" ? 429 : e.code === "timeout" || e.code === "network" ? 503 : 502;
-      return NextResponse.json({ ok: false, error: e.message, code: e.code }, { status });
-    }
-    console.error(e);
-    return NextResponse.json({ ok: false, error: "Erro ao pesquisar anúncios." }, { status: 500 });
+    const err = mapMlApiError(e);
+    const status = (err.externalStatus && [401, 403, 429].includes(err.externalStatus)) ? err.externalStatus : 502;
+    return NextResponse.json(err, { status });
   }
 }
 

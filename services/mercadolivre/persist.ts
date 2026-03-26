@@ -3,7 +3,7 @@ import "server-only";
 import { postgrestGet, postgrestPatch, postgrestPost, postgrestRpc } from "@/lib/postgrest/server";
 import { adminUpsertCategoryFromBreadcrumb } from "@/lib/admin/categories";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
-import { mlGetCategoryPublic } from "@/services/mercadolivre/api";
+import { mlGetCategoryAuth } from "@/services/mercadolivre/auth-api";
 import { mapMlNormalizedToDrafts } from "@/services/mercadolivre/mapper";
 import type { NormalizedMlListing } from "@/services/mercadolivre/normalizer";
 
@@ -59,7 +59,7 @@ export async function mlImportOrUpdateProduct(opts: {
   let externalCategoryPath: string[] = [];
   if (n.external_category_id) {
     try {
-      const cat = await mlGetCategoryPublic(n.external_category_id);
+      const cat = await mlGetCategoryAuth(n.external_category_id);
       externalCategoryName = (cat.name ?? null) ? String(cat.name) : null;
       externalCategoryPath = Array.isArray(cat.path_from_root)
         ? cat.path_from_root.map((c) => c.name).filter(Boolean)

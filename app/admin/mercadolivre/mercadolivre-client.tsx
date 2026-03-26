@@ -10,16 +10,16 @@ function formatBRL(value: number) {
 }
 
 type PreviewResponse =
-  | { ok: true; itemId: string; listing: any; category: any | null }
-  | { ok: false; error: string; code?: string };
+  | { success: true; itemId: string; listing: any; category: any | null }
+  | { success: false; error: string; externalStatus?: number };
 
 type ImportResponse =
-  | { ok: true; action: "created" | "already_exists" | "updated_existing"; productUrl: string; matchedBy?: string }
-  | { ok: false; error: string; code?: string };
+  | { success: true; result: { action: "created" | "already_exists" | "updated_existing"; matchedBy?: string; code6: string; slug: string }; productUrl: string }
+  | { success: false; error: string; externalStatus?: number };
 
 type SearchResponse =
-  | { ok: true; items: any[]; total: number; offset: number; limit: number }
-  | { ok: false; error: string; code?: string };
+  | { success: true; items: any[]; total: number; offset: number; limit: number }
+  | { success: false; error: string; externalStatus?: number };
 
 type ImportedResponse =
   | { ok: true; items: any[]; total: number; page: number; perPage: number }
@@ -84,17 +84,17 @@ export function MercadoLivreClient() {
       body: JSON.stringify({ ...payload, updateIfExists }),
     });
     const data = (await res.json().catch(() => ({}))) as ImportResponse;
-    if (!res.ok || !data.ok) {
+    if (!res.ok || !data.success) {
       setImportMsg(data && "error" in data ? data.error : "Falha ao importar.");
       setImporting(false);
       return;
     }
     setImportMsg(
-      data.action === "created"
+      data.result.action === "created"
         ? `Importado com sucesso.`
-        : data.action === "already_exists"
-          ? `Já existia — não foi duplicado (deduplicação por ${data.matchedBy ?? "external"}).`
-          : `Já existia — atualizado (deduplicação por ${data.matchedBy ?? "external"}).`,
+        : data.result.action === "already_exists"
+          ? `Já existia — não foi duplicado (deduplicação por ${data.result.matchedBy ?? "external"}).`
+          : `Já existia — atualizado (deduplicação por ${data.result.matchedBy ?? "external"}).`,
     );
     setImporting(false);
     return data.productUrl;
@@ -213,7 +213,7 @@ export function MercadoLivreClient() {
 
   const previewCard = (() => {
     if (!preview) return null;
-    if (!preview.ok) {
+    if (!preview.success) {
       return (
         <div className="rounded-2xl bg-red-50 ring-1 ring-red-200 p-4 text-sm text-red-900">
           {preview.error}
@@ -431,11 +431,11 @@ export function MercadoLivreClient() {
             <div className="rounded-2xl ring-1 ring-zinc-200 p-6 py-10 flex justify-center">
               <SitePageLoader compact />
             </div>
-          ) : searchResult && !searchResult.ok ? (
+          ) : searchResult && !searchResult.success ? (
             <div className="rounded-2xl bg-red-50 ring-1 ring-red-200 p-4 text-sm text-red-900">
               {searchResult.error}
             </div>
-          ) : searchResult && searchResult.ok ? (
+          ) : searchResult && searchResult.success ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm text-zinc-600">

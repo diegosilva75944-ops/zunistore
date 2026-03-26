@@ -1,6 +1,26 @@
 import "server-only";
 
-import type { MlPublicDescription, MlPublicItem } from "./api";
+export type MlItemLike = {
+  id: string;
+  title?: string | null;
+  permalink?: string | null;
+  status?: string | null;
+  seller_id?: string | number | null;
+  category_id?: string | null;
+  currency_id?: string | null;
+  price?: number | null;
+  base_price?: number | null;
+  original_price?: number | null;
+  pictures?: { url?: string | null; secure_url?: string | null }[] | null;
+  thumbnail?: string | null;
+  attributes?: { id?: string; name?: string; value_name?: string | null }[] | null;
+};
+
+export type MlDescriptionLike = {
+  plain_text?: string | null;
+  text?: string | null;
+  last_updated?: string | null;
+} | null;
 
 export type NormalizedMlListing = {
   origin: "mercadolivre";
@@ -32,8 +52,8 @@ export type NormalizedMlListing = {
   model: string | null;
   gtin: string | null;
 
-  raw_item: MlPublicItem;
-  raw_description: MlPublicDescription | null;
+  raw_item: unknown;
+  raw_description: unknown;
 };
 
 function pickAttr(attrs: { id?: string; value_name?: string | null }[], id: string): string | null {
@@ -43,8 +63,8 @@ function pickAttr(attrs: { id?: string; value_name?: string | null }[], id: stri
 }
 
 export function normalizeMlPublicListing(input: {
-  item: MlPublicItem;
-  description?: MlPublicDescription | null;
+  item: MlItemLike;
+  description?: MlDescriptionLike;
 }): NormalizedMlListing {
   const item = input.item;
   const desc = input.description ?? null;
