@@ -1,6 +1,6 @@
 /**
- * Extração de preços da página do Mercado Livre — mesma lógica da extensão (content_script + popup).
- * Ordem: 1) JSON-LD (Product/offers)  2) DOM-like (meta, aria, classes ML)  3) findPromoAndPrice (regex R$).
+ * Extração de preços da página do Mercado Livre — alinhada à extensão (content_script + popup).
+ * Ordem no HTML: 1) poly-component__price (afiliado: 1º normal, 2º promo)  2) JSON-LD  3) DOM ML  4) regex R$.
  */
 
 function parseBRL(text: string): number | null {
@@ -417,10 +417,64 @@ function htmlToVisibleText(html: string): string {
     .trim();
 }
 
+/**
+ * Bloco de preço em páginas com link de afiliado (poly-component).
+ * Ordem no DOM: 1º = preço normal; 2º logo abaixo = promocional (quando houver oferta).
+ */
+function extractPricesFromPolyComponent(html: string): {
+  price: number;
+  promoPrice: number | null;
+} | null {
+  const lower = html.toLowerCase();
+  const idx = lower.indexOf("poly-component__price");
+  if (idx === -1) return null;
+  const block = html.slice(idx, idx + 40_000);
+
+  const amounts: number[] = [];
+  const amountBlockRe =
+    /<[^>]*class=["'][^"']*andes-money-amount[^"']*["'][^>]*>[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,300}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
+  for (const m of block.matchAll(amountBlockRe)) {
+    const fractionStr = (m[1] || "").replace(/\./g, "");
+    const centsStr = ((m[2] || "") as string).padStart(2, "0");
+    if (!fractionStr) continue;
+    const n = parseFloat(`${fractionStr}.${centsStr}`);
+    if (Number.isFinite(n) && n > 0) amounts.push(n);
+  }
+
+  if (amounts.length === 0) {
+    const vis = htmlToVisibleText(block);
+    const re = /R\$\s*([\d\.]+,\d{2})/g;
+    let mm: RegExpExecArray | null;
+    while ((mm = re.exec(vis)) !== null) {
+      const n = parseBRL(mm[0]);
+      if (n != null && n > 0) amounts.push(n);
+    }
+  }
+
+  if (amounts.length === 0) return null;
+  if (amounts.length === 1) {
+    return { price: amounts[0], promoPrice: null };
+  }
+  const first = amounts[0];
+  const second = amounts[1];
+  if (second < first) {
+    return { price: first, promoPrice: second };
+  }
+  if (first < second) {
+    return { price: second, promoPrice: first };
+  }
+  return { price: first, promoPrice: null };
+}
+
 export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
+  const poly = extractPricesFromPolyComponent(html);
+  if (poly != null && poly.price > 0) {
+    return { price: poly.price, promoPrice: poly.promoPrice };
+  }
+
   const htmlSan = sanitizeMlHtmlForPrice(html);
   const json = extractFromJsonLd(html);
 
@@ -507,8 +561,12 @@ const ML_MOBILE_HEADERS: Record<string, string> = {
 /**
  * URLs com dezenas de query params (afiliado / reco) costumam fazer o ML responder com
  * página de login, erro genérico ou HTML sem PDP. Para sync no servidor, usar só origem+path do catálogo.
+ * Com `keepSearch: true` (link de afiliado do cadastro), mantém query para o ML devolver `poly-component__price`.
  */
-export function normalizeMercadoLivreProductUrl(url: string): string {
+export function normalizeMercadoLivreProductUrl(
+  url: string,
+  opts?: { keepSearch?: boolean },
+): string {
   const raw = String(url || "").trim();
   if (!raw) return raw;
   try {
@@ -516,6 +574,9 @@ export function normalizeMercadoLivreProductUrl(url: string): string {
     const host = u.hostname.toLowerCase();
     if (!host.includes("mercadolivre.com") && !host.includes("mercadolibre.com")) {
       return raw;
+    }
+    if (opts?.keepSearch) {
+      return `${u.origin}${u.pathname}${u.search}`;
     }
     if (/\/p\/MLB\d+/i.test(u.pathname)) {
       return `${u.origin}${u.pathname}`;
@@ -528,6 +589,27 @@ export function normalizeMercadoLivreProductUrl(url: string): string {
     return raw;
   }
 }
+
+/** Prioriza `affiliate_url` (HTML com poly-component de afiliado); senão `source_url` (catálogo limpo). */
+export function resolveMercadoLivreFetchUrl(
+  sourceUrl: string | null | undefined,
+  affiliateUrl: string | null | undefined,
+): string {
+  const aff = String(affiliateUrl ?? "").trim();
+  const src = String(sourceUrl ?? "").trim();
+  if (aff) {
+    return normalizeMercadoLivreProductUrl(aff, { keepSearch: true });
+  }
+  if (src) {
+    return normalizeMercadoLivreProductUrl(src, { keepSearch: false });
+  }
+  return "";
+}
+
+/** String = URL já escolhida; objeto = prioriza afiliado no servidor. */
+export type FetchMlPriceInput =
+  | string
+  | { sourceUrl?: string | null; affiliateUrl?: string | null };
 
 const ML_FETCH_TIMEOUT_MS = 45_000;
 
@@ -543,7 +625,7 @@ export type FetchMlPriceResult =
 function looksLikeMlBlockedOrChallenge(html: string): boolean {
   const s = html.slice(0, 320_000).toLowerCase();
   if (
-    /ui-pdp-price__main-container|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"/i.test(
+    /ui-pdp-price__main-container|poly-component__price|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"/i.test(
       s,
     )
   ) {
@@ -589,8 +671,14 @@ async function fetchMlHtmlOnce(
   return { ok: res.ok, status: res.status, text };
 }
 
-export async function fetchPricesFromUrl(url: string): Promise<FetchMlPriceResult> {
-  const fetchUrl = normalizeMercadoLivreProductUrl(url);
+export async function fetchPricesFromUrl(input: FetchMlPriceInput): Promise<FetchMlPriceResult> {
+  const fetchUrl =
+    typeof input === "string"
+      ? normalizeMercadoLivreProductUrl(input)
+      : resolveMercadoLivreFetchUrl(input.sourceUrl, input.affiliateUrl);
+  if (!fetchUrl) {
+    return { kind: "unreadable" };
+  }
   try {
     const first = await fetchMlHtmlOnce(fetchUrl, ML_FETCH_HEADERS);
     if (!first.ok) {

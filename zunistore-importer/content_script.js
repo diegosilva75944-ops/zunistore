@@ -66,6 +66,26 @@
   }
 
   function extractPricesFromMlDom(doc) {
+    // Link de afiliado: poly-component — 1º valor = normal, 2º = promocional (quando houver).
+    const polyRoot = firstElementNotInOtherSellers(doc, ".poly-component__price");
+    if (polyRoot) {
+      const amountEls = Array.from(polyRoot.querySelectorAll(".andes-money-amount"));
+      const amounts = [];
+      for (const el of amountEls) {
+        const n = parseAndesMoney(el);
+        if (n != null && n > 0) amounts.push(n);
+        if (amounts.length >= 3) break;
+      }
+      if (amounts.length >= 1) {
+        const price = amounts[0];
+        const promoLine = amounts[1];
+        if (price != null) {
+          const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
+          return { price, promoPrice };
+        }
+      }
+    }
+
     // Preferir exatamente o bloco pedido: ui-pdp-container__row--price
     // onde 1ª linha = preço normal, 2ª linha = promo (se existir) e 3ª linha = cartão/parcelas.
     const priceRow = firstElementNotInOtherSellers(

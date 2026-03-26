@@ -30,14 +30,16 @@ async function syncAllProducts() {
   let deleted = 0;
 
   for (const p of rows) {
-    const url = p.source_url || p.affiliate_url;
-    if (!url) {
+    if (!p.source_url && !p.affiliate_url) {
       skipped += 1;
       continue;
     }
 
     try {
-      const ml = await fetchPricesFromUrl(url);
+      const ml = await fetchPricesFromUrl({
+        sourceUrl: p.source_url,
+        affiliateUrl: p.affiliate_url,
+      });
       if (ml.kind === "listing_gone") {
         await moveProductToDeletedHistoryAndDelete(p.id, "sync_not_found");
         deleted += 1;

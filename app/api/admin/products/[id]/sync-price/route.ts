@@ -29,9 +29,8 @@ export async function POST(
 
     const sourceUrl = (row as any).source_url as string | null;
     const affiliateUrl = (row as any).affiliate_url as string | null;
-    const url = sourceUrl || affiliateUrl;
 
-    if (!url) {
+    if (!String(sourceUrl || "").trim() && !String(affiliateUrl || "").trim()) {
       return NextResponse.json(
         { ok: false, error: "Produto sem URL de origem (source_url ou affiliate_url)." },
         { status: 400 },
@@ -40,7 +39,7 @@ export async function POST(
 
     let ml: FetchMlPriceResult;
     try {
-      ml = await fetchPricesFromUrl(url);
+      ml = await fetchPricesFromUrl({ sourceUrl, affiliateUrl });
     } catch (e) {
       const message =
         e instanceof Error ? e.message : "Falha ao buscar a página do Mercado Livre.";
