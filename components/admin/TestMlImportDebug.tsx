@@ -56,7 +56,7 @@ export function TestMlImportDebug({ data }: Props) {
                   </ul>
                 )}
                 {data.debug.chosenBlock.snippet && (
-                  <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] text-zinc-600">
+                  <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap wrap-break-word text-[11px] text-zinc-600">
                     {data.debug.chosenBlock.snippet}
                   </pre>
                 )}
