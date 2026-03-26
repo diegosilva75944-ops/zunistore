@@ -199,7 +199,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: true, message: "Autorização concluída com sucesso" });
     }
 
-    return NextResponse.redirect(new URL("/admin/mercadolivre?oauth=success", req.url));
+    // Redirect relativo para preservar o host público (evita host interno do container).
+    return NextResponse.redirect("/admin/mercadolivre?oauth=success");
   } catch (e) {
     console.error("[ml-oauth][callback] token_exchange_or_persist_failed", e);
     const externalStatus = e instanceof MercadoLivreError ? e.status : undefined;
