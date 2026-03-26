@@ -427,10 +427,18 @@ function htmlToVisibleText(html: string): string {
     .trim();
 }
 
+/** "1.199" (milhar BR) ou "999" → número */
+function parseMlMoneyFraction(raw: string): number | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const n = Number(s.replace(/\./g, "").replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /**
  * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
  * Só o primeiro card (até o próximo poly ou ~14k) — evita “Quem viu também comprou”.
- * `andes-money-amount--previous` = preço normal (de); valor sem previous = atual/promo.
+ * O ML costuma expor `aria-label="Antes: … reais"` / `Agora: … reais"`; o “de” em `<s>` pode não ter centavos no HTML.
  */
 function extractPricesFromPolyComponent(html: string): {
   price: number;
@@ -442,7 +450,22 @@ function extractPricesFromPolyComponent(html: string): {
   const nextPoly = lower.indexOf("poly-component__price", idx + 30);
   const blockEnd =
     nextPoly === -1 ? idx + 14_000 : Math.min(nextPoly, idx + 14_000);
-  const block = html.slice(idx, blockEnd);
+  let block = html.slice(idx, blockEnd);
+
+  const antesAria = block.match(/aria-label=["']Antes:\s*([\d.]+)\s*reais/i);
+  const agoraAria = block.match(/aria-label=["']Agora:\s*([\d.]+)\s*reais/i);
+  if (antesAria && agoraAria) {
+    const a = parseMlMoneyFraction(antesAria[1] ?? "");
+    const b = parseMlMoneyFraction(agoraAria[1] ?? "");
+    if (a != null && b != null && a > b) {
+      return { price: a, promoPrice: b };
+    }
+  }
+
+  const instIdx = block.toLowerCase().indexOf("poly-price__installments");
+  if (instIdx !== -1) {
+    block = block.slice(0, instIdx);
+  }
 
   const previous: number[] = [];
   const current: number[] = [];
@@ -465,6 +488,21 @@ function extractPricesFromPolyComponent(html: string): {
     }
   }
 
+  const fractionOnlyRe =
+    /andes-money-amount__fraction[^>]*>([\d.]+)<\/span>(?![\s\S]{0,120}?andes-money-amount__cents)/gi;
+  for (const m of block.matchAll(fractionOnlyRe)) {
+    const n = parseMlMoneyFraction(m[1] ?? "");
+    if (n == null || n < 10) continue;
+    const start = m.index ?? 0;
+    const ctx = block.slice(Math.max(0, start - 400), start + 200);
+    if (/poly-phrase|installment|parcela|sem juros|12x/i.test(ctx)) continue;
+    if (/andes-money-amount--previous|--previous/i.test(ctx)) {
+      if (!previous.includes(n)) previous.push(n);
+    } else if (/poly-price__current/i.test(ctx)) {
+      if (!current.includes(n)) current.push(n);
+    }
+  }
+
   if (previous.length && current.length) {
     const normal = Math.max(...previous);
     const promo = Math.min(...current);
@@ -473,7 +511,7 @@ function extractPricesFromPolyComponent(html: string): {
     }
   }
 
-  const amounts = ordered;
+  const amounts = ordered.length ? ordered : [...previous, ...current];
 
   if (amounts.length === 0) {
     const vis = htmlToVisibleText(block);
