@@ -43,7 +43,7 @@ async function syncAllProducts() {
         deleted += 1;
         continue;
       }
-      if (ml.kind === "unreadable" || ml.kind === "http_error") {
+      if (ml.kind === "unreadable" || ml.kind === "http_error" || ml.kind === "blocked") {
         failed += 1;
         continue;
       }

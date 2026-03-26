@@ -482,7 +482,7 @@ export function extractPricesFromHtml(html: string): {
   return { price: null, promoPrice: null };
 }
 
-const ML_FETCH_HEADERS = {
+const ML_FETCH_HEADERS: Record<string, string> = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   Accept:
@@ -493,7 +493,41 @@ const ML_FETCH_HEADERS = {
     '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
   "sec-ch-ua-mobile": "?0",
   "sec-ch-ua-platform": '"Windows"',
-} as const;
+};
+
+/** Segunda tentativa: HTML costuma ser mais simples e menos sujeito a tela de login. */
+const ML_MOBILE_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "pt-BR,pt;q=0.9",
+  Referer: "https://www.mercadolivre.com.br/",
+};
+
+/**
+ * URLs com dezenas de query params (afiliado / reco) costumam fazer o ML responder com
+ * página de login, erro genérico ou HTML sem PDP. Para sync no servidor, usar só origem+path do catálogo.
+ */
+export function normalizeMercadoLivreProductUrl(url: string): string {
+  const raw = String(url || "").trim();
+  if (!raw) return raw;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase();
+    if (!host.includes("mercadolivre.com") && !host.includes("mercadolibre.com")) {
+      return raw;
+    }
+    if (/\/p\/MLB\d+/i.test(u.pathname)) {
+      return `${u.origin}${u.pathname}`;
+    }
+    if (/\/MLB-?\d{6,}/i.test(u.pathname)) {
+      return `${u.origin}${u.pathname}`;
+    }
+    return `${u.origin}${u.pathname}${u.search}`;
+  } catch {
+    return raw;
+  }
+}
 
 const ML_FETCH_TIMEOUT_MS = 45_000;
 
@@ -502,9 +536,27 @@ export type FetchMlPriceResult =
   | { kind: "ok"; price: number; promoPrice: number | null }
   | { kind: "listing_gone" }
   | { kind: "unreadable" }
+  | { kind: "blocked" }
   | { kind: "http_error"; status: number };
 
-/** Heurística para página de erro / item inexistente no ML (HTML 200). */
+/** ML devolve login, cookie gate ou “ocorreu um erro” para fetch sem sessão / URL “sujo”. */
+function looksLikeMlBlockedOrChallenge(html: string): boolean {
+  const s = html.slice(0, 320_000).toLowerCase();
+  if (
+    /ui-pdp-price__main-container|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"/i.test(
+      s,
+    )
+  ) {
+    return false;
+  }
+  return (
+    /para continuar,?\s*acesse\s+sua\s+conta/i.test(s) ||
+    (/\bsou\s+novo\b/i.test(s) && /\bj[aá]\s+tenho\s+conta\b/i.test(s)) ||
+    /ocorreu um erro\.?\s*por favor,?\s*tente novamente/i.test(s) ||
+    /entre\s+com\s+sua\s+conta|fa[cç]a\s+login/i.test(s)
+  );
+}
+
 function looksLikeMlListingMissing(html: string): boolean {
   const sample = html.slice(0, 450_000).toLowerCase();
   return (
@@ -517,33 +569,71 @@ function looksLikeMlListingMissing(html: string): boolean {
   );
 }
 
-export async function fetchPricesFromUrl(url: string): Promise<FetchMlPriceResult> {
-  try {
-    const res = await fetch(url, {
-      cache: "no-store",
-      redirect: "follow",
-      headers: ML_FETCH_HEADERS,
-      signal: AbortSignal.timeout(ML_FETCH_TIMEOUT_MS),
-    });
+function packOk(price: number, promoPrice: number | null): FetchMlPriceResult {
+  const promoNorm =
+    promoPrice != null && Number.isFinite(promoPrice) && promoPrice > 0 ? promoPrice : null;
+  return { kind: "ok", price, promoPrice: promoNorm };
+}
 
-    if (!res.ok) {
-      if (res.status === 404 || res.status === 410) {
+async function fetchMlHtmlOnce(
+  fetchUrl: string,
+  headers: Record<string, string>,
+): Promise<{ ok: boolean; status: number; text: string }> {
+  const res = await fetch(fetchUrl, {
+    cache: "no-store",
+    redirect: "follow",
+    headers,
+    signal: AbortSignal.timeout(ML_FETCH_TIMEOUT_MS),
+  });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, text };
+}
+
+export async function fetchPricesFromUrl(url: string): Promise<FetchMlPriceResult> {
+  const fetchUrl = normalizeMercadoLivreProductUrl(url);
+  try {
+    const first = await fetchMlHtmlOnce(fetchUrl, ML_FETCH_HEADERS);
+    if (!first.ok) {
+      if (first.status === 404 || first.status === 410) {
         return { kind: "listing_gone" };
       }
-      return { kind: "http_error", status: res.status };
+      return { kind: "http_error", status: first.status };
     }
 
-    const html = await res.text();
-    const { price, promoPrice } = extractPricesFromHtml(html);
+    let html = first.text;
+    let triedMobile = false;
+
+    if (looksLikeMlBlockedOrChallenge(html)) {
+      triedMobile = true;
+      const second = await fetchMlHtmlOnce(fetchUrl, ML_MOBILE_HEADERS);
+      if (second.ok && !looksLikeMlBlockedOrChallenge(second.text)) {
+        html = second.text;
+      } else {
+        return { kind: "blocked" };
+      }
+    }
+
+    let { price, promoPrice } = extractPricesFromHtml(html);
 
     if (price != null && Number.isFinite(price) && price > 0) {
-      const promoNorm =
-        promoPrice != null && Number.isFinite(promoPrice) && promoPrice > 0 ? promoPrice : null;
-      return { kind: "ok", price, promoPrice: promoNorm };
+      return packOk(price, promoPrice);
     }
 
     if (looksLikeMlListingMissing(html)) {
       return { kind: "listing_gone" };
+    }
+
+    if (!triedMobile) {
+      const mobile = await fetchMlHtmlOnce(fetchUrl, ML_MOBILE_HEADERS);
+      if (mobile.ok && !looksLikeMlBlockedOrChallenge(mobile.text)) {
+        ({ price, promoPrice } = extractPricesFromHtml(mobile.text));
+        if (price != null && Number.isFinite(price) && price > 0) {
+          return packOk(price, promoPrice);
+        }
+        if (looksLikeMlListingMissing(mobile.text)) {
+          return { kind: "listing_gone" };
+        }
+      }
     }
 
     return { kind: "unreadable" };

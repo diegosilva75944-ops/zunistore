@@ -68,6 +68,17 @@ export async function POST(
       );
     }
 
+    if (ml.kind === "blocked") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "O Mercado Livre bloqueou a leitura automática (login/cookies ou página de erro). O sync usa o link limpo do catálogo (…/p/MLB… sem parâmetros). Atualize source_url para esse formato ou use a extensão no navegador.",
+        },
+        { status: 422 },
+      );
+    }
+
     if (ml.kind === "listing_gone") {
       try {
         await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
