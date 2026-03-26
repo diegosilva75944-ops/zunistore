@@ -125,6 +125,25 @@ export async function getMlTokenByUserId(userId: string): Promise<MercadoLivreTo
   return row;
 }
 
+export async function getLatestMlToken(): Promise<MercadoLivreTokenRow | null> {
+  const debug = process.env.NODE_ENV !== "production";
+  if (debug) {
+    console.log("[ml-oauth][token-store] read-latest:sql", {
+      table: "public.mercadolivre_tokens",
+      path: "sql-direct",
+    });
+  }
+  return withPgClient(async (client) => {
+    const res = await client.query<MercadoLivreTokenRow>(
+      `select id, user_id, access_token, refresh_token, token_type, scope, expires_in, expires_at, created_at, updated_at
+       from public.mercadolivre_tokens
+       order by updated_at desc
+       limit 1`,
+    );
+    return res.rows[0] ?? null;
+  });
+}
+
 export async function upsertMlToken(input: {
   user_id: string;
   access_token: string;
