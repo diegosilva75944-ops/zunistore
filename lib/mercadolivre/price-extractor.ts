@@ -31,6 +31,30 @@ export function isSecondaryPriceText(text: string): boolean {
   return /preço por|preco por|frete|cupom|por kg|por litro|por ml|por unidade/i.test(text);
 }
 
+function parseAntesFromAriaLabel(ariaLabel: string | undefined | null): number | null {
+  // Ex.: "Antes: 1000 reais com 70 centavos"
+  const m = String(ariaLabel || "").match(
+    /Antes:\s*([\d.]+)\s*reais(?:\s*com\s*(\d+)\s*centavos?)?/i,
+  );
+  if (!m) return null;
+  const reais = Number(String(m[1] ?? "").replace(/\./g, ""));
+  const cents = m[2] != null ? Number(m[2]) : 0;
+  if (!Number.isFinite(reais) || !Number.isFinite(cents)) return null;
+  const n = reais + cents / 100;
+  return n > 0 ? n : null;
+}
+
+function parseReaisFromAriaLabel(ariaLabel: string | undefined | null): number | null {
+  // Ex.: "720 reais com 90 centavos"
+  const m = String(ariaLabel || "").match(/([\d.]+)\s*reais(?:\s*com\s*(\d+)\s*centavos?)?/i);
+  if (!m) return null;
+  const reais = Number(String(m[1] ?? "").replace(/\./g, ""));
+  const cents = m[2] != null ? Number(m[2]) : 0;
+  if (!Number.isFinite(reais) || !Number.isFinite(cents)) return null;
+  const n = reais + cents / 100;
+  return n > 0 ? n : null;
+}
+
 export function extractDiscountPercent(text: string): number | null {
   const m = String(text || "").match(/(\d{1,2})\s*%/);
   if (!m) return null;
@@ -110,39 +134,63 @@ function fromMainDom(html: string): MercadoLivreExtractedPrices | null {
     $(".ui-pdp-price").first();
 
   const root = block.length ? block : $("body");
-  const candidates: PriceCandidate[] = [];
-  root.find("*").each((_, el) => {
-    const text = $(el).text().replace(/\s+/g, " ").trim();
-    if (!text || !/R\$/i.test(text)) return;
-    if (isInstallmentText(text) || isSecondaryPriceText(text)) return;
-    const n = parseBRL(text);
-    if (n == null) return;
-    const cls = ($(el).attr("class") || "").toLowerCase();
-    const source = cls.includes("previous") || cls.includes("original")
-      ? "dom-original"
-      : "dom-current";
-    candidates.push({ value: n, source, text });
-  });
-  console.log("[ml-price-extractor] dom-candidates", {
-    count: candidates.length,
-    preview: candidates.slice(0, 6).map((c) => ({ value: c.value, source: c.source, text: c.text.slice(0, 60) })),
-  });
 
-  const original = candidates.filter((c) => c.source === "dom-original").map((c) => c.value);
-  const current = candidates.filter((c) => c.source === "dom-current").map((c) => c.value);
+  // 1) Extrações explícitas (usam exatamente os blocos que você mandou).
+  // - Preço normal (Antes: ...): <s ... aria-label="Antes: ...">
+  // - Preço promocional (offers + meta itemprop=price): <span ... itemprop="offers"><meta itemprop="price" content="...">
+  const originalAria = $("s[aria-label]")
+    .filter((_, el) => /^Antes:/i.test($(el).attr("aria-label") || ""))
+    .first()
+    .attr("aria-label");
+  const originalPriceFromAria = parseAntesFromAriaLabel(originalAria);
 
-  let originalPrice: number | null = original.length ? Math.max(...original) : null;
-  let currentPrice: number | null = current.length ? current[0] : null;
+  const promoMeta = $('[itemprop="offers"] meta[itemprop="price"]').first().attr("content");
+  const promoFromMeta =
+    promoMeta != null && promoMeta.trim()
+      ? Math.round(Number(promoMeta) * 100) / 100
+      : null;
+  const promoFromMetaNorm =
+    promoFromMeta != null && Number.isFinite(promoFromMeta) && promoFromMeta > 0 ? promoFromMeta : null;
 
-  if (currentPrice == null && candidates.length) currentPrice = candidates[0].value;
-  if (originalPrice != null && currentPrice != null && originalPrice <= currentPrice) {
-    originalPrice = null;
-  }
+  // Caso meta não exista, tenta aria-label do bloco de ofertas.
+  const promoOffersAria = $('[itemprop="offers"][aria-label]').first().attr("aria-label");
+  const promoFromAria = parseReaisFromAriaLabel(promoOffersAria);
 
   const installmentInfo = firstNonEmpty([
     $(".ui-pdp-price__second-line").first().text(),
     $(".poly-price__installments").first().text(),
   ]);
+
+  // 2) Se conseguimos current e/ou original via blocos explícitos, usamos eles.
+  let currentPrice: number | null = promoFromMetaNorm ?? promoFromAria ?? null;
+  let originalPrice: number | null = originalPriceFromAria ?? null;
+
+  // 3) Se faltou algo, cai para o fallback por "candidates" (texto + classes).
+  const candidates: PriceCandidate[] = [];
+  if (currentPrice == null || originalPrice == null) {
+    root.find("*").each((_, el) => {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (!text || !/R\$/i.test(text)) return;
+      if (isInstallmentText(text) || isSecondaryPriceText(text)) return;
+      const n = parseBRL(text);
+      if (n == null) return;
+      const cls = ($(el).attr("class") || "").toLowerCase();
+      const source =
+        cls.includes("previous") || cls.includes("original") ? "dom-original" : "dom-current";
+      candidates.push({ value: n, source, text });
+    });
+  }
+
+  const original = candidates.filter((c) => c.source === "dom-original").map((c) => c.value);
+  const current = candidates.filter((c) => c.source === "dom-current").map((c) => c.value);
+
+  if (originalPrice == null && original.length) originalPrice = Math.max(...original);
+  if (currentPrice == null && current.length) currentPrice = current[0];
+  if (currentPrice == null && candidates.length) currentPrice = candidates[0].value;
+
+  if (originalPrice != null && currentPrice != null && originalPrice <= currentPrice) {
+    originalPrice = null;
+  }
 
   if (currentPrice == null) return null;
   return {
@@ -184,12 +232,26 @@ function fromVisibleText(html: string): MercadoLivreExtractedPrices | null {
 
 export function extractMercadoLivrePrices(html: string): MercadoLivreExtractedPrices {
   const structured = fromStructuredData(html);
+  const dom = fromMainDom(html);
+
+  // Se JSON-LD trouxe só o preço atual (currentPrice) mas não trouxe "alto/antes"
+  // (originalPrice), completamos com o DOM para suportar o sync/import da mesma
+  // forma que a extensão.
   if (structured?.currentPrice != null) {
+    if (structured.originalPrice == null && dom?.originalPrice != null) {
+      console.log("[ml-price-extractor] strategy=json-ld+dom-merge", { structured, dom });
+      return {
+        ...structured,
+        currentPrice: dom.currentPrice ?? structured.currentPrice,
+        originalPrice: dom.originalPrice,
+        discountPercent: dom.discountPercent ?? structured.discountPercent,
+        installmentInfo: dom.installmentInfo ?? structured.installmentInfo,
+      };
+    }
     console.log("[ml-price-extractor] strategy=json-ld", structured);
     return structured;
   }
 
-  const dom = fromMainDom(html);
   if (dom?.currentPrice != null) {
     console.log("[ml-price-extractor] strategy=dom-main", dom);
     return dom;

@@ -1,4 +1,5 @@
-import { extractMercadoLivrePrices } from "@/lib/mercadolivre/price-extractor";
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { extractMercadoLivrePrices } = require("../lib/mercadolivre/price-extractor");
 
 function runCase(name: string, html: string) {
   const result = extractMercadoLivrePrices(html);
@@ -49,4 +50,37 @@ runCase("sem_promocao", htmlSemPromocao);
 runCase("com_riscado", htmlComRiscado);
 runCase("com_parcelamento", htmlComParcelamento);
 runCase("com_secundarios", htmlComSecundarios);
+
+const htmlComBlocosAntesEOffers = `
+<html><body>
+  <div class="ui-pdp-container__row--price">
+    <s class="andes-money-amount ui-pdp-price__part ui-pdp-price__original-value andes-money-amount--previous andes-money-amount--cents-superscript andes-money-amount--compact"
+      style="font-size:16px" role="img"
+      aria-label="Antes: 1000 reais com 70 centavos"
+      aria-roledescription="Valor"
+      data-andes-money-amount="true"
+      data-andes-money-amount-size="16">
+      <span class="andes-money-amount__currency" aria-hidden="true" data-andes-money-amount-currency="true"><span class="andes-money-amount__currency-symbol">R$</span></span>
+      <span class="andes-money-amount__fraction" aria-hidden="true" data-andes-money-amount-fraction="true">1.000</span>
+      <span class="andes-visually-hidden" aria-hidden="true">,</span>
+      <span class="andes-money-amount__cents andes-money-amount__cents--superscript-16" style="font-size:10px;margin-top:1px" aria-hidden="true" data-andes-money-amount-cents="true">70</span>
+    </s>
+
+    <span class="andes-money-amount ui-pdp-price__part andes-money-amount--cents-superscript andes-money-amount--compact"
+      style="font-size:36px" itemprop="offers" itemscope itemtype="http://schema.org/Offer"
+      role="img" aria-label="720 reais com 90 centavos" aria-roledescription="Valor"
+      data-andes-money-amount="true" data-andes-money-amount-size="36">
+      <meta itemprop="price" content="720.90">
+      <span class="andes-money-amount__currency" itemprop="priceCurrency" aria-hidden="true" data-andes-money-amount-currency="true">
+        <span class="andes-money-amount__currency-symbol">R$</span>
+      </span>
+      <span class="andes-money-amount__fraction" aria-hidden="true" data-andes-money-amount-fraction="true">720</span>
+      <span class="andes-visually-hidden" aria-hidden="true">,</span>
+      <span class="andes-money-amount__cents andes-money-amount__cents--superscript-36" style="font-size:18px;margin-top:4px" aria-hidden="true" data-andes-money-amount-cents="true">90</span>
+    </span>
+  </div>
+</body></html>
+`;
+
+runCase("blocos_antes_offers_meta", htmlComBlocosAntesEOffers);
 
