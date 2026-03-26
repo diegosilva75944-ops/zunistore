@@ -4,6 +4,23 @@ import { requireMercadoLivreOAuthEnv } from "./oauth-env";
 import { MercadoLivreError } from "@/services/mercadolivre/errors";
 import { mlTokenResponseSchema, type MlTokenResponse } from "./oauth-types";
 
+function redactTokenPayload(input: unknown) {
+  if (!input || typeof input !== "object") return input;
+  const obj = input as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...obj };
+  const maybeRedact = (key: string) => {
+    const v = out[key];
+    if (typeof v === "string" && v.length >= 12) {
+      out[key] = v.slice(0, 6) + "…" + v.slice(-4);
+    } else if (typeof v === "string") {
+      out[key] = "***";
+    }
+  };
+  maybeRedact("access_token");
+  maybeRedact("refresh_token");
+  return out;
+}
+
 function tokenEndpoint(): string {
   const env = requireMercadoLivreOAuthEnv();
   const base = env.MERCADOLIVRE_API_URL.replace(/\/+$/, "");
@@ -25,6 +42,14 @@ async function postForm(body: Record<string, string>): Promise<unknown> {
     json = text ? JSON.parse(text) : null;
   } catch {
     json = text;
+  }
+  const debug = process.env.NODE_ENV !== "production";
+  if (debug) {
+    console.log("[ml-oauth] token endpoint response", {
+      status: res.status,
+      ok: res.ok,
+      body: redactTokenPayload(json),
+    });
   }
   if (!res.ok) {
     console.error("[ml-oauth] token endpoint error", { status: res.status, body: json });

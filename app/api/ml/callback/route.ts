@@ -3,8 +3,9 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/admin/auth";
 import { exchangeCodeForToken, computeExpiresAt } from "@/lib/mercadolivre/oauth";
-import { upsertMlToken } from "@/lib/mercadolivre/token-store";
+import { getMlTokenByUserId, upsertMlToken } from "@/lib/mercadolivre/token-store";
 import { consumeOAuthState } from "@/lib/mercadolivre/oauth-state-store";
+import { MercadoLivreError } from "@/services/mercadolivre/errors";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "Não autenticado." }, { status: 401 });
   }
 
+  const debug = process.env.NODE_ENV !== "production";
   const { searchParams } = new URL(req.url);
   const parsed = querySchema.safeParse({
     code: searchParams.get("code"),
@@ -30,10 +32,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "Callback inválido (code/state ausentes)." }, { status: 400 });
   }
 
+  if (debug) {
+    console.log("[ml-oauth][callback] received", {
+      hasCode: Boolean(parsed.data.code),
+      hasState: Boolean(parsed.data.state),
+    });
+  }
+
   const jar = await cookies();
   const expected = jar.get(STATE_COOKIE)?.value ?? "";
   const received = parsed.data.state;
-  const debug = process.env.NODE_ENV !== "production";
 
   if (debug) {
     console.log("[ml-oauth][callback] query", {
@@ -88,20 +96,62 @@ export async function GET(req: Request) {
 
   clearCookie();
 
-  const token = await exchangeCodeForToken(parsed.data.code);
-  const userId = String(token.user_id);
+  if (debug) console.log("[ml-oauth][callback] state_validated", { cookieOk: true, stateStoreOk: stateConsumed.ok });
 
-  await upsertMlToken({
-    user_id: userId,
-    access_token: token.access_token,
-    refresh_token: token.refresh_token,
-    token_type: token.token_type ?? "bearer",
-    scope: token.scope ?? null,
-    expires_in: token.expires_in,
-    expires_at: computeExpiresAt(token.expires_in),
-  });
+  try {
+    const token = await exchangeCodeForToken(parsed.data.code);
+    const userId = String(token.user_id);
 
-  // redireciona de volta pro admin
-  return NextResponse.redirect(new URL("/admin/mercadolivre", req.url));
+    await upsertMlToken({
+      user_id: userId,
+      access_token: token.access_token,
+      refresh_token: token.refresh_token,
+      token_type: token.token_type ?? "bearer",
+      scope: token.scope ?? null,
+      expires_in: token.expires_in,
+      expires_at: computeExpiresAt(token.expires_in),
+    });
+
+    const row = await getMlTokenByUserId(userId);
+    if (debug) {
+      console.log("[ml-oauth][callback] token_saved", {
+        userId,
+        saved: Boolean(row?.access_token && row?.refresh_token && row?.expires_at),
+        expires_at: row?.expires_at ?? null,
+        token_type: row?.token_type ?? null,
+        scope: row?.scope ?? null,
+        updated_at: row?.updated_at ?? null,
+      });
+    }
+
+    const wantsJson =
+      searchParams.get("format") === "json" ||
+      req.headers.get("accept")?.includes("application/json") === true;
+
+    if (wantsJson) {
+      return NextResponse.json({ success: true, message: "Autorização concluída com sucesso" });
+    }
+
+    return NextResponse.redirect(new URL("/admin/mercadolivre?oauth=success", req.url));
+  } catch (e) {
+    console.error("[ml-oauth][callback] token_exchange_or_persist_failed", e);
+    const externalStatus = e instanceof MercadoLivreError ? e.status : undefined;
+    const detail = debug
+      ? e instanceof MercadoLivreError
+        ? e.details ?? e.message
+        : e instanceof Error
+          ? e.message
+          : e
+      : undefined;
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Falha ao trocar code por token",
+        externalStatus,
+        detail,
+      },
+      { status: 502 },
+    );
+  }
 }
 
