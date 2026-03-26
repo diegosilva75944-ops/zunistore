@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  /** Playwright só roda no servidor (import dinâmico na rota de teste). */
+  serverExternalPackages: ["playwright"],
   /** Reforço CORS para import pela extensão Chrome (middleware também define). */
   async headers() {
     return [
