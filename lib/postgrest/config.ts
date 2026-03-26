@@ -47,11 +47,33 @@ export function getPostgrestAnonKey(): string {
   );
 }
 
+/** Leituras (GET): aceita fallback para anon se a service não estiver definida. */
 export function getPostgrestServiceKey(): string {
-  return (
+  const s =
     process.env.DB_SERVICE_ROLE_KEY ??
     process.env.DB_SERVICE_KEY ??
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    getPostgrestAnonKey()
-  );
+    "";
+  const trimmed = String(s).trim();
+  if (trimmed) return trimmed;
+  return getPostgrestAnonKey();
+}
+
+/**
+ * Escritas (POST/PATCH/DELETE/RPC): **não** usa anon como fallback.
+ * No Supabase, a anon só tem SELECT nas tabelas públicas; sem a service role o PATCH/INSERT falha (403/permission denied).
+ */
+export function getPostgrestServiceKeyForWrites(): string {
+  const s =
+    process.env.DB_SERVICE_ROLE_KEY ??
+    process.env.DB_SERVICE_KEY ??
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    "";
+  const trimmed = String(s).trim();
+  if (!trimmed) {
+    throw new Error(
+      "Configure SUPABASE_SERVICE_ROLE_KEY (ou DB_SERVICE_ROLE_KEY / DB_SERVICE_KEY) no servidor. A chave anon não permite atualizar produtos nem gravar histórico de preços.",
+    );
+  }
+  return trimmed;
 }

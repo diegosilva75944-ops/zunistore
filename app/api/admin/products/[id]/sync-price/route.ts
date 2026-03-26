@@ -4,6 +4,7 @@ import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(
   _req: Request,
@@ -37,7 +38,15 @@ export async function POST(
       );
     }
 
-    const priceInfo = await fetchPricesFromUrl(url);
+    let priceInfo: Awaited<ReturnType<typeof fetchPricesFromUrl>>;
+    try {
+      priceInfo = await fetchPricesFromUrl(url);
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "Falha ao buscar a página do Mercado Livre.";
+      return NextResponse.json({ ok: false, error: message }, { status: 503 });
+    }
+
     if (!priceInfo) {
       try {
         await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
@@ -63,7 +72,7 @@ export async function POST(
     const { price, promoPrice: promo } = priceInfo;
     const is_offer = promo != null && promo < price;
     const off_percent = is_offer
-      ? Math.round((1 - promo! / price) * 100)
+      ? Math.min(100, Math.max(0, Math.round((1 - promo! / price) * 100)))
       : 0;
 
     const oldPrice = Number((row as any).price) || 0;
@@ -87,7 +96,7 @@ export async function POST(
       "products",
       {
         price,
-        promo_price: promo,
+        promo_price: promo ?? null,
         is_offer,
         off_percent,
         last_seen_at: new Date().toISOString(),

@@ -4,12 +4,20 @@
  * PostgREST na raiz, ou …/rest/v1 se o proxy / Supabase Cloud assim expuser).
  */
 
-import { getPostgrestBaseUrl, getPostgrestAnonKey, getPostgrestServiceKey } from "./config";
+import {
+  getPostgrestBaseUrl,
+  getPostgrestAnonKey,
+  getPostgrestServiceKey,
+  getPostgrestServiceKeyForWrites,
+} from "./config";
 
 export type PostgrestRole = "anon" | "service";
 
-function getKey(role: PostgrestRole): string {
-  return role === "service" ? getPostgrestServiceKey() : getPostgrestAnonKey();
+function getKey(role: PostgrestRole, forWrite: boolean): string {
+  if (role === "service") {
+    return forWrite ? getPostgrestServiceKeyForWrites() : getPostgrestServiceKey();
+  }
+  return getPostgrestAnonKey();
 }
 
 function buildUrl(tableOrRpc: string, params?: Record<string, string>): string {
@@ -26,8 +34,8 @@ function buildUrl(tableOrRpc: string, params?: Record<string, string>): string {
   return url.toString();
 }
 
-function getHeaders(role: PostgrestRole, contentType?: string): Record<string, string> {
-  const key = getKey(role);
+function getHeaders(role: PostgrestRole, contentType?: string, forWrite = false): Record<string, string> {
+  const key = getKey(role, forWrite);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${key}`,
     apikey: key,
@@ -79,7 +87,7 @@ export async function postgrestGet<T = unknown>(
   const url = buildUrl(table, params);
   const res = await fetch(url, {
     method: "GET",
-    headers: getHeaders(role),
+    headers: getHeaders(role, undefined, false),
     cache: "no-store",
   });
   return handleResponse<T>(res);
@@ -97,7 +105,7 @@ export async function postgrestPost<T = unknown>(
   const baseNorm = base.replace(/\/+$/, "");
   const path = table.startsWith("rpc/") ? table : table;
   const url = new URL(path, baseNorm + "/");
-  const headers = getHeaders(role, "application/json");
+  const headers = getHeaders(role, "application/json", true);
   const prefers: string[] = [];
   if (opts?.returning !== false && opts?.select) {
     prefers.push("return=representation");
@@ -127,7 +135,7 @@ export async function postgrestPatch(
   const url = buildUrl(table, params);
   const res = await fetch(url, {
     method: "PATCH",
-    headers: getHeaders(role, "application/json"),
+    headers: getHeaders(role, "application/json", true),
     body: JSON.stringify(body),
     cache: "no-store",
   });
@@ -143,7 +151,7 @@ export async function postgrestDelete(
   const url = buildUrl(table, params);
   const res = await fetch(url, {
     method: "DELETE",
-    headers: getHeaders(role),
+    headers: getHeaders(role, undefined, true),
     cache: "no-store",
   });
   await handleResponse(res);

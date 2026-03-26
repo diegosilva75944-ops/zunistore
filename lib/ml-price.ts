@@ -471,6 +471,8 @@ const ML_FETCH_HEADERS = {
   "sec-ch-ua-platform": '"Windows"',
 } as const;
 
+const ML_FETCH_TIMEOUT_MS = 45_000;
+
 export async function fetchPricesFromUrl(url: string): Promise<{
   price: number;
   promoPrice: number | null;
@@ -480,6 +482,7 @@ export async function fetchPricesFromUrl(url: string): Promise<{
       cache: "no-store",
       redirect: "follow",
       headers: ML_FETCH_HEADERS,
+      signal: AbortSignal.timeout(ML_FETCH_TIMEOUT_MS),
     });
     if (!res.ok) return null;
 
@@ -488,8 +491,17 @@ export async function fetchPricesFromUrl(url: string): Promise<{
 
     if (!price || !Number.isFinite(price) || price <= 0) return null;
 
-    return { price, promoPrice };
-  } catch {
-    return null;
+    const promoNorm =
+      promoPrice != null && Number.isFinite(promoPrice) && promoPrice > 0 ? promoPrice : null;
+
+    return { price, promoPrice: promoNorm };
+  } catch (e) {
+    const name = e instanceof Error ? e.name : "";
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw new Error(
+        `Tempo esgotado (${ML_FETCH_TIMEOUT_MS / 1000}s) ao buscar a página do Mercado Livre.`,
+      );
+    }
+    throw e instanceof Error ? e : new Error(String(e));
   }
 }

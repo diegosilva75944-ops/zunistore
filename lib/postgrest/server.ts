@@ -13,9 +13,19 @@ import {
   postgrestRpc,
   type PostgrestRole,
 } from "./fetch";
-import { getPostgrestBaseUrl, getPostgrestAnonKey, getPostgrestServiceKey } from "./config";
+import {
+  getPostgrestBaseUrl,
+  getPostgrestAnonKey,
+  getPostgrestServiceKey,
+  getPostgrestServiceKeyForWrites,
+} from "./config";
 
-export { getPostgrestBaseUrl, getPostgrestAnonKey, getPostgrestServiceKey };
+export {
+  getPostgrestBaseUrl,
+  getPostgrestAnonKey,
+  getPostgrestServiceKey,
+  getPostgrestServiceKeyForWrites,
+};
 export { postgrestGet, postgrestPost, postgrestPatch, postgrestDelete, postgrestRpc, PostgrestError } from "./fetch";
 
 /** Monta query params PostgREST a partir de filtros amigáveis */
