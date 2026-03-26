@@ -15,14 +15,19 @@ function getDatabaseUrl(): string {
   return url;
 }
 
+function resolveSslOption(): false | { rejectUnauthorized: boolean } | undefined {
+  const mode = String(process.env.PGSSLMODE ?? "").trim().toLowerCase();
+  if (mode === "disable") return false;
+  if (mode === "require" || mode === "verify-ca" || mode === "verify-full") {
+    return { rejectUnauthorized: false };
+  }
+  // undefined => deixa o driver usar o que vier da connection string (sslmode)
+  return undefined;
+}
+
 function createPool() {
   const connectionString = getDatabaseUrl();
-  const ssl =
-    process.env.PGSSLMODE === "disable"
-      ? false
-      : process.env.NODE_ENV === "production"
-        ? { rejectUnauthorized: false }
-        : false;
+  const ssl = resolveSslOption();
   return new Pool({ connectionString, ssl, max: 5 });
 }
 
@@ -32,11 +37,29 @@ export function getPgPool(): Pool {
 }
 
 export async function withPgClient<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await getPgPool().connect();
+  let client: PoolClient | null = null;
   try {
+    client = await getPgPool().connect();
     return await fn(client);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err ?? "");
+    // Fallback de compatibilidade: alguns bancos locais/managed recusam SSL.
+    if (/does not support ssl connections/i.test(msg)) {
+      global.__zuniPgPool = new Pool({
+        connectionString: getDatabaseUrl(),
+        ssl: false,
+        max: 5,
+      });
+      const retryClient = await getPgPool().connect();
+      try {
+        return await fn(retryClient);
+      } finally {
+        retryClient.release();
+      }
+    }
+    throw err;
   } finally {
-    client.release();
+    client?.release();
   }
 }
 
