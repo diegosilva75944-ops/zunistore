@@ -60,7 +60,12 @@ export async function GET(req: Request) {
     });
   };
 
-  if (!cookieOk || !stateConsumed.ok) {
+  // Se o store server-side estiver indisponível (migration não aplicada / PostgREST indisponível),
+  // não derruba o fluxo: valida pelo cookie para evitar falso "state inválido".
+  const storeRequired = stateConsumed.reason !== "store_error";
+  const stateOk = storeRequired ? stateConsumed.ok : true;
+
+  if (!cookieOk || !stateOk) {
     clearCookie();
     if (debug) {
       return NextResponse.json(
@@ -73,6 +78,7 @@ export async function GET(req: Request) {
           cookieOk,
           stateStoreOk: stateConsumed.ok,
           stateStoreReason: stateConsumed.reason ?? null,
+          stateStoreRequired: storeRequired,
         },
         { status: 400 },
       );

@@ -26,3 +26,15 @@ export function requireMercadoLivreOAuthEnv(): MercadoLivreOAuthEnv {
   return parsed.data;
 }
 
+export function checkMercadoLivreOAuthEnv(): { ok: true; env: MercadoLivreOAuthEnv } | { ok: false } {
+  const parsed = schema.safeParse({
+    MERCADOLIVRE_CLIENT_ID: process.env.MERCADOLIVRE_CLIENT_ID,
+    MERCADOLIVRE_CLIENT_SECRET: process.env.MERCADOLIVRE_CLIENT_SECRET,
+    MERCADOLIVRE_REDIRECT_URI: process.env.MERCADOLIVRE_REDIRECT_URI,
+    MERCADOLIVRE_AUTH_URL: process.env.MERCADOLIVRE_AUTH_URL,
+    MERCADOLIVRE_API_URL: process.env.MERCADOLIVRE_API_URL,
+  });
+  if (!parsed.success) return { ok: false };
+  return { ok: true, env: parsed.data };
+}
+

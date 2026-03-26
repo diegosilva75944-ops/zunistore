@@ -13,34 +13,44 @@ export async function createOAuthState(state: string) {
   const now = Date.now();
   const expiresAt = new Date(now + STATE_TTL_SECONDS * 1000).toISOString();
   const state_hash = hashState(state);
-  await postgrestPost(
-    "mercadolivre_oauth_states",
-    { state_hash, expires_at: expiresAt },
-    "service",
-    { upsert: true, onConflict: "state_hash", returning: false },
-  );
-  return { expiresAt };
+  try {
+    await postgrestPost(
+      "mercadolivre_oauth_states",
+      { state_hash, expires_at: expiresAt },
+      "service",
+      { upsert: true, onConflict: "state_hash", returning: false },
+    );
+    return { ok: true as const, expiresAt };
+  } catch (e) {
+    return { ok: false as const, expiresAt, error: e };
+  }
 }
 
-export async function consumeOAuthState(state: string): Promise<{ ok: boolean; reason?: string }> {
+export async function consumeOAuthState(
+  state: string,
+): Promise<{ ok: boolean; reason?: string; storeError?: unknown }> {
   const state_hash = hashState(state);
-  const rows = await postgrestGet<any[]>("mercadolivre_oauth_states", {
-    select: "id,expires_at,used_at",
-    state_hash: `eq.${state_hash}`,
-    limit: "1",
-  });
-  const row = Array.isArray(rows) ? rows[0] : null;
-  if (!row?.id) return { ok: false, reason: "not_found" };
-  if (row.used_at) return { ok: false, reason: "already_used" };
-  const exp = new Date(String(row.expires_at)).getTime();
-  if (!Number.isFinite(exp) || exp < Date.now()) return { ok: false, reason: "expired" };
+  try {
+    const rows = await postgrestGet<any[]>("mercadolivre_oauth_states", {
+      select: "id,expires_at,used_at",
+      state_hash: `eq.${state_hash}`,
+      limit: "1",
+    });
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row?.id) return { ok: false, reason: "not_found" };
+    if (row.used_at) return { ok: false, reason: "already_used" };
+    const exp = new Date(String(row.expires_at)).getTime();
+    if (!Number.isFinite(exp) || exp < Date.now()) return { ok: false, reason: "expired" };
 
-  await postgrestPatch(
-    "mercadolivre_oauth_states",
-    { used_at: new Date().toISOString() },
-    { id: `eq.${row.id}` },
-  );
-  return { ok: true };
+    await postgrestPatch(
+      "mercadolivre_oauth_states",
+      { used_at: new Date().toISOString() },
+      { id: `eq.${row.id}` },
+    );
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: "store_error", storeError: e };
+  }
 }
 
 /** Opcional: limpeza de estados antigos (não é obrigatório para o fluxo). */
