@@ -1,6 +1,8 @@
 import "server-only";
 
 import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
+import { getPostgrestBaseUrl } from "@/lib/postgrest/server";
+import { PostgrestError } from "@/lib/postgrest/fetch";
 
 export type MercadoLivreTokenRow = {
   id: string;
@@ -34,20 +36,50 @@ export async function upsertMlToken(input: {
   expires_in: number;
   expires_at: string;
 }): Promise<void> {
-  await postgrestPost(
-    "mercadolivre_tokens",
-    {
-      user_id: input.user_id,
-      access_token: input.access_token,
-      refresh_token: input.refresh_token,
+  const table = "mercadolivre_tokens";
+  const debug = process.env.NODE_ENV !== "production";
+  const payload = {
+    user_id: input.user_id,
+    access_token: input.access_token,
+    refresh_token: input.refresh_token,
+    token_type: input.token_type,
+    scope: input.scope,
+    expires_in: input.expires_in,
+    expires_at: input.expires_at,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (debug) {
+    console.log("[ml-oauth][token-store] upsert:start", {
+      table,
+      baseUrl: getPostgrestBaseUrl(),
+      userId: input.user_id,
       token_type: input.token_type,
-      scope: input.scope,
-      expires_in: input.expires_in,
       expires_at: input.expires_at,
-      updated_at: new Date().toISOString(),
-    },
-    "service",
-    { upsert: true, onConflict: "user_id", returning: false },
-  );
+      has_access_token: Boolean(input.access_token),
+      has_refresh_token: Boolean(input.refresh_token),
+    });
+  }
+
+  try {
+    await postgrestPost(table, payload, "service", { upsert: true, onConflict: "user_id", returning: false });
+  } catch (e) {
+    console.error("[ml-oauth][token-store] upsert:failed", {
+      table,
+      baseUrl: getPostgrestBaseUrl(),
+      error: e,
+    });
+    if (e instanceof PostgrestError && e.status === 404) {
+      // Ex.: "Could not find the table 'public.mercadolivre_tokens' in the schema cache"
+      console.error("[ml-oauth][token-store] hint", {
+        hint:
+          "Tabela não encontrada no PostgREST (schema cache). Verifique se a migration `mercadolivre_tokens` foi aplicada no banco de produção e recarregue o schema cache da API, se necessário.",
+        details: e.details,
+      });
+    }
+    throw e;
+  } finally {
+    if (debug) console.log("[ml-oauth][token-store] upsert:done", { table, userId: input.user_id });
+  }
 }
 

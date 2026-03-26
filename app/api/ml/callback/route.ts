@@ -127,11 +127,21 @@ export async function GET(req: Request) {
     } catch (e) {
       console.error("[ml-oauth][callback] persist_token_failed", e);
       const dbStatus = e instanceof PostgrestError ? e.status : undefined;
+      if (e instanceof PostgrestError) {
+        console.error("[ml-oauth][callback] persist_token_failed_details", {
+          status: e.status,
+          details: e.details,
+        });
+      }
       return NextResponse.json(
         {
           success: false,
           error: "Falha ao salvar tokens no banco",
           dbStatus,
+          hint:
+            dbStatus === 404
+              ? "Tabela de tokens não encontrada na API do banco (PostgREST). Verifique se a migration `public.mercadolivre_tokens` foi aplicada em produção e se o schema cache da API foi recarregado."
+              : undefined,
           detail: debug ? (e instanceof PostgrestError ? e.details ?? e.message : e instanceof Error ? e.message : e) : undefined,
         },
         { status: 500 },
