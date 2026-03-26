@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
+import { postgrestGet, postgrestPatch, PostgrestError } from "@/lib/postgrest/server";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 
@@ -11,71 +11,110 @@ export async function POST(
 ) {
   const { id } = await ctx.params;
 
-  const rows = await postgrestGet<any[]>("products", {
-    select: "id,source_url,affiliate_url,price,promo_price",
-    id: `eq.${id}`,
-    limit: "1",
-  });
-  const row = Array.isArray(rows) ? rows[0] : null;
+  try {
+    const rows = await postgrestGet<any[]>("products", {
+      select: "id,source_url,affiliate_url,price,promo_price",
+      id: `eq.${id}`,
+      limit: "1",
+    });
+    const row = Array.isArray(rows) ? rows[0] : null;
 
-  if (!row) {
-    return NextResponse.json(
-      { ok: false, error: "Produto não encontrado." },
-      { status: 404 },
+    if (!row) {
+      return NextResponse.json(
+        { ok: false, error: "Produto não encontrado." },
+        { status: 404 },
+      );
+    }
+
+    const sourceUrl = (row as any).source_url as string | null;
+    const affiliateUrl = (row as any).affiliate_url as string | null;
+    const url = sourceUrl || affiliateUrl;
+
+    if (!url) {
+      return NextResponse.json(
+        { ok: false, error: "Produto sem URL de origem (source_url ou affiliate_url)." },
+        { status: 400 },
+      );
+    }
+
+    const priceInfo = await fetchPricesFromUrl(url);
+    if (!priceInfo) {
+      try {
+        await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
+      } catch (e) {
+        console.error("sync-price: moveProductToDeletedHistoryAndDelete", e);
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Não foi possível remover o produto após URL inválida.",
+            details: e instanceof PostgrestError ? e.details : undefined,
+          },
+          { status: 500 },
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        deleted: true,
+        message:
+          "Produto não encontrado na URL. Removido da listagem e do site e salvo no histórico de deletados.",
+      });
+    }
+
+    const { price, promoPrice: promo } = priceInfo;
+    const is_offer = promo != null && promo < price;
+    const off_percent = is_offer
+      ? Math.round((1 - promo! / price) * 100)
+      : 0;
+
+    const oldPrice = Number((row as any).price) || 0;
+    const oldPromo =
+      (row as any).promo_price != null ? Number((row as any).promo_price) : null;
+
+    try {
+      await recordProductPriceChange({
+        productId: id,
+        oldPrice,
+        newPrice: price,
+        oldPromoPrice: oldPromo,
+        newPromoPrice: promo ?? null,
+        source: "sync_single",
+      });
+    } catch (e) {
+      console.error("sync-price: recordProductPriceChange (preço será atualizado mesmo assim)", e);
+    }
+
+    await postgrestPatch(
+      "products",
+      {
+        price,
+        promo_price: promo,
+        is_offer,
+        off_percent,
+        last_seen_at: new Date().toISOString(),
+      },
+      { id: `eq.${id}` },
     );
-  }
 
-  const sourceUrl = (row as any).source_url as string | null;
-  const affiliateUrl = (row as any).affiliate_url as string | null;
-  const url = sourceUrl || affiliateUrl;
-
-  if (!url) {
-    return NextResponse.json(
-      { ok: false, error: "Produto sem URL de origem (source_url ou affiliate_url)." },
-      { status: 400 },
-    );
-  }
-
-  const priceInfo = await fetchPricesFromUrl(url);
-  if (!priceInfo) {
-    await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
     return NextResponse.json({
       ok: true,
-      deleted: true,
-      message: "Produto não encontrado na URL. Removido da listagem e do site e salvo no histórico de deletados.",
+      price,
+      promo_price: promo,
+      is_offer,
+      off_percent,
     });
+  } catch (e) {
+    console.error("sync-price", e);
+    if (e instanceof PostgrestError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: e.message,
+          details: e.details,
+        },
+        { status: e.status >= 400 && e.status < 600 ? e.status : 502 },
+      );
+    }
+    const message = e instanceof Error ? e.message : "Erro interno.";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  const { price, promoPrice: promo } = priceInfo;
-  const is_offer = promo != null && promo < price;
-  const off_percent = is_offer
-    ? Math.round((1 - promo! / price) * 100)
-    : 0;
-
-  const oldPrice = Number((row as any).price) || 0;
-  const oldPromo = (row as any).promo_price != null ? Number((row as any).promo_price) : null;
-  await recordProductPriceChange({
-    productId: id,
-    oldPrice,
-    newPrice: price,
-    oldPromoPrice: oldPromo,
-    newPromoPrice: promo ?? null,
-    source: "sync_single",
-  });
-
-  await postgrestPatch("products", {
-    price,
-    promo_price: promo,
-    is_offer,
-    off_percent,
-    last_seen_at: new Date().toISOString(),
-  }, { id: `eq.${id}` });
-
-  return NextResponse.json({
-    ok: true,
-    price,
-    promo_price: promo,
-    is_offer,
-    off_percent,
-  });
 }
