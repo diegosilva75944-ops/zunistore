@@ -6,6 +6,7 @@
  * 2) `.ui-pdp-container__row--price` 3) `.ui-pdp-price__main-container` / `.ui-pdp-price` 4) fallbacks meta/second-line
  * 5) regex R$. O sync combina isso com JSON-LD como no popup.
  */
+import { extractMercadoLivrePrices } from "@/lib/mercadolivre/price-extractor";
 
 function parseBRL(text: string): number | null {
   const m = String(text || "").match(/R\$\s*([\d\.]+,\d{2})/);
@@ -684,6 +685,16 @@ export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
+  // Nova estratégia robusta por camadas:
+  // 1) JSON estruturado 2) bloco principal DOM 3) fallback textual.
+  const layered = extractMercadoLivrePrices(html);
+  if (layered.currentPrice != null) {
+    if (layered.originalPrice != null && layered.originalPrice > layered.currentPrice) {
+      return { price: layered.originalPrice, promoPrice: layered.currentPrice };
+    }
+    return { price: layered.currentPrice, promoPrice: null };
+  }
+
   const htmlSan = sanitizeMlHtmlForPrice(html);
   const json = extractFromJsonLd(html);
 
@@ -907,8 +918,10 @@ export async function fetchPricesFromUrl(input: FetchMlPriceInput): Promise<Fetc
       ? normalizeMercadoLivreProductUrl(input)
       : resolveMercadoLivreFetchUrl(input.sourceUrl, input.affiliateUrl);
   if (!fetchUrl) {
+    console.warn("[ml-sync-price] url_invalid", { input });
     return { kind: "unreadable" };
   }
+  console.log("[ml-sync-price] analyze_url", { fetchUrl });
   try {
     const first = await fetchMlHtmlOnce(fetchUrl, ML_FETCH_HEADERS);
     if (!first.ok) {
@@ -934,6 +947,7 @@ export async function fetchPricesFromUrl(input: FetchMlPriceInput): Promise<Fetc
     let { price, promoPrice } = extractPricesFromHtml(html);
 
     if (price != null && Number.isFinite(price) && price > 0) {
+      console.log("[ml-sync-price] result_ok", { fetchUrl, price, promoPrice, strategy: "layered-or-legacy" });
       return packOk(price, promoPrice);
     }
 
@@ -946,6 +960,7 @@ export async function fetchPricesFromUrl(input: FetchMlPriceInput): Promise<Fetc
       if (mobile.ok && !looksLikeMlBlockedOrChallenge(mobile.text)) {
         ({ price, promoPrice } = extractPricesFromHtml(mobile.text));
         if (price != null && Number.isFinite(price) && price > 0) {
+          console.log("[ml-sync-price] result_ok_mobile", { fetchUrl, price, promoPrice, strategy: "mobile-fallback" });
           return packOk(price, promoPrice);
         }
         if (looksLikeMlListingMissing(mobile.text)) {
