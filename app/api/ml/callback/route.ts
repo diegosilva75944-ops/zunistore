@@ -6,6 +6,7 @@ import { exchangeCodeForToken, computeExpiresAt, getMercadoLivreTokenEndpointUrl
 import { getMlTokenByUserId, TokenStorePersistenceError, upsertMlToken } from "@/lib/mercadolivre/token-store";
 import { consumeOAuthState } from "@/lib/mercadolivre/oauth-state-store";
 import { MercadoLivreError } from "@/services/mercadolivre/errors";
+import { getPublicOriginFromRequest } from "@/lib/site-url";
 
 function parseDbError(err: unknown): {
   reason: string;
@@ -214,8 +215,12 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: true, message: "Autorização concluída com sucesso" });
     }
 
-    // Redirect relativo para preservar o host público (evita host interno do container).
-    return NextResponse.redirect("/admin/mercadolivre?oauth=success");
+    // Next.js exige URL absoluta em redirect dentro de Route Handler.
+    const origin = getPublicOriginFromRequest(req);
+    const successUrl = origin
+      ? new URL("/admin/mercadolivre?oauth=success", origin).toString()
+      : new URL("/admin/mercadolivre?oauth=success", req.url).toString();
+    return NextResponse.redirect(successUrl);
   } catch (e) {
     console.error("[ml-oauth][callback] token_exchange_or_persist_failed", e);
     const externalStatus = e instanceof MercadoLivreError ? e.status : undefined;
