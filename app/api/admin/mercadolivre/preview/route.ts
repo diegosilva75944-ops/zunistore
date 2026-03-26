@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     const err = mapMlApiError(e);
-    const status = (err.externalStatus && [401, 403, 429].includes(err.externalStatus)) ? err.externalStatus : 502;
+    const status = err.externalStatus ?? 502;
     return NextResponse.json(err, { status });
   }
 }

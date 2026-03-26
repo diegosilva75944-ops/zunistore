@@ -4,6 +4,7 @@ import { z } from "zod";
 import { mlApiGetJson } from "@/lib/mercadolivre/client";
 import { MercadoLivreApiError } from "@/lib/mercadolivre/client";
 import { MercadoLivreNotAuthorizedError } from "@/lib/mercadolivre/get-valid-token";
+import { MercadoLivreError } from "./errors";
 
 // Schemas mínimos (tolerantes)
 const itemSchema = z.object({
@@ -111,6 +112,21 @@ export async function mlSearchAuth(opts: { siteId: string; query: Record<string,
 }
 
 export function mapMlApiError(e: unknown): { success: false; error: string; externalStatus?: number } {
+  if (e instanceof MercadoLivreError) {
+    if (e.code === "invalid_link" || e.code === "invalid_item_id") {
+      return { success: false, error: e.message, externalStatus: 400 };
+    }
+    if (e.code === "not_found") {
+      return { success: false, error: e.message, externalStatus: 404 };
+    }
+    if (e.code === "inactive") {
+      return { success: false, error: e.message, externalStatus: 410 };
+    }
+    if (e.code === "rate_limited") {
+      return { success: false, error: e.message, externalStatus: 429 };
+    }
+    return { success: false, error: e.message || "Falha ao consultar Mercado Livre", externalStatus: e.status };
+  }
   if (e instanceof MercadoLivreNotAuthorizedError) {
     return { success: false, error: e.message, externalStatus: 401 };
   }
