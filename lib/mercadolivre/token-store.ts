@@ -2,6 +2,7 @@ import "server-only";
 
 import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
 import { getPostgrestBaseUrl } from "@/lib/postgrest/server";
+import { getPostgrestServiceKeyForWrites } from "@/lib/postgrest/config";
 import { PostgrestError } from "@/lib/postgrest/fetch";
 
 export type MercadoLivreTokenRow = {
@@ -50,9 +51,18 @@ export async function upsertMlToken(input: {
   };
 
   if (debug) {
+    let hasWriteKey = false;
+    try {
+      hasWriteKey = Boolean(getPostgrestServiceKeyForWrites());
+    } catch {
+      hasWriteKey = false;
+    }
     console.log("[ml-oauth][token-store] upsert:start", {
       table,
       baseUrl: getPostgrestBaseUrl(),
+      client: "postgrest",
+      role: "service",
+      hasServiceRoleKeyForWrites: hasWriteKey,
       userId: input.user_id,
       token_type: input.token_type,
       expires_at: input.expires_at,

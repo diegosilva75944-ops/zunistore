@@ -324,6 +324,17 @@ alter table public.seo_queries enable row level security;
 alter table public.mercadolivre_tokens enable row level security;
 alter table public.mercadolivre_oauth_states enable row level security;
 
+-- Grants/policies para tokens sensíveis (backend via service_role)
+grant select, insert, update, delete on table public.mercadolivre_tokens to service_role;
+do $$ begin
+  create policy "service_role manage mercadolivre_tokens"
+  on public.mercadolivre_tokens
+  for all
+  to service_role
+  using (true)
+  with check (true);
+exception when duplicate_object then null; end $$;
+
 do $$ begin
   create policy "public read categories" on public.categories for select using (true);
 exception when duplicate_object then null; end $$;
