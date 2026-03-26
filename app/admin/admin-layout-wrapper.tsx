@@ -62,9 +62,6 @@ export default function AdminLayoutWrapper({
               <NavLink href="/admin/importacao" active={pathname === "/admin/importacao"}>
                 Importação
               </NavLink>
-              <NavLink href="/admin/mercadolivre" active={pathname.startsWith("/admin/mercadolivre")}>
-                Importar do Mercado Livre
-              </NavLink>
               <NavLink href="/admin/tokens" active={pathname.startsWith("/admin/tokens")}>
                 Tokens
               </NavLink>
