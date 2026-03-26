@@ -189,31 +189,49 @@ export async function adminListProducts(opts: {
 }
 
 /** Produtos com link Mercado Livre — para abrir PDPs no navegador do admin (pré-hidratação / preços). */
+/** Filtro ML sem codificar `%` duas vezes (quebrava o PostgREST). Usa wildcard `*`. */
+const ML_OR_FILTER = "(source_url.ilike.*mercadolivre*,affiliate_url.ilike.*mercadolivre*)";
+
+function escapePostgrestIlikeStar(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/\*/g, "\\*");
+}
+
 export async function adminListMercadolivreProductsForBrowserSync(opts: {
   page?: number;
   perPage?: number;
   q?: string | null;
 }) {
   const page = Math.max(1, opts.page ?? 1);
-  const perPage = Math.min(50, Math.max(5, opts.perPage ?? 20));
+  const perPage = Math.min(100, Math.max(5, opts.perPage ?? 25));
   const offset = (page - 1) * perPage;
-  const mlPat = encodeURIComponent("%mercadolivre%");
   const q = opts.q?.trim();
   const params: Record<string, string> = {
-    select: "id,title,source_url,affiliate_url,price,promo_price",
+    select: "id,title,source_url,affiliate_url,price,promo_price,is_offer,updated_at",
     order: "created_at.desc",
     offset: String(offset),
     limit: String(perPage),
   };
   if (q) {
-    const qp = encodeURIComponent(`%${q}%`);
-    params.and = `(or(source_url.ilike.${mlPat},affiliate_url.ilike.${mlPat}),title.ilike.${qp})`;
+    const safe = escapePostgrestIlikeStar(q);
+    params.and = `(or(source_url.ilike.*mercadolivre*,affiliate_url.ilike.*mercadolivre*),title.ilike.*${safe}*)`;
   } else {
-    params.or = `(source_url.ilike.${mlPat},affiliate_url.ilike.${mlPat})`;
+    params.or = ML_OR_FILTER;
   }
   const { data, count } = await postgrestGetWithCount<any[]>("products", params);
   const items = Array.isArray(data) ? data : [];
   return { items, total: count ?? 0, page, perPage };
+}
+
+/** Próximos produtos ML a sincronizar (mais antigos por `updated_at`). */
+export async function adminListMercadolivreProductsForPriceSync(opts: { limit: number }) {
+  const limit = Math.min(50, Math.max(1, opts.limit));
+  const rows = await postgrestGet<any[]>("products", {
+    select: "id,source_url,affiliate_url,price,promo_price",
+    or: ML_OR_FILTER,
+    order: "updated_at.asc",
+    limit: String(limit),
+  });
+  return Array.isArray(rows) ? rows : [];
 }
 
 export async function adminValidateProductAffiliateLink(productId: string): Promise<{

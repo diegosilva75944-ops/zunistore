@@ -14,6 +14,10 @@ const nextConfig: NextConfig = {
       "./node_modules/playwright/**/*",
       "./node_modules/playwright-core/**/*",
     ],
+    "/api/admin/products/sync-prices-ml-batch/route": [
+      "./node_modules/playwright/**/*",
+      "./node_modules/playwright-core/**/*",
+    ],
   },
   /** Reforço CORS para import pela extensão Chrome (middleware também define). */
   async headers() {

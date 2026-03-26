@@ -7,8 +7,8 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
-    const perPageRaw = parseInt(searchParams.get("perPage") ?? "20", 10) || 20;
-    const perPage = Math.min(50, Math.max(5, perPageRaw));
+    const perPageRaw = parseInt(searchParams.get("perPage") ?? "25", 10) || 25;
+    const perPage = Math.min(100, Math.max(5, perPageRaw));
     const q = searchParams.get("q")?.trim() ?? null;
 
     const { items, total, page: p, perPage: pp } =

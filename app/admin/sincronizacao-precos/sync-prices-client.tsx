@@ -14,10 +14,22 @@ type Row = {
   affiliate_url: string | null;
   price: number | null;
   promo_price: number | null;
+  is_offer?: boolean | null;
+  updated_at?: string | null;
 };
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+function formatDate(iso: string | null | undefined) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+  } catch {
+    return "—";
+  }
 }
 
 function mlUrl(row: Row): string | null {
@@ -26,18 +38,42 @@ function mlUrl(row: Row): string | null {
   return String(u);
 }
 
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 export function SyncPricesClient() {
   const [items, setItems] = useState<Row[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const perPage = 20;
+  const [perPage, setPerPage] = useState<25 | 50 | 100>(25);
   const [qDraft, setQDraft] = useState("");
   const [qApplied, setQApplied] = useState("");
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
   const [openedCount, setOpenedCount] = useState(0);
   const [delayMs, setDelayMs] = useState(450);
-  /** null = ainda testando; true/false = ponte da extensão respondeu */
+
+  const [batchSize, setBatchSize] = useState(10);
+  const [serverBusy, setServerBusy] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const cancelAutoRef = useRef(false);
+  const [serverLog, setServerLog] = useState<string | null>(null);
+  const [lastBatch, setLastBatch] = useState<{
+    processed: number;
+    updated: number;
+    failed: number;
+    deleted: number;
+    skipped: number;
+  } | null>(null);
+  const [totalsAuto, setTotalsAuto] = useState<{
+    batches: number;
+    updated: number;
+    failed: number;
+    deleted: number;
+    skipped: number;
+  } | null>(null);
+
   const [extensionReady, setExtensionReady] = useState<boolean | null>(null);
   const [extSyncBusy, setExtSyncBusy] = useState(false);
   const [extSyncSummary, setExtSyncSummary] = useState<string | null>(null);
@@ -128,6 +164,105 @@ export function SyncPricesClient() {
     step();
   };
 
+  const runServerBatch = useCallback(async () => {
+    const lim = Math.min(50, Math.max(1, batchSize));
+    setServerBusy(true);
+    setServerLog(null);
+    try {
+      const res = await fetch("/api/admin/products/sync-prices-ml-batch", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: lim }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setServerLog(data.error || `Erro HTTP ${res.status}`);
+        return null;
+      }
+      const summary = {
+        processed: Number(data.processed) || 0,
+        updated: Number(data.updated) || 0,
+        failed: Number(data.failed) || 0,
+        deleted: Number(data.deleted) || 0,
+        skipped: Number(data.skipped) || 0,
+      };
+      setLastBatch(summary);
+      setServerLog(
+        `Lote: ${summary.updated} atualizados, ${summary.failed} falhas, ${summary.deleted} removidos, ${summary.skipped} ignorados (${summary.processed} processados).`,
+      );
+      await loadRef.current();
+      return { ...summary, moreLikely: !!data.moreLikely, processed: summary.processed };
+    } catch (e) {
+      setServerLog(e instanceof Error ? e.message : "Falha na requisição.");
+      return null;
+    } finally {
+      setServerBusy(false);
+    }
+  }, [batchSize]);
+
+  const stopAuto = () => {
+    cancelAutoRef.current = true;
+  };
+
+  const runAllAutomatic = async () => {
+    cancelAutoRef.current = false;
+    setAutoRunning(true);
+    setTotalsAuto({ batches: 0, updated: 0, failed: 0, deleted: 0, skipped: 0 });
+    setServerLog("Modo automático: processando lotes até acabar a fila…");
+    let batches = 0;
+    let u = 0;
+    let f = 0;
+    let d = 0;
+    let s = 0;
+    try {
+      while (!cancelAutoRef.current) {
+        const lim = Math.min(50, Math.max(1, batchSize));
+        const res = await fetch("/api/admin/products/sync-prices-ml-batch", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: lim }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setServerLog(data.error || `Erro HTTP ${res.status} (automático interrompido).`);
+          break;
+        }
+        batches += 1;
+        const pu = Number(data.updated) || 0;
+        const pf = Number(data.failed) || 0;
+        const pd = Number(data.deleted) || 0;
+        const ps = Number(data.skipped) || 0;
+        u += pu;
+        f += pf;
+        d += pd;
+        s += ps;
+        setTotalsAuto({ batches, updated: u, failed: f, deleted: d, skipped: s });
+        setLastBatch({
+          processed: Number(data.processed) || 0,
+          updated: pu,
+          failed: pf,
+          deleted: pd,
+          skipped: ps,
+        });
+        await loadRef.current();
+        const proc = Number(data.processed) || 0;
+        const more = !!data.moreLikely;
+        if (proc === 0 || !more) {
+          setServerLog(
+            `Concluído: ${batches} lote(s), ${u} atualizados, ${f} falhas, ${d} removidos, ${s} ignorados.`,
+          );
+          break;
+        }
+        await sleep(600);
+      }
+    } finally {
+      setAutoRunning(false);
+      cancelAutoRef.current = false;
+    }
+  };
+
   const syncViaExtension = () => {
     const queue = items
       .map((row) => ({ id: row.id, url: mlUrl(row) }))
@@ -146,41 +281,86 @@ export function SyncPricesClient() {
         <p className="font-medium">Como usar</p>
         <ul className="mt-2 list-inside list-disc space-y-1 text-amber-900/90">
           <li>
-            O servidor (cron) continua sincronizando via HTML/Playwright. Quando o SSR do ML traz
-            classes de preço erradas, o sync passa a priorizar o valor de{" "}
-            <code className="rounded bg-amber-100/80 px-1">meta itemprop=&quot;price&quot;</code> quando
-            detecta dessincronia com fraction/cents.
+            <strong>Servidor:</strong> cada lote busca o HTML do ML, interpreta preço normal e promocional
+            no markup (buy box) e, se o Playwright estiver disponível, confere o DOM renderizado. Os
+            produtos mais antigos por <code className="rounded bg-amber-100/80 px-1">updated_at</code> entram
+            primeiro na fila.
           </li>
           <li>
-            Esta página abre as páginas do Mercado Livre no <strong>seu</strong> navegador (novas abas,
-            em sequência). Isso força o carregamento real do PDP (JavaScript, preços hidratados). O
-            painel não lê o conteúdo dessas abas (limite de segurança do navegador); use para conferir
-            preços ou manter cache “quente” antes de rodar o sync no servidor.
+            <strong>Sincronizar todos (automático):</strong> repete lotes do tamanho escolhido até não
+            haver mais produtos ML pendentes na fila (ou até você parar).
           </li>
           <li>
-            Se o navegador bloquear janelas, permita pop-ups para este site e clique de novo no botão.
-          </li>
-          <li>
-            <strong>Extensão ZuniStore Importer (v1.1+):</strong> instale a pasta{" "}
-            <code className="rounded bg-amber-100/80 px-1">zunistore-importer</code>, configure URL base
-            e o mesmo <strong>token</strong> de importação em Opções. Use &quot;Sincronizar via
-            extensão&quot; para abrir cada PDP em aba oculta, ler preços como na importação e gravar na
-            API. Se o site não for localhost:3000, Vercel ou zunistore.com.br, adicione o padrão da URL
-            em <code className="rounded bg-amber-100/80 px-1">manifest.json</code> (content_scripts do{" "}
-            <code className="rounded bg-amber-100/80 px-1">admin_bridge.js</code>).
+            Abrir abas manualmente ainda força o PDP no navegador (útil para conferir). A extensão pode
+            gravar preços lidos no PDP com o token de importação.
           </li>
         </ul>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
+        <p className="text-sm font-semibold text-zinc-800">Sincronização no servidor</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1 w-[120px]">
+            <label className="text-xs font-medium text-zinc-600">Produtos por lote</label>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={batchSize}
+              onChange={(e) => setBatchSize(parseInt(e.target.value, 10) || 10)}
+              disabled={serverBusy || autoRunning}
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+            />
+          </div>
+          <button
+            type="button"
+            disabled={serverBusy || autoRunning}
+            onClick={() => void runServerBatch()}
+            className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {serverBusy ? "Processando lote…" : "Rodar um lote"}
+          </button>
+          <button
+            type="button"
+            disabled={serverBusy || autoRunning}
+            onClick={() => void runAllAutomatic()}
+            className="rounded-lg bg-zuni-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-50"
+          >
+            Sincronizar todos (automático)
+          </button>
+          {autoRunning && (
+            <button
+              type="button"
+              onClick={stopAuto}
+              className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+            >
+              Parar automático
+            </button>
+          )}
+        </div>
+        {serverLog && <p className="text-sm text-zinc-700">{serverLog}</p>}
+        {totalsAuto && autoRunning === false && totalsAuto.batches > 0 && (
+          <p className="text-xs text-zinc-600">
+            Última sequência automática: {totalsAuto.batches} lote(s), total acumulado{" "}
+            {totalsAuto.updated} ok / {totalsAuto.failed} falhas / {totalsAuto.deleted} removidos.
+          </p>
+        )}
+        {lastBatch && !autoRunning && (
+          <p className="text-xs text-zinc-500">
+            Último lote: {lastBatch.processed} processados nesta requisição.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <span className="text-zinc-600">Extensão:</span>
         {extensionReady === null && <span className="text-zinc-500">Verificando…</span>}
         {extensionReady === true && (
-          <span className="font-medium text-green-700">Conectada (bridge + token nas opções)</span>
+          <span className="font-medium text-green-700">Conectada</span>
         )}
         {extensionReady === false && (
           <span className="text-amber-800">
-            Não detectada nesta página — recarregue após instalar ou ajuste o manifest para esta URL.
+            Não detectada — use a página em /admin/sync-ml e recarregue após instalar a extensão.
           </span>
         )}
       </div>
@@ -205,8 +385,23 @@ export function SyncPricesClient() {
             placeholder="Nome do produto…"
           />
         </div>
+        <div className="flex flex-col gap-1 w-[120px]">
+          <label className="text-xs font-medium text-zinc-600">Por página</label>
+          <select
+            value={perPage}
+            onChange={(e) => {
+              setPage(1);
+              setPerPage(Number(e.target.value) as 25 | 50 | 100);
+            }}
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm"
+          >
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
         <div className="flex flex-col gap-1 w-[140px]">
-          <label className="text-xs font-medium text-zinc-600">Intervalo (ms)</label>
+          <label className="text-xs font-medium text-zinc-600">Intervalo abas (ms)</label>
           <input
             type="number"
             min={200}
@@ -223,7 +418,7 @@ export function SyncPricesClient() {
             setPage(1);
             setQApplied(qDraft.trim());
           }}
-          className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-700"
+          className="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-300"
         >
           Aplicar filtro
         </button>
@@ -231,9 +426,9 @@ export function SyncPricesClient() {
           type="button"
           disabled={opening || !items.length}
           onClick={openBatchInTabs}
-          className="rounded-lg bg-zuni-primary px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-50"
+          className="rounded-lg bg-zinc-600 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-500 disabled:opacity-50"
         >
-          {opening ? `Abrindo… ${openedCount}/${items.length}` : `Abrir ${items.length} aba(s) desta página`}
+          {opening ? `Abrindo… ${openedCount}/${items.length}` : `Abrir ${items.length} aba(s) (lista)`}
         </button>
         <button
           type="button"
@@ -246,7 +441,7 @@ export function SyncPricesClient() {
           onClick={syncViaExtension}
           className="rounded-lg border-2 border-zuni-primary bg-white px-4 py-2 text-sm font-semibold text-zuni-primary hover:bg-zuni-purple-light/30 disabled:opacity-50"
         >
-          {extSyncBusy ? "Sincronizando via extensão…" : "Sincronizar via extensão (esta página)"}
+          {extSyncBusy ? "Sincronizando…" : "Extensão: lista atual"}
         </button>
       </div>
 
@@ -255,14 +450,18 @@ export function SyncPricesClient() {
       ) : (
         <>
           <p className="text-sm text-zinc-600">
-            {total} produto(s) Mercado Livre — página {page} de {totalPages}
+            {total} produto(s) Mercado Livre na loja — página {page} de {totalPages} (ordenado por cadastro
+            recente na listagem).
           </p>
           <div className="overflow-x-auto rounded-xl border border-zinc-200">
             <table className="min-w-full text-left text-sm">
               <thead className="bg-zinc-50 text-xs font-semibold uppercase text-zinc-600">
                 <tr>
                   <th className="px-3 py-2">Produto</th>
-                  <th className="px-3 py-2">Preço / promo</th>
+                  <th className="px-3 py-2">Preço</th>
+                  <th className="px-3 py-2">Promo</th>
+                  <th className="px-3 py-2">Oferta</th>
+                  <th className="px-3 py-2">Atualizado</th>
                   <th className="px-3 py-2">Ações</th>
                 </tr>
               </thead>
@@ -271,7 +470,7 @@ export function SyncPricesClient() {
                   const url = mlUrl(row);
                   return (
                     <tr key={row.id} className="border-t border-zinc-100">
-                      <td className="px-3 py-2 max-w-[420px]">
+                      <td className="px-3 py-2 max-w-[380px]">
                         <div className="font-medium text-zinc-900 line-clamp-2">{row.title}</div>
                         {url && (
                           <a
@@ -284,13 +483,17 @@ export function SyncPricesClient() {
                           </a>
                         )}
                       </td>
-                      <td className="px-3 py-2 whitespace-nowrap text-zinc-700">
+                      <td className="px-3 py-2 whitespace-nowrap text-zinc-800">
                         {row.price != null ? formatBRL(Number(row.price)) : "—"}
-                        {row.promo_price != null && (
-                          <span className="block text-xs text-green-700">
-                            promo {formatBRL(Number(row.promo_price))}
-                          </span>
-                        )}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-green-700">
+                        {row.promo_price != null ? formatBRL(Number(row.promo_price)) : "—"}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-zinc-600">
+                        {row.is_offer ? "Sim" : "Não"}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs text-zinc-500">
+                        {formatDate(row.updated_at)}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <Link
@@ -306,7 +509,7 @@ export function SyncPricesClient() {
                           onClick={() => url && window.open(url, "_blank", "noopener,noreferrer")}
                           className="text-xs font-medium text-zuni-primary hover:underline disabled:opacity-40"
                         >
-                          Nova aba
+                          Aba
                         </button>
                       </td>
                     </tr>

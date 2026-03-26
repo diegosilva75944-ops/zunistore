@@ -31,6 +31,11 @@
     },
     {
       "matches": [
+        "http://localhost:3000/admin/sync-ml*",
+        "http://127.0.0.1:3000/admin/sync-ml*",
+        "https://*.vercel.app/admin/sync-ml*",
+        "https://zunistore.com.br/admin/sync-ml*",
+        "https://www.zunistore.com.br/admin/sync-ml*",
         "http://localhost:3000/admin/sincronizacao-precos*",
         "http://127.0.0.1:3000/admin/sincronizacao-precos*",
         "https://*.vercel.app/admin/sincronizacao-precos*",
