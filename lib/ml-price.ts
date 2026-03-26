@@ -466,12 +466,26 @@ function extractOrderedPolyMoneyAmounts(block: string): number[] {
 }
 
 /**
+ * Dentro de `poly-price__current`, o layout “pill” (`poly-price__disc--pill`) + centavos no DOM
+ * (`andes-money-amount__cents`) não é o 2º slot da ordem de importação (1º = normal; 2º = promocional
+ * só quando o layout é o de faixa de preço com `poly-price__disc_label` / sem esse par pill+centavos).
+ */
+function polyCurrentSkipsSecondPriceImport(block: string): boolean {
+  const lower = block.toLowerCase();
+  const cur = lower.indexOf("poly-price__current");
+  if (cur === -1) return false;
+  const inst = lower.indexOf("poly-price__installments");
+  const slice = inst === -1 ? block.slice(cur) : block.slice(cur, inst);
+  return (
+    /poly-price__disc--pill/i.test(slice) &&
+    /andes-money-amount__cents/i.test(slice)
+  );
+}
+
+/**
  * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
  * Só o primeiro card: até o próximo `poly-component__price` — evita “Quem viu também comprou”.
- * 1º/2º `andes-money-amount__fraction` no card = normal / promocional (parcelas cortadas antes).
- * Exceção: quando o ML expõe “Antes: N reais” sem centavos no aria e “Agora: … com … centavos”, o à vista no
- * HTML nem sempre é o que a loja quer exibir no sync — usamos só o 1º valor (lista). Ofertas com
- * “Agora: 999 reais” (sem “centavos” no label) continuam com 2º preço.
+ * Ordem: 1º `andes-money-amount__fraction` = normal; 2º = promocional (parcelas cortadas antes).
  */
 function extractPricesFromPolyComponent(html: string): {
   price: number;
@@ -505,11 +519,7 @@ function extractPricesFromPolyComponent(html: string): {
     const p1 = fromText[0];
     const p2 = fromText.length >= 2 ? fromText[1] : null;
     const promoText = p2 != null && p2 !== p1 ? p2 : null;
-    if (
-      promoText != null &&
-      /aria-label=["']Agora:[^"']*centavos/i.test(block) &&
-      !/aria-label=["']Antes:[^"']*centavos/i.test(block)
-    ) {
+    if (promoText != null && polyCurrentSkipsSecondPriceImport(block)) {
       return { price: p1, promoPrice: null };
     }
     return {
@@ -518,11 +528,7 @@ function extractPricesFromPolyComponent(html: string): {
     };
   }
 
-  if (
-    amounts.length >= 2 &&
-    /aria-label=["']Agora:[^"']*centavos/i.test(block) &&
-    !/aria-label=["']Antes:[^"']*centavos/i.test(block)
-  ) {
+  if (amounts.length >= 2 && polyCurrentSkipsSecondPriceImport(block)) {
     return { price: amounts[0], promoPrice: null };
   }
 

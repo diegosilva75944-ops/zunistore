@@ -10,7 +10,7 @@ const CASES: {
   expectPromo: number | null;
 }[] = [
   { url: "https://meli.la/2x3muYy", expectPrice: 1199, expectPromo: 999 },
-  // ML manda 649,90 no DOM; sync do catálogo: só lista (1000) quando Agora traz “centavos” no aria
+  // Layout pill + centavos em poly-price__current: não entra como 2º slot do sync (só lista)
   { url: "https://meli.la/1NV24Sq", expectPrice: 1000, expectPromo: null },
 ];
 
