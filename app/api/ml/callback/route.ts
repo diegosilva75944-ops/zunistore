@@ -12,6 +12,7 @@ function parseDbError(err: unknown): {
   detail?: string;
   sqlState?: string;
   status: number;
+  isDbError: boolean;
 } {
   if (err instanceof TokenStorePersistenceError) {
     return {
@@ -19,6 +20,7 @@ function parseDbError(err: unknown): {
       detail: err.detail ?? err.message,
       sqlState: err.sqlState,
       status: err.status,
+      isDbError: true,
     };
   }
 
@@ -27,24 +29,37 @@ function parseDbError(err: unknown): {
       reason: "database_url_missing",
       detail: "DATABASE_URL/POSTGRES_URL não configurada no servidor.",
       status: 500,
+      isDbError: true,
     };
   }
 
   const e = err as { code?: string; message?: string };
   if (typeof e?.code === "string") {
-    if (e.code === "28P01") return { reason: "db_auth_failed", detail: e.message, sqlState: e.code, status: 500 };
-    if (e.code === "3D000") return { reason: "db_not_found", detail: e.message, sqlState: e.code, status: 500 };
-    if (e.code === "42P01") return { reason: "db_table_not_found", detail: e.message, sqlState: e.code, status: 500 };
-    if (e.code === "42501") return { reason: "db_permission_denied", detail: e.message, sqlState: e.code, status: 500 };
-    if (e.code === "23505") return { reason: "db_unique_violation", detail: e.message, sqlState: e.code, status: 409 };
-    return { reason: "db_sql_error", detail: e.message, sqlState: e.code, status: 500 };
+    if (e.code === "28P01") return { reason: "db_auth_failed", detail: e.message, sqlState: e.code, status: 500, isDbError: true };
+    if (e.code === "3D000") return { reason: "db_not_found", detail: e.message, sqlState: e.code, status: 500, isDbError: true };
+    if (e.code === "42P01") return { reason: "db_table_not_found", detail: e.message, sqlState: e.code, status: 500, isDbError: true };
+    if (e.code === "42501") return { reason: "db_permission_denied", detail: e.message, sqlState: e.code, status: 500, isDbError: true };
+    if (e.code === "23505") return { reason: "db_unique_violation", detail: e.message, sqlState: e.code, status: 409, isDbError: true };
+    return { reason: "db_sql_error", detail: e.message, sqlState: e.code, status: 500, isDbError: true };
   }
 
   return {
     reason: "db_unknown_error",
     detail: err instanceof Error ? err.message : "Erro desconhecido ao persistir token.",
     status: 500,
+    isDbError: false,
   };
+}
+
+function parseOAuthError(err: unknown): { reason: string; detail?: string; status: number } {
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  if (/MERCADOLIVRE_|Variáveis/i.test(msg)) {
+    return { reason: "oauth_env_invalid", detail: msg, status: 500 };
+  }
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|timeout/i.test(msg)) {
+    return { reason: "oauth_network_error", detail: msg, status: 502 };
+  }
+  return { reason: "oauth_unknown_error", detail: msg || "Falha inesperada na troca do code por token.", status: 500 };
 }
 
 export const runtime = "nodejs";
@@ -205,6 +220,7 @@ export async function GET(req: Request) {
     console.error("[ml-oauth][callback] token_exchange_or_persist_failed", e);
     const externalStatus = e instanceof MercadoLivreError ? e.status : undefined;
     const db = parseDbError(e);
+    const oauth = parseOAuthError(e);
     const detail = debug
       ? e instanceof MercadoLivreError
         ? e.details ?? e.message
@@ -212,16 +228,16 @@ export async function GET(req: Request) {
           ? e.message
           : e
       : undefined;
-    const status = externalStatus ?? db.status ?? 500;
+    const status = externalStatus ?? (db.isDbError ? db.status : oauth.status);
     return NextResponse.json(
       {
         success: false,
         error: "Falha ao trocar code por token",
         externalStatus,
-        dbStatus: externalStatus ? undefined : db.status,
-        reason: externalStatus ? undefined : db.reason,
-        sqlState: externalStatus ? undefined : db.sqlState,
-        detail,
+        dbStatus: externalStatus ? undefined : db.isDbError ? db.status : undefined,
+        reason: externalStatus ? undefined : db.isDbError ? db.reason : oauth.reason,
+        sqlState: externalStatus ? undefined : db.isDbError ? db.sqlState : undefined,
+        detail: detail ?? oauth.detail,
       },
       { status },
     );
