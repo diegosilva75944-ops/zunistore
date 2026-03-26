@@ -244,6 +244,17 @@ create trigger set_mercadolivre_tokens_updated_at
 before update on public.mercadolivre_tokens
 for each row execute function public.set_updated_at();
 
+-- OAuth state (CSRF) do Mercado Livre, com expiração e uso único
+create table if not exists public.mercadolivre_oauth_states (
+  id uuid primary key default gen_random_uuid(),
+  state_hash text not null unique,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  used_at timestamptz null
+);
+
+create index if not exists mercadolivre_oauth_states_expires_at_idx on public.mercadolivre_oauth_states(expires_at);
+
 -- counters
 create table if not exists public.counters (
   id text primary key,
@@ -311,6 +322,7 @@ alter table public.contact_settings enable row level security;
 alter table public.social_links enable row level security;
 alter table public.seo_queries enable row level security;
 alter table public.mercadolivre_tokens enable row level security;
+alter table public.mercadolivre_oauth_states enable row level security;
 
 do $$ begin
   create policy "public read categories" on public.categories for select using (true);

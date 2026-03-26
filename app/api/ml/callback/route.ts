@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAdminSession } from "@/lib/admin/auth";
 import { exchangeCodeForToken, computeExpiresAt } from "@/lib/mercadolivre/oauth";
 import { upsertMlToken } from "@/lib/mercadolivre/token-store";
+import { consumeOAuthState } from "@/lib/mercadolivre/oauth-state-store";
 
 export const runtime = "nodejs";
 
@@ -31,18 +32,55 @@ export async function GET(req: Request) {
 
   const jar = await cookies();
   const expected = jar.get(STATE_COOKIE)?.value ?? "";
-  // limpar sempre, para evitar replay
-  jar.set(STATE_COOKIE, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
-  });
+  const received = parsed.data.state;
+  const debug = process.env.NODE_ENV !== "production";
 
-  if (!expected || parsed.data.state !== expected) {
+  if (debug) {
+    console.log("[ml-oauth][callback] query", {
+      receivedStatePreview: received.slice(0, 6) + "…" + received.slice(-4),
+      cookieHeaderPreview: req.headers.get("cookie")?.slice(0, 160) ?? null,
+      storedCookiePreview: expected ? expected.slice(0, 6) + "…" + expected.slice(-4) : null,
+    });
+  }
+
+  // 1) valida contra cookie (rápido) — mas não apaga ainda
+  const cookieOk = expected && received === expected;
+
+  // 2) valida/consome server-side (uso único + expiração)
+  const stateConsumed = await consumeOAuthState(received);
+
+  // Agora sim apaga cookie (uso único / evitar replay)
+  const clearCookie = () => {
+    jar.set(STATE_COOKIE, "", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/api/ml",
+      maxAge: 0,
+    });
+  };
+
+  if (!cookieOk || !stateConsumed.ok) {
+    clearCookie();
+    if (debug) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "State inválido",
+          receivedState: received,
+          storedStateExists: Boolean(expected),
+          storedStatePreview: expected ? expected.slice(0, 6) + "…" + expected.slice(-4) : null,
+          cookieOk,
+          stateStoreOk: stateConsumed.ok,
+          stateStoreReason: stateConsumed.reason ?? null,
+        },
+        { status: 400 },
+      );
+    }
     return NextResponse.json({ success: false, error: "State inválido. Tente autorizar novamente." }, { status: 400 });
   }
+
+  clearCookie();
 
   const token = await exchangeCodeForToken(parsed.data.code);
   const userId = String(token.user_id);
