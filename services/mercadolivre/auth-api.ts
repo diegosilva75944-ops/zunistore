@@ -111,6 +111,20 @@ export async function mlSearchAuth(opts: { siteId: string; query: Record<string,
   };
 }
 
+export async function mlResolveProductToItemAuth(productId: string): Promise<string | null> {
+  const json = await mlApiGetJson<unknown>({ path: `/products/${encodeURIComponent(productId)}/items` });
+  const arr = Array.isArray(json) ? json : [];
+  for (const row of arr) {
+    if (typeof row === "string" && /^MLB\d{6,}$/i.test(row)) return row.toUpperCase();
+    if (row && typeof row === "object") {
+      const r = row as Record<string, unknown>;
+      const idLike = r.item_id ?? r.id;
+      if (typeof idLike === "string" && /^MLB\d{6,}$/i.test(idLike)) return idLike.toUpperCase();
+    }
+  }
+  return null;
+}
+
 export function mapMlApiError(e: unknown): { success: false; error: string; externalStatus?: number } {
   if (e instanceof MercadoLivreError) {
     if (e.code === "invalid_link" || e.code === "invalid_item_id") {

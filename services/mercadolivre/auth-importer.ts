@@ -2,14 +2,34 @@ import "server-only";
 
 import { extractMlItemIdFromUrl } from "./parser";
 import { normalizeMlPublicListing } from "./normalizer";
-import { mlGetItemAuth, mlGetItemDescriptionAuth } from "./auth-api";
+import { mlGetItemAuth, mlGetItemDescriptionAuth, mlResolveProductToItemAuth } from "./auth-api";
+import { MercadoLivreApiError } from "@/lib/mercadolivre/client";
+import { MercadoLivreError } from "./errors";
 
 export async function mlFetchListingByUrlAuth(url: string) {
-  const itemId = extractMlItemIdFromUrl(url);
-  const [item, desc] = await Promise.all([
-    mlGetItemAuth(itemId),
-    mlGetItemDescriptionAuth(itemId).catch(() => null),
-  ]);
+  const extracted = extractMlItemIdFromUrl(url);
+  let itemId = extracted;
+  let item;
+  try {
+    item = await mlGetItemAuth(itemId);
+  } catch (e) {
+    const isCatalogProductUrl = /\/p\/MLB\d{6,}/i.test(url);
+    const notFound = e instanceof MercadoLivreApiError && e.externalStatus === 404;
+    if (isCatalogProductUrl && notFound) {
+      const resolved = await mlResolveProductToItemAuth(extracted);
+      if (!resolved) {
+        throw new MercadoLivreError(
+          "not_found",
+          "Esse link é de produto de catálogo e não encontrei anúncio ativo para importar.",
+        );
+      }
+      itemId = resolved;
+      item = await mlGetItemAuth(itemId);
+    } else {
+      throw e;
+    }
+  }
+  const desc = await mlGetItemDescriptionAuth(itemId).catch(() => null);
   const normalized = normalizeMlPublicListing({ item, description: desc });
   return { itemId, normalized };
 }
