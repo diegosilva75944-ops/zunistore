@@ -1,32 +1,11 @@
 import "server-only";
 
 import type { ImportMode, TestMlImportResult } from "./types";
-import { chooseBestPrices, type ChosenPricing } from "./chooseBestPrices";
 import { extractFromHtml } from "./extractFromHtml";
 import { fetchMlHtml } from "./fetchHtml";
 import { fetchHtmlWithPlaywright } from "./extractWithBrowser";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
-
-function scorePricing(p: ChosenPricing): number {
-  let s = 0;
-  if (p.currentPrice != null) s += 4;
-  if (p.originalPrice != null) s += 2;
-  if (p.confidence === "high") s += 3;
-  else if (p.confidence === "medium") s += 2;
-  else s += 1;
-  return s;
-}
-
-function mergePricing(a: ChosenPricing, b: ChosenPricing): ChosenPricing {
-  if (b.currentPrice == null && a.currentPrice != null) return { ...a, source: "mixed" };
-  if (a.currentPrice == null && b.currentPrice != null) return { ...b, source: "mixed" };
-  if (scorePricing(b) > scorePricing(a)) return { ...b, source: "mixed" };
-  return { ...a, source: "mixed" };
-}
-
-function isWeak(pricing: ChosenPricing): boolean {
-  return pricing.currentPrice == null || pricing.confidence === "low";
-}
+import { isWeakResolved, mergeResolvedDisplay, resolvePreviewPricing } from "./resolvePreviewPricing";
 
 export async function runTestMlImport(
   rawUrl: string,
@@ -46,25 +25,20 @@ export async function runTestMlImport(
     }
     globalSteps.push(`Playwright: HTML ${pw.html.length} chars (final: ${pw.finalUrl})`);
     const extracted = extractFromHtml(pw.html, "headless");
-    const pricing = chooseBestPrices(extracted.candidates, "headless");
+    const resolved = resolvePreviewPricing(pw.html, extracted.candidates, "headless");
     return {
       title: extracted.title,
       shortDescription: extracted.shortDescription,
       fullDescription: extracted.fullDescription,
       images: extracted.images,
-      pricing: {
-        currentPrice: pricing.currentPrice,
-        originalPrice: pricing.originalPrice,
-        discountPercent: pricing.discountPercent,
-        installmentPrice: pricing.installmentPrice,
-        installments: pricing.installments,
-        confidence: pricing.confidence,
-        source: "headless",
-      },
+      pricing: resolved.pricing,
       debug: {
         candidates: extracted.candidates,
         extractionSteps: [...globalSteps, ...extracted.extractionSteps],
         rawSignals: { ...extracted.rawSignals, fetchUrl, layer: "headless" },
+        chosenBlock: resolved.chosenBlock,
+        chosenSignals: resolved.chosenSignals,
+        ignoredCandidates: resolved.ignoredCandidates,
       },
     };
   }
@@ -78,18 +52,19 @@ export async function runTestMlImport(
   );
 
   let extracted = extractFromHtml(fetched.html, "fetch-http");
-  let pricing = chooseBestPrices(extracted.candidates, "html");
+  let resolved = resolvePreviewPricing(fetched.html, extracted.candidates, "html");
   let candidates = [...extracted.candidates];
-  let htmlSource: TestMlImportResult["pricing"]["source"] = "html";
+  let htmlSource = resolved.pricing.source;
 
-  if (mode === "auto" && isWeak(pricing)) {
+  if (mode === "auto" && isWeakResolved(resolved.pricing)) {
     globalSteps.push("Heurística fraca ou sem preço → tentando Playwright…");
     const pw = await fetchHtmlWithPlaywright(fetchUrl);
     if (pw.ok) {
       globalSteps.push(`Playwright: ${pw.html.length} chars`);
       const headlessExtract = extractFromHtml(pw.html, "headless");
-      const pricingH = chooseBestPrices(headlessExtract.candidates, "headless");
-      pricing = mergePricing(pricing, pricingH);
+      const headlessResolved = resolvePreviewPricing(pw.html, headlessExtract.candidates, "headless");
+      const fetchLen = candidates.length;
+      resolved = mergeResolvedDisplay(resolved, headlessResolved, fetchLen);
       candidates = [...candidates, ...headlessExtract.candidates];
       extracted = {
         ...extracted,
@@ -99,7 +74,7 @@ export async function runTestMlImport(
         shortDescription: extracted.shortDescription || headlessExtract.shortDescription,
       };
       globalSteps.push(...headlessExtract.extractionSteps);
-      htmlSource = pricing.source;
+      htmlSource = resolved.pricing.source;
     } else {
       globalSteps.push(`Playwright não usado: ${pw.error}`);
     }
@@ -111,12 +86,7 @@ export async function runTestMlImport(
     fullDescription: extracted.fullDescription,
     images: extracted.images,
     pricing: {
-      currentPrice: pricing.currentPrice,
-      originalPrice: pricing.originalPrice,
-      discountPercent: pricing.discountPercent,
-      installmentPrice: pricing.installmentPrice,
-      installments: pricing.installments,
-      confidence: pricing.confidence,
+      ...resolved.pricing,
       source: mode === "html" ? "html" : htmlSource,
     },
     debug: {
@@ -127,6 +97,9 @@ export async function runTestMlImport(
         fetchUrl,
         mode,
       },
+      chosenBlock: resolved.chosenBlock,
+      chosenSignals: resolved.chosenSignals,
+      ignoredCandidates: resolved.ignoredCandidates,
     },
   };
 }

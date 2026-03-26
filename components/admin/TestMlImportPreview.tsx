@@ -14,6 +14,8 @@ type Props = {
 export function TestMlImportPreview({ data }: Props) {
   const { pricing, title, shortDescription, fullDescription, images } = data;
   const hasPromo =
+    pricing.hasDiscount &&
+    pricing.displayMode === "discounted_price" &&
     pricing.originalPrice != null &&
     pricing.currentPrice != null &&
     pricing.originalPrice > pricing.currentPrice;
@@ -24,27 +26,26 @@ export function TestMlImportPreview({ data }: Props) {
         <h2 className="text-lg font-semibold text-zinc-900">{title || "Sem título"}</h2>
         <p className="text-xs text-zinc-500 mt-1">
           Origem preço: <span className="font-mono">{pricing.source}</span> · Confiança:{" "}
-          <span className="font-semibold">{pricing.confidence}</span>
+          <span className="font-semibold">{pricing.confidence}</span> · Modo:{" "}
+          <span className="font-mono">{pricing.displayMode}</span>
         </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
-          <div className="text-xs text-zinc-500">Preço normal</div>
-          <div className="text-lg font-semibold text-zinc-900">
-            {hasPromo ? fmtBrl(pricing.originalPrice) : fmtBrl(pricing.currentPrice)}
-          </div>
+          <div className="text-xs text-zinc-500">Preço atual (UI)</div>
+          <div className="text-lg font-semibold text-emerald-700">{fmtBrl(pricing.currentPrice)}</div>
         </div>
         <div className="rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
-          <div className="text-xs text-zinc-500">Preço oferta</div>
-          <div className="text-lg font-semibold text-emerald-700">
-            {hasPromo ? fmtBrl(pricing.currentPrice) : "—"}
+          <div className="text-xs text-zinc-500">Preço anterior (riscado)</div>
+          <div className="text-lg font-semibold text-zinc-900">
+            {hasPromo ? fmtBrl(pricing.originalPrice) : "—"}
           </div>
         </div>
         <div className="rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
           <div className="text-xs text-zinc-500">OFF</div>
           <div className="text-lg font-semibold text-zinc-900">
-            {pricing.discountPercent != null ? `${pricing.discountPercent}%` : "—"}
+            {hasPromo && pricing.discountPercent != null ? `${pricing.discountPercent}%` : "—"}
           </div>
         </div>
         <div className="rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
