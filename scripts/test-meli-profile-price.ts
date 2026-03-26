@@ -10,8 +10,8 @@ const CASES: {
   expectPromo: number | null;
 }[] = [
   { url: "https://meli.la/2x3muYy", expectPrice: 1199, expectPromo: 999 },
-  // Layout pill + centavos em poly-price__current: não entra como 2º slot do sync (só lista)
-  { url: "https://meli.la/1NV24Sq", expectPrice: 1000, expectPromo: null },
+  { url: "https://meli.la/1NV24Sq", expectPrice: 1000, expectPromo: 649.9 },
+  { url: "https://meli.la/2gDjPzH", expectPrice: 650.9, expectPromo: 403.41 },
 ];
 
 function approx(a: number, b: number, eps = 0.01): boolean {

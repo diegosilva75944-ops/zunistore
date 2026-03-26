@@ -466,26 +466,12 @@ function extractOrderedPolyMoneyAmounts(block: string): number[] {
 }
 
 /**
- * Dentro de `poly-price__current`, o layout “pill” (`poly-price__disc--pill`) + centavos no DOM
- * (`andes-money-amount__cents`) não é o 2º slot da ordem de importação (1º = normal; 2º = promocional
- * só quando o layout é o de faixa de preço com `poly-price__disc_label` / sem esse par pill+centavos).
- */
-function polyCurrentSkipsSecondPriceImport(block: string): boolean {
-  const lower = block.toLowerCase();
-  const cur = lower.indexOf("poly-price__current");
-  if (cur === -1) return false;
-  const inst = lower.indexOf("poly-price__installments");
-  const slice = inst === -1 ? block.slice(cur) : block.slice(cur, inst);
-  return (
-    /poly-price__disc--pill/i.test(slice) &&
-    /andes-money-amount__cents/i.test(slice)
-  );
-}
-
-/**
  * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
  * Só o primeiro card: até o próximo `poly-component__price` — evita “Quem viu também comprou”.
- * Ordem: 1º `andes-money-amount__fraction` = normal; 2º = promocional (parcelas cortadas antes).
+ * Regra de sync (como aparece na tela):
+ * - Se existir um preço riscado (normal anterior) + um preço atual no mesmo card, usar ambos.
+ * - Se existir apenas um preço, é apenas preço normal.
+ * Parcelas (`poly-price__installments`) são ignoradas.
  */
 function extractPricesFromPolyComponent(html: string): {
   price: number;
@@ -504,37 +490,57 @@ function extractPricesFromPolyComponent(html: string): {
     block = block.slice(0, instIdx);
   }
 
+  // 1) Preferir exatamente os dois slots do card: riscado (previous) e atual (current).
+  const bLower = block.toLowerCase();
+  const prevIdx = bLower.indexOf("andes-money-amount--previous");
+  const curIdx = bLower.indexOf("poly-price__current");
+
+  if (prevIdx !== -1) {
+    const prevSlice = block.slice(prevIdx, Math.min(block.length, prevIdx + 2200));
+    const prevAmounts = extractOrderedPolyMoneyAmounts(prevSlice);
+    const prev = prevAmounts[0] ?? null;
+
+    // current pode vir antes ou depois; se existir, pegamos o primeiro valor dentro dele
+    if (curIdx !== -1) {
+      const curSlice = block.slice(curIdx, Math.min(block.length, curIdx + 2600));
+      const curAmounts = extractOrderedPolyMoneyAmounts(curSlice);
+      const cur = curAmounts[0] ?? null;
+      if (prev != null && cur != null && cur !== prev) {
+        return { price: prev, promoPrice: cur };
+      }
+      if (prev != null) return { price: prev, promoPrice: null };
+    }
+
+    if (prev != null) return { price: prev, promoPrice: null };
+  }
+
+  if (curIdx !== -1) {
+    const curSlice = block.slice(curIdx, Math.min(block.length, curIdx + 2600));
+    const curAmounts = extractOrderedPolyMoneyAmounts(curSlice);
+    const cur = curAmounts[0] ?? null;
+    if (cur != null) return { price: cur, promoPrice: null };
+  }
+
+  // 2) Fallback: 1º/2º valores monetários no bloco (já sem parcelas)
   const amounts = extractOrderedPolyMoneyAmounts(block);
-
-  if (amounts.length === 0) {
-    const vis = htmlToVisibleText(block);
-    const re = /R\$\s*[\d\.]+(?:,\d{1,2})?/gi;
-    const fromText: number[] = [];
-    let mm: RegExpExecArray | null;
-    while ((mm = re.exec(vis)) !== null) {
-      const n = parseBRLFlexible(mm[0]);
-      if (n != null && n > 0) fromText.push(n);
-    }
-    if (fromText.length === 0) return null;
-    const p1 = fromText[0];
-    const p2 = fromText.length >= 2 ? fromText[1] : null;
-    const promoText = p2 != null && p2 !== p1 ? p2 : null;
-    if (promoText != null && polyCurrentSkipsSecondPriceImport(block)) {
-      return { price: p1, promoPrice: null };
-    }
-    return {
-      price: p1,
-      promoPrice: promoText,
-    };
+  if (amounts.length >= 1) {
+    const promo = amounts.length >= 2 && amounts[1] !== amounts[0] ? amounts[1] : null;
+    return { price: amounts[0], promoPrice: promo };
   }
 
-  if (amounts.length >= 2 && polyCurrentSkipsSecondPriceImport(block)) {
-    return { price: amounts[0], promoPrice: null };
+  // 3) Último fallback: texto visível
+  const vis = htmlToVisibleText(block);
+  const re = /R\$\s*[\d\.]+(?:,\d{1,2})?/gi;
+  const fromText: number[] = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = re.exec(vis)) !== null) {
+    const n = parseBRLFlexible(mm[0]);
+    if (n != null && n > 0) fromText.push(n);
   }
-
-  const normal = amounts[0];
-  const promo = amounts.length >= 2 && amounts[1] !== amounts[0] ? amounts[1] : null;
-  return { price: normal, promoPrice: promo };
+  if (fromText.length === 0) return null;
+  const p1 = fromText[0];
+  const p2 = fromText.length >= 2 ? fromText[1] : null;
+  return { price: p1, promoPrice: p2 != null && p2 !== p1 ? p2 : null };
 }
 
 export function extractPricesFromHtml(html: string): {
