@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/admin/auth";
 import { exchangeCodeForToken, computeExpiresAt, getMercadoLivreTokenEndpointUrl } from "@/lib/mercadolivre/oauth";
-import { getMlTokenByUserId, upsertMlToken } from "@/lib/mercadolivre/token-store";
+import { getMlTokenByUserId, TokenStorePersistenceError, upsertMlToken } from "@/lib/mercadolivre/token-store";
 import { consumeOAuthState } from "@/lib/mercadolivre/oauth-state-store";
 import { MercadoLivreError } from "@/services/mercadolivre/errors";
 
@@ -13,6 +13,15 @@ function parseDbError(err: unknown): {
   sqlState?: string;
   status: number;
 } {
+  if (err instanceof TokenStorePersistenceError) {
+    return {
+      reason: err.reason,
+      detail: err.detail ?? err.message,
+      sqlState: err.sqlState,
+      status: err.status,
+    };
+  }
+
   if (err instanceof Error && /DATABASE_URL|POSTGRES_URL/.test(err.message)) {
     return {
       reason: "database_url_missing",

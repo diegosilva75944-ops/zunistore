@@ -2,6 +2,63 @@ import "server-only";
 
 import { withPgClient } from "@/lib/db/pg";
 
+export class TokenStorePersistenceError extends Error {
+  constructor(
+    message: string,
+    public reason: string,
+    public status: number,
+    public sqlState?: string,
+    public detail?: string,
+    public original?: unknown,
+  ) {
+    super(message);
+    this.name = "TokenStorePersistenceError";
+  }
+}
+
+function classifySqlPersistenceError(err: unknown): TokenStorePersistenceError {
+  if (err instanceof Error && /DATABASE_URL|POSTGRES_URL/.test(err.message)) {
+    return new TokenStorePersistenceError(
+      "DATABASE_URL/POSTGRES_URL não configurada no servidor.",
+      "database_url_missing",
+      500,
+      undefined,
+      err.message,
+      err,
+    );
+  }
+
+  const e = err as { code?: string; message?: string; detail?: string };
+  if (typeof e?.code === "string") {
+    if (e.code === "28P01") return new TokenStorePersistenceError("Falha de autenticação no banco.", "db_auth_failed", 500, e.code, e.message, err);
+    if (e.code === "3D000") return new TokenStorePersistenceError("Banco não encontrado.", "db_not_found", 500, e.code, e.message, err);
+    if (e.code === "42P01") return new TokenStorePersistenceError("Tabela de tokens não encontrada.", "db_table_not_found", 500, e.code, e.message, err);
+    if (e.code === "42501") return new TokenStorePersistenceError("Permissão negada no banco.", "db_permission_denied", 500, e.code, e.message, err);
+    if (e.code === "23505") return new TokenStorePersistenceError("Violação de unicidade no upsert.", "db_unique_violation", 409, e.code, e.message, err);
+    return new TokenStorePersistenceError("Erro SQL ao salvar tokens.", "db_sql_error", 500, e.code, e.message ?? e.detail, err);
+  }
+
+  if (err instanceof Error) {
+    const msg = err.message || "Erro desconhecido ao persistir token.";
+    if (/timeout|timed out|ETIMEDOUT/i.test(msg)) {
+      return new TokenStorePersistenceError("Timeout na conexão com banco.", "db_timeout", 500, undefined, msg, err);
+    }
+    if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ECONNRESET/i.test(msg)) {
+      return new TokenStorePersistenceError("Falha de conectividade com banco.", "db_network_error", 500, undefined, msg, err);
+    }
+    return new TokenStorePersistenceError("Erro desconhecido ao persistir token.", "db_unknown_error", 500, undefined, msg, err);
+  }
+
+  return new TokenStorePersistenceError(
+    "Erro desconhecido ao persistir token.",
+    "db_unknown_error",
+    500,
+    undefined,
+    "Erro sem mensagem estruturada.",
+    err,
+  );
+}
+
 export type MercadoLivreTokenRow = {
   id: string;
   user_id: string;
@@ -100,19 +157,24 @@ export async function upsertMlToken(input: {
       );
     });
   } catch (e) {
+    const classified = classifySqlPersistenceError(e);
     console.error("[ml-oauth][token-store] upsert:failed", {
       table,
       client: "postgres",
       path: "sql-direct",
+      reason: classified.reason,
+      status: classified.status,
+      sqlState: classified.sqlState,
+      detail: classified.detail,
       payload: {
         ...payload,
         access_token: typeof input.access_token === "string" ? `${input.access_token.slice(0, 6)}…${input.access_token.slice(-4)}` : null,
         refresh_token:
           typeof input.refresh_token === "string" ? `${input.refresh_token.slice(0, 6)}…${input.refresh_token.slice(-4)}` : null,
       },
-      error: e,
+      error: classified.original ?? e,
     });
-    throw e;
+    throw classified;
   } finally {
     if (debug) console.log("[ml-oauth][token-store] upsert:done", { table, userId: input.user_id });
   }
