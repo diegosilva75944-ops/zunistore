@@ -473,10 +473,27 @@ const ML_FETCH_HEADERS = {
 
 const ML_FETCH_TIMEOUT_MS = 45_000;
 
-export async function fetchPricesFromUrl(url: string): Promise<{
-  price: number;
-  promoPrice: number | null;
-} | null> {
+/** Resultado da busca de preço no ML (não confundir “sem preço legível” com “anúncio removido”). */
+export type FetchMlPriceResult =
+  | { kind: "ok"; price: number; promoPrice: number | null }
+  | { kind: "listing_gone" }
+  | { kind: "unreadable" }
+  | { kind: "http_error"; status: number };
+
+/** Heurística para página de erro / item inexistente no ML (HTML 200). */
+function looksLikeMlListingMissing(html: string): boolean {
+  const sample = html.slice(0, 450_000).toLowerCase();
+  return (
+    /não encontramos esta página|nao encontramos esta pagina/i.test(sample) ||
+    /esta página não existe|esta pagina nao existe/i.test(sample) ||
+    /não está mais disponível|nao esta mais disponivel/i.test(sample) ||
+    /este produto não está mais disponível|este produto nao esta mais disponivel/i.test(sample) ||
+    /produto não encontrado|produto nao encontrado/i.test(sample) ||
+    /ops!\s*[^<]{0,80}(não encontramos|erro)/i.test(sample)
+  );
+}
+
+export async function fetchPricesFromUrl(url: string): Promise<FetchMlPriceResult> {
   try {
     const res = await fetch(url, {
       cache: "no-store",
@@ -484,17 +501,28 @@ export async function fetchPricesFromUrl(url: string): Promise<{
       headers: ML_FETCH_HEADERS,
       signal: AbortSignal.timeout(ML_FETCH_TIMEOUT_MS),
     });
-    if (!res.ok) return null;
+
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 410) {
+        return { kind: "listing_gone" };
+      }
+      return { kind: "http_error", status: res.status };
+    }
 
     const html = await res.text();
     const { price, promoPrice } = extractPricesFromHtml(html);
 
-    if (!price || !Number.isFinite(price) || price <= 0) return null;
+    if (price != null && Number.isFinite(price) && price > 0) {
+      const promoNorm =
+        promoPrice != null && Number.isFinite(promoPrice) && promoPrice > 0 ? promoPrice : null;
+      return { kind: "ok", price, promoPrice: promoNorm };
+    }
 
-    const promoNorm =
-      promoPrice != null && Number.isFinite(promoPrice) && promoPrice > 0 ? promoPrice : null;
+    if (looksLikeMlListingMissing(html)) {
+      return { kind: "listing_gone" };
+    }
 
-    return { price, promoPrice: promoNorm };
+    return { kind: "unreadable" };
   } catch (e) {
     const name = e instanceof Error ? e.name : "";
     if (name === "TimeoutError" || name === "AbortError") {

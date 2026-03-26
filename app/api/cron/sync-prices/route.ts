@@ -37,14 +37,18 @@ async function syncAllProducts() {
     }
 
     try {
-      const priceInfo = await fetchPricesFromUrl(url);
-      if (!priceInfo) {
+      const ml = await fetchPricesFromUrl(url);
+      if (ml.kind === "listing_gone") {
         await moveProductToDeletedHistoryAndDelete(p.id, "sync_not_found");
         deleted += 1;
         continue;
       }
+      if (ml.kind === "unreadable" || ml.kind === "http_error") {
+        failed += 1;
+        continue;
+      }
 
-      const { price, promoPrice: promo } = priceInfo;
+      const { price, promoPrice: promo } = ml;
 
       const is_offer = promo != null && promo < price;
       const off_percent = is_offer

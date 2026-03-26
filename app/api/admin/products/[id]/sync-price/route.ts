@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { postgrestGet, postgrestPatch, PostgrestError } from "@/lib/postgrest/server";
-import { fetchPricesFromUrl } from "@/lib/ml-price";
+import { fetchPricesFromUrl, type FetchMlPriceResult } from "@/lib/ml-price";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
@@ -38,16 +38,37 @@ export async function POST(
       );
     }
 
-    let priceInfo: Awaited<ReturnType<typeof fetchPricesFromUrl>>;
+    let ml: FetchMlPriceResult;
     try {
-      priceInfo = await fetchPricesFromUrl(url);
+      ml = await fetchPricesFromUrl(url);
     } catch (e) {
       const message =
         e instanceof Error ? e.message : "Falha ao buscar a página do Mercado Livre.";
       return NextResponse.json({ ok: false, error: message }, { status: 503 });
     }
 
-    if (!priceInfo) {
+    if (ml.kind === "http_error") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `O Mercado Livre respondeu HTTP ${ml.status}. Tente de novo em alguns instantes.`,
+        },
+        { status: 502 },
+      );
+    }
+
+    if (ml.kind === "unreadable") {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Não foi possível identificar o preço nesta página. Verifique se o link ainda abre o anúncio do produto; o layout do site pode ter mudado.",
+        },
+        { status: 422 },
+      );
+    }
+
+    if (ml.kind === "listing_gone") {
       try {
         await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
       } catch (e) {
@@ -55,7 +76,8 @@ export async function POST(
         return NextResponse.json(
           {
             ok: false,
-            error: "Não foi possível remover o produto após URL inválida.",
+            error:
+              "O anúncio parece não existir mais, mas não foi possível salvar no histórico de deletados.",
             details: e instanceof PostgrestError ? e.details : undefined,
           },
           { status: 500 },
@@ -69,7 +91,7 @@ export async function POST(
       });
     }
 
-    const { price, promoPrice: promo } = priceInfo;
+    const { price, promoPrice: promo } = ml;
     const is_offer = promo != null && promo < price;
     const off_percent = is_offer
       ? Math.min(100, Math.max(0, Math.round((1 - promo! / price) * 100)))
