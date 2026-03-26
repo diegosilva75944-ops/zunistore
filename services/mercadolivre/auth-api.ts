@@ -145,6 +145,9 @@ export function mapMlApiError(e: unknown): { success: false; error: string; exte
     return { success: false, error: e.message, externalStatus: 401 };
   }
   if (e instanceof MercadoLivreApiError) {
+    if (e.externalStatus === 403) {
+      return { success: false, error: "Mercado Livre recusou a consulta do anúncio", externalStatus: 403 };
+    }
     return { success: false, error: "Falha ao consultar Mercado Livre", externalStatus: e.externalStatus };
   }
   return { success: false, error: "Falha ao consultar Mercado Livre" };

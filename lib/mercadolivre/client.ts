@@ -38,6 +38,12 @@ function buildApiUrl(opts: RequestOpts) {
 export async function mlApiGetJson<T = unknown>(opts: RequestOpts): Promise<T> {
   const url = buildApiUrl(opts);
   const { access_token } = await getValidMercadoLivreAccessToken();
+  console.log("[ml-api] request", {
+    url,
+    method: "GET",
+    hasAuthToken: Boolean(access_token),
+    tokenPreview: access_token ? `${access_token.slice(0, 8)}…${access_token.slice(-4)}` : null,
+  });
 
   const res = await fetch(url, {
     method: "GET",
@@ -57,13 +63,19 @@ export async function mlApiGetJson<T = unknown>(opts: RequestOpts): Promise<T> {
   }
 
   if (!res.ok) {
-    console.warn("[ml-api] non-ok", { url, status: res.status });
+    console.warn("[ml-api] non-ok", {
+      url,
+      status: res.status,
+      body,
+    });
     throw new MercadoLivreApiError("Falha ao consultar Mercado Livre", {
       externalStatus: res.status,
       url,
       details: body,
     });
   }
+
+  console.log("[ml-api] ok", { url, status: res.status });
 
   return body as T;
 }

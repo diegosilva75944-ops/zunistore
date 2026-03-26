@@ -8,6 +8,7 @@ import { MercadoLivreError } from "./errors";
 
 export async function mlFetchListingByUrlAuth(url: string) {
   const extracted = extractMlItemIdFromUrl(url);
+  console.log("[ml-importer] url_extracted_item", { url, extracted });
   let itemId = extracted;
   let item;
   try {
@@ -16,6 +17,7 @@ export async function mlFetchListingByUrlAuth(url: string) {
     const isCatalogProductUrl = /\/p\/MLB\d{6,}/i.test(url);
     const notFound = e instanceof MercadoLivreApiError && e.externalStatus === 404;
     if (isCatalogProductUrl && notFound) {
+      console.log("[ml-importer] trying_catalog_product_resolution", { productId: extracted });
       const resolved = await mlResolveProductToItemAuth(extracted);
       if (!resolved) {
         throw new MercadoLivreError(
@@ -23,6 +25,7 @@ export async function mlFetchListingByUrlAuth(url: string) {
           "Esse link é de produto de catálogo e não encontrei anúncio ativo para importar.",
         );
       }
+      console.log("[ml-importer] catalog_resolved_item", { productId: extracted, itemId: resolved });
       itemId = resolved;
       item = await mlGetItemAuth(itemId);
     } else {
