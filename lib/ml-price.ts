@@ -436,27 +436,39 @@ function parseMlMoneyFraction(raw: string): number | null {
 }
 
 /**
- * `aria-label` no poly (perfil/afiliado): "Antes: 1000 reais" ou "Agora: 649 reais com 90 centavos".
- * Deve alinhar a `extractAntesPriceFromAria` (PDP): milhar com "." no número e centavos opcionais.
+ * Valores monetários do primeiro `poly-component__price` na ordem do HTML (1º = normal, 2º = promocional).
+ * Cada `andes-money-amount__fraction` conta; centavos no mesmo trecho até o próximo fraction são somados.
  */
-function parsePolyAriaMlPrice(block: string, which: "Antes" | "Agora"): number | null {
-  const re = new RegExp(
-    `aria-label=["']${which}:\\s*([\\d.]+)\\s*reais(?:\\s*com\\s*(\\d+)\\s*centavos?)?["']`,
-    "i",
-  );
-  const m = block.match(re);
-  if (!m) return null;
-  const reais = Number(String(m[1] ?? "").replace(/\./g, ""));
-  const centavos = m[2] ? Number(m[2]) : 0;
-  if (!Number.isFinite(reais) || !Number.isFinite(centavos)) return null;
-  const v = reais + centavos / 100;
-  return v > 0 ? v : null;
+function extractOrderedPolyMoneyAmounts(block: string): number[] {
+  const out: number[] = [];
+  const fractionRe = /andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>/gi;
+  const matches: { index: number; fraction: string }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = fractionRe.exec(block)) !== null) {
+    matches.push({ index: m.index, fraction: m[1] ?? "" });
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].index;
+    const end = i + 1 < matches.length ? matches[i + 1].index : block.length;
+    const segment = block.slice(start, Math.min(end, start + 900));
+    const cents = segment.match(/andes-money-amount__cents[^>]*>(\d{1,2})</i);
+    const frac = matches[i].fraction;
+    let n: number | null;
+    if (cents?.[1]) {
+      const fs = frac.replace(/\./g, "");
+      n = parseFloat(`${fs}.${cents[1].padStart(2, "0")}`);
+    } else {
+      n = parseMlMoneyFraction(frac);
+    }
+    if (n != null && n > 0 && Number.isFinite(n)) out.push(n);
+  }
+  return out;
 }
 
 /**
  * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
- * Só o primeiro card (até o próximo poly ou ~14k) — evita “Quem viu também comprou”.
- * O ML costuma expor `aria-label="Antes: … reais"` / `Agora: … reais"`; o “de” em `<s>` pode não ter centavos no HTML.
+ * Só o primeiro card: até o próximo `poly-component__price` — evita “Quem viu também comprou”.
+ * Dentro do card: 1º preço (ordem no HTML) = normal; 2º = promocional. Parcelas (`poly-price__installments`) são ignoradas.
  */
 function extractPricesFromPolyComponent(html: string): {
   price: number;
@@ -470,96 +482,35 @@ function extractPricesFromPolyComponent(html: string): {
     nextPoly === -1 ? idx + 14_000 : Math.min(nextPoly, idx + 14_000);
   let block = html.slice(idx, blockEnd);
 
-  const a = parsePolyAriaMlPrice(block, "Antes");
-  const b = parsePolyAriaMlPrice(block, "Agora");
-  if (a != null && b != null && a > b) {
-    // No perfil social, o “Antes” costuma ser o preço de referência (ex.: ~~R$ 1.000~~). Quando o “Agora”
-    // vem só com centavos no aria (ex.: “649 reais com 90 centavos”) e o “Antes” é só “N reais”, o card
-    // enfatiza o valor riscado; para o sync do catálogo usamos só o preço normal, sem promo — caso contrário
-    // o site mostraria o à vista (649) em vez do valor de lista (1000). Ofertas como “999 reais” sem
-    // “com … centavos” no aria continuam com promo.
-    const antesLabelHasCentavos = /aria-label=["']Antes:[^"']*centavos/i.test(block);
-    const agoraLabelHasCentavos = /aria-label=["']Agora:[^"']*centavos/i.test(block);
-    if (agoraLabelHasCentavos && !antesLabelHasCentavos) {
-      return { price: a, promoPrice: null };
-    }
-    return { price: a, promoPrice: b };
-  }
-
   const instIdx = block.toLowerCase().indexOf("poly-price__installments");
   if (instIdx !== -1) {
     block = block.slice(0, instIdx);
   }
 
-  const previous: number[] = [];
-  const current: number[] = [];
-  const ordered: number[] = [];
-  const amountBlockRe =
-    /<[^>]*class=["'][^"']*andes-money-amount[^"']*["'][^>]*>[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,300}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
-  for (const m of block.matchAll(amountBlockRe)) {
-    const start = m.index ?? 0;
-    const ctx = block.slice(Math.max(0, start - 500), start + (m[0]?.length ?? 0));
-    const fractionStr = (m[1] || "").replace(/\./g, "");
-    const centsStr = ((m[2] || "") as string).padStart(2, "0");
-    if (!fractionStr) continue;
-    const n = parseFloat(`${fractionStr}.${centsStr}`);
-    if (!Number.isFinite(n) || n <= 0) continue;
-    ordered.push(n);
-    if (/andes-money-amount--previous|--previous/i.test(ctx)) {
-      previous.push(n);
-    } else {
-      current.push(n);
-    }
-  }
-
-  const fractionOnlyRe =
-    /andes-money-amount__fraction[^>]*>([\d.]+)<\/span>(?![\s\S]{0,120}?andes-money-amount__cents)/gi;
-  for (const m of block.matchAll(fractionOnlyRe)) {
-    const n = parseMlMoneyFraction(m[1] ?? "");
-    if (n == null || n < 10) continue;
-    const start = m.index ?? 0;
-    const ctx = block.slice(Math.max(0, start - 400), start + 200);
-    if (/poly-phrase|installment|parcela|sem juros|12x/i.test(ctx)) continue;
-    if (/andes-money-amount--previous|--previous/i.test(ctx)) {
-      if (!previous.includes(n)) previous.push(n);
-    } else if (/poly-price__current/i.test(ctx)) {
-      if (!current.includes(n)) current.push(n);
-    }
-  }
-
-  if (previous.length && current.length) {
-    const normal = Math.max(...previous);
-    const promo = Math.min(...current);
-    if (promo < normal) {
-      return { price: normal, promoPrice: promo };
-    }
-  }
-
-  const amounts = ordered.length ? ordered : [...previous, ...current];
+  const amounts = extractOrderedPolyMoneyAmounts(block);
 
   if (amounts.length === 0) {
     const vis = htmlToVisibleText(block);
     const re = /R\$\s*[\d\.]+(?:,\d{1,2})?/gi;
+    const fromText: number[] = [];
     let mm: RegExpExecArray | null;
     while ((mm = re.exec(vis)) !== null) {
       const n = parseBRLFlexible(mm[0]);
-      if (n != null && n > 0) amounts.push(n);
+      if (n != null && n > 0) fromText.push(n);
     }
+    if (fromText.length === 0) return null;
+    // Mesma regra: 1º e 2º valores no texto visível do card.
+    const p1 = fromText[0];
+    const p2 = fromText.length >= 2 ? fromText[1] : null;
+    return {
+      price: p1,
+      promoPrice: p2 != null && p2 !== p1 ? p2 : null,
+    };
   }
 
-  if (amounts.length === 0) return null;
-  if (amounts.length === 1) {
-    return { price: amounts[0], promoPrice: null };
-  }
-  const first = amounts[0];
-  const second = amounts[1];
-  if (second < first) {
-    return { price: first, promoPrice: second };
-  }
-  if (first < second) {
-    return { price: second, promoPrice: first };
-  }
-  return { price: first, promoPrice: null };
+  const normal = amounts[0];
+  const promo = amounts.length >= 2 && amounts[1] !== amounts[0] ? amounts[1] : null;
+  return { price: normal, promoPrice: promo };
 }
 
 export function extractPricesFromHtml(html: string): {

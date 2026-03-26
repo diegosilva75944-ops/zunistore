@@ -1,6 +1,6 @@
 /**
  * Teste manual: npx tsx scripts/test-meli-profile-price.ts
- * Casos: perfil social (poly) com "Antes/Agora" em aria — milhar e centavos no "Agora".
+ * Primeiro `poly-component__price`: 1º valor = normal, 2º = promocional (ordem no HTML).
  */
 import { fetchPricesFromUrl } from "../lib/ml-price";
 
@@ -10,8 +10,7 @@ const CASES: {
   expectPromo: number | null;
 }[] = [
   { url: "https://meli.la/2x3muYy", expectPrice: 1199, expectPromo: 999 },
-  // Perfil: “Agora” com centavos no aria → só preço normal (lista) para o catálogo
-  { url: "https://meli.la/1NV24Sq", expectPrice: 1000, expectPromo: null },
+  { url: "https://meli.la/1NV24Sq", expectPrice: 1000, expectPromo: 649.9 },
 ];
 
 function approx(a: number, b: number, eps = 0.01): boolean {
