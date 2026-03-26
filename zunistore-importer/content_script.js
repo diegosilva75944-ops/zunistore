@@ -159,6 +159,16 @@
     }
   }
 
+  function pairHighLowFromValues(vals) {
+    const nums = (vals || []).filter((n) => Number.isFinite(n) && n > 0);
+    if (nums.length === 0) return null;
+    if (nums.length === 1) return { price: nums[0], promoPrice: null };
+    const hi = Math.max(...nums);
+    const lo = Math.min(...nums);
+    if (lo < hi) return { price: hi, promoPrice: lo };
+    return { price: hi, promoPrice: null };
+  }
+
   function extractPricesFromMlDom(doc) {
     const mainContainer =
       firstElementNotInOtherSellers(doc, ".ui-pdp-price__main-container") ||
@@ -167,17 +177,13 @@
     if (mainContainer) {
       const ar = collectAriaLabelPricesFromContainer(mainContainer);
       if (ar.length >= 1) {
-        const line1 = ar[0];
-        const promoLine = ar[1];
-        const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
-        return { price: line1, promoPrice };
+        const p = pairHighLowFromValues(ar);
+        if (p) return p;
       }
       const amounts = collectAmountsFromPriceBlock(mainContainer);
-      const line1 = amounts[0];
-      if (line1 != null) {
-        const promoLine = amounts[1];
-        const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
-        return { price: line1, promoPrice };
+      if (amounts.length >= 1) {
+        const p = pairHighLowFromValues(amounts);
+        if (p) return p;
       }
     }
 
@@ -189,17 +195,13 @@
     if (priceRow) {
       const ar = collectAriaLabelPricesFromContainer(priceRow);
       if (ar.length >= 1) {
-        const price = ar[0];
-        const promoLine = ar[1];
-        const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-        return { price, promoPrice };
+        const p = pairHighLowFromValues(ar);
+        if (p) return p;
       }
       const amounts = collectAmountsFromPriceBlock(priceRow);
-      const price = amounts[0];
-      const promoLine = amounts[1];
-      if (price != null) {
-        const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-        return { price, promoPrice };
+      if (amounts.length >= 1) {
+        const p = pairHighLowFromValues(amounts);
+        if (p) return p;
       }
     }
 

@@ -214,6 +214,20 @@ export function extractAriaLabelPriceSequenceFromFragment(fragment: string): num
   return out;
 }
 
+/**
+ * Dois ou mais valores de preço no buy box (aria ou fraction): maior = normal (de), menor = promocional.
+ * Evita depender da ordem no HTML, que pode divergir do DOM.
+ */
+function pairHighLowPrices(values: number[]): { price: number; promoPrice: number | null } | null {
+  const nums = values.filter((n) => Number.isFinite(n) && n > 0);
+  if (nums.length === 0) return null;
+  if (nums.length === 1) return { price: nums[0], promoPrice: null };
+  const hi = Math.max(...nums);
+  const lo = Math.min(...nums);
+  if (lo < hi) return { price: hi, promoPrice: lo };
+  return { price: hi, promoPrice: null };
+}
+
 /** Evita tratar parcelamento (ex.: "10x" de R$ 10,00) como "2º preço" do produto. */
 function pairTwoMeaningfulPrices(sortedDesc: number[]): { price: number; promoPrice: number | null } | null {
   const uniq = [...new Set(sortedDesc)].sort((a, b) => b - a);
@@ -309,10 +323,8 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
     // no SSR podem divergir (ex.: 30,64 visível vs 35,72 no aria).
     const ariaMain = extractAriaLabelPriceSequenceFromFragment(mainBlock);
     if (ariaMain.length >= 1) {
-      const price = ariaMain[0];
-      const promoLine = ariaMain[1];
-      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-      return { price, promoPrice };
+      const paired = pairHighLowPrices(ariaMain);
+      if (paired) return paired;
     }
 
     const mainAmounts: number[] = [];
@@ -330,10 +342,8 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
     }
 
     if (mainAmounts.length >= 1) {
-      const price = mainAmounts[0];
-      const promoLine = mainAmounts[1];
-      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-      return { price, promoPrice };
+      const paired = pairHighLowPrices(mainAmounts);
+      if (paired) return paired;
     }
   }
 
@@ -345,11 +355,11 @@ function extractPricesFromMlDomLike(htmlRaw: string): { price: number; promoPric
     const ariaRow = extractAriaLabelPriceSequenceFromFragment(block);
 
     if (ariaRow.length >= 1) {
-      const price = ariaRow[0];
-      const promoLine = ariaRow[1];
-      const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-      domPrice = price;
-      domPromoPrice = promoPrice;
+      const paired = pairHighLowPrices(ariaRow);
+      if (paired) {
+        domPrice = paired.price;
+        domPromoPrice = paired.promoPrice;
+      }
     }
 
     if (domPrice == null) {
@@ -554,6 +564,17 @@ function htmlToVisibleText(html: string): string {
     .trim();
 }
 
+/** Preço “atual” no schema (oferta), alinhado a `offers.price` da extensão. */
+function jsonLdCurrentOfferPrice(json: {
+  price: number;
+  promoPrice: number | null;
+}): number | null {
+  if (json.promoPrice != null && json.price != null && json.promoPrice < json.price) {
+    return json.promoPrice;
+  }
+  return json.price;
+}
+
 export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
@@ -562,56 +583,33 @@ export function extractPricesFromHtml(html: string): {
   const htmlMain = sliceHtmlBeforeOtherSellers(htmlSan);
   const htmlDom = stripMlBuyingOptionsJson(stripScriptsAndStyles(htmlMain));
   const json = extractFromJsonLd(html);
-
-  /** 1) Varredura do HTML do buy box: preço “de” + promocional (aria, fraction/cents, meta, second-line…). */
+  /** Preços do buy box (prioriza `ui-pdp-price__main-container` dentro de extractPricesFromMlDomLike). */
   const domFromMarkup = extractPricesFromMlDomLike(htmlSan);
-  if (
-    domFromMarkup != null &&
-    domFromMarkup.price != null &&
-    Number.isFinite(domFromMarkup.price) &&
-    domFromMarkup.price > 0
-  ) {
-    return {
-      price: domFromMarkup.price,
-      promoPrice: domFromMarkup.promoPrice ?? null,
-    };
-  }
 
-  /** 2) JSON-LD + faixa “Antes:” no HTML (oferta no schema vs preço tachado no markup). */
   const lower = htmlDom.toLowerCase();
   const rowIdx = lower.indexOf("ui-pdp-container__row--price");
   const priceRowSlice =
     rowIdx !== -1 ? htmlDom.slice(rowIdx, rowIdx + 30000) : htmlDom;
   const antes = extractAntesPriceFromAria(priceRowSlice);
-  if (json?.price != null && antes != null && antes > json.price) {
-    return { price: antes, promoPrice: json.price };
+  const jd = json ? jsonLdCurrentOfferPrice(json) : null;
+
+  if (json?.price != null && antes != null && jd != null && antes > jd) {
+    return { price: antes, promoPrice: jd };
   }
 
-  /** 3) JSON-LD com ajuste fino via markup parcial (quando o buy box não fechou par completo). */
+  /** Mesmo fluxo da extensão `extractFromJsonLd`: DOM do main-container + `offers.price`. */
   if (json) {
-    const dom = domFromMarkup;
-    if (
-      dom &&
-      dom.price != null &&
-      dom.promoPrice != null &&
-      dom.price > dom.promoPrice
-    ) {
-      if (json.promoPrice != null) {
-        const schemaMatchesDom =
-          Math.abs(json.price - dom.price) < 0.02 &&
-          Math.abs(json.promoPrice - dom.promoPrice) < 0.02;
-        return schemaMatchesDom ? json : { price: dom.price, promoPrice: dom.promoPrice };
-      }
-      if (json.price != null) {
-        const jsonNearPromo = Math.abs(json.price - dom.promoPrice) < 0.02;
-        if (jsonNearPromo) {
-          return { price: dom.price, promoPrice: json.price };
-        }
-        return { price: dom.price, promoPrice: dom.promoPrice };
-      }
-    }
+    const domP = domFromMarkup;
+    let finalPrice: number | null = json.price;
+    let finalPromo: number | null = json.promoPrice ?? null;
 
-    if (json.promoPrice != null) return json;
+    if (domP && domP.price != null && domP.promoPrice != null && domP.price > domP.promoPrice) {
+      finalPrice = domP.price;
+      finalPromo = domP.promoPrice;
+    } else if (domP && domP.price != null && jd != null && domP.price > jd) {
+      finalPrice = domP.price;
+      finalPromo = jd;
+    }
 
     if (json.price != null) {
       const textPrices = findPromoAndPrice(htmlToVisibleText(htmlMain));
@@ -619,16 +617,19 @@ export function extractPricesFromHtml(html: string): {
         textPrices.price != null &&
         textPrices.promoPrice != null &&
         textPrices.price > textPrices.promoPrice &&
-        Math.abs(textPrices.promoPrice - json.price) < 0.02
+        jd != null &&
+        Math.abs(textPrices.promoPrice - jd) < 0.02
       ) {
         return { price: textPrices.price, promoPrice: textPrices.promoPrice };
       }
     }
 
-    return json;
+    return { price: finalPrice, promoPrice: finalPromo };
   }
 
-  if (domFromMarkup) return domFromMarkup;
+  if (domFromMarkup && domFromMarkup.price != null && domFromMarkup.price > 0) {
+    return { price: domFromMarkup.price, promoPrice: domFromMarkup.promoPrice ?? null };
+  }
 
   const fromRegex = findPromoAndPrice(htmlToVisibleText(htmlMain));
   if (fromRegex.price != null && fromRegex.price > 0) {
@@ -852,38 +853,40 @@ async function fetchPricesFromUrlWithPlaywright(url: string): Promise<{
         return amounts;
       };
 
+      const pairHighLow = (vals: number[]) => {
+        const nums = vals.filter((n: number) => Number.isFinite(n) && n > 0);
+        if (nums.length === 0) return null;
+        if (nums.length === 1) return { price: nums[0], promoPrice: null };
+        const hi = Math.max(...nums);
+        const lo = Math.min(...nums);
+        if (lo < hi) return { price: hi, promoPrice: lo };
+        return { price: hi, promoPrice: null };
+      };
+
       // main-container antes de row--price (igual extractPricesFromMlDomLike / extensão).
       if (mainContainer) {
         const ar = collectAriaLabelPricesFromContainer(mainContainer);
         if (ar.length >= 1) {
-          const line1 = ar[0];
-          const promoLine = ar[1];
-          const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
-          return { price: line1, promoPrice };
+          const p = pairHighLow(ar);
+          if (p) return p;
         }
         const amounts = collectAmountsFromPriceBlock(mainContainer);
-        const line1 = amounts[0];
-        if (line1 != null) {
-          const promoLine = amounts[1];
-          const promoPrice = promoLine != null && promoLine < line1 ? promoLine : null;
-          return { price: line1, promoPrice };
+        if (amounts.length >= 1) {
+          const p = pairHighLow(amounts);
+          if (p) return p;
         }
       }
 
       if (priceRow) {
         const ar = collectAriaLabelPricesFromContainer(priceRow);
         if (ar.length >= 1) {
-          const price = ar[0];
-          const promoLine = ar[1];
-          const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-          return { price, promoPrice };
+          const p = pairHighLow(ar);
+          if (p) return p;
         }
         const amounts = collectAmountsFromPriceBlock(priceRow);
-        const price = amounts[0];
-        const promoLine = amounts[1];
-        if (price != null) {
-          const promoPrice = promoLine != null && promoLine < price ? promoLine : null;
-          return { price, promoPrice };
+        if (amounts.length >= 1) {
+          const p = pairHighLow(amounts);
+          if (p) return p;
         }
       }
 
