@@ -323,9 +323,19 @@ function extractPricesFromMlDomLike(htmlToParse: string): { price: number; promo
   return null;
 }
 
+/** Meta global (head) — às vezes o único preço estável no HTML bruto do servidor. */
+function extractMetaItempropPrice(html: string): number | null {
+  const m =
+    html.match(/<meta[^>]+itemprop=["']price["'][^>]+content=["']([\d.,]+)["']/i) ??
+    html.match(/<meta[^>]+content=["']([\d.,]+)["'][^>]+itemprop=["']price["']/i);
+  if (!m) return null;
+  const n = Number(String(m[1] ?? "").trim().replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** Replica findPromoAndPrice da extensão (popup): regex (de )?R$ X,XX no texto */
 function findPromoAndPrice(html: string): { price: number | null; promoPrice: number | null } {
-  const snippet = html.slice(0, 50000);
+  const snippet = html.slice(0, 450_000);
   const re = /(de\s*)?(R\$\s*[\d\.]+,\d{2})/gi;
   const found: { n: number; isOld: boolean }[] = [];
   let m: RegExpExecArray | null;
@@ -453,6 +463,20 @@ export function extractPricesFromHtml(html: string): {
   const fromRegex = findPromoAndPrice(htmlToVisibleText(htmlSan));
   if (fromRegex.price != null && fromRegex.price > 0) {
     return { price: fromRegex.price, promoPrice: fromRegex.promoPrice };
+  }
+
+  // Fallback: só remove "outros vendedores". O sanitizeMlHtmlForPrice também remove buy-box/sticky;
+  // em alguns HTMLs servidos ao fetch, o preço principal só aparece nesses blocos — sem isso o sync falhava.
+  const htmlMinimal = stripOtherSellersBlocks(html);
+  const metaOnly = extractMetaItempropPrice(htmlMinimal);
+  if (metaOnly != null) {
+    return { price: metaOnly, promoPrice: null };
+  }
+  const domLoose = extractPricesFromMlDomLike(htmlMinimal);
+  if (domLoose) return domLoose;
+  const fromLoose = findPromoAndPrice(htmlToVisibleText(htmlMinimal));
+  if (fromLoose.price != null && fromLoose.price > 0) {
+    return { price: fromLoose.price, promoPrice: fromLoose.promoPrice };
   }
 
   return { price: null, promoPrice: null };
