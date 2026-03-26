@@ -543,10 +543,39 @@ function extractPricesFromPolyComponent(html: string): {
   return { price: p1, promoPrice: p2 != null && p2 !== p1 ? p2 : null };
 }
 
+/**
+ * Perfil social / afiliado: o HTML costuma incluir o estado de preço no payload (primeiro par
+ * `previous_price` + `current_price` = card em destaque). Evita confundir com outros cards no DOM
+ * e alinha ao valor numérico que o ML envia junto da página.
+ */
+function extractFirstMlHydrationPricePair(html: string): {
+  price: number;
+  promoPrice: number | null;
+} | null {
+  const m = html.match(
+    /"previous_price":\{"value":([0-9.]+)[^}]*\},"current_price":\{"value":([0-9.]+)/,
+  );
+  if (!m) return null;
+  const price = Number(m[1]);
+  const promo = Number(m[2]);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  if (!Number.isFinite(promo) || promo <= 0) return null;
+  if (promo < price) return { price, promoPrice: promo };
+  return { price, promoPrice: null };
+}
+
 export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
+  const lower = html.toLowerCase();
+  if (lower.includes("poly-component__price")) {
+    const hydrated = extractFirstMlHydrationPricePair(html);
+    if (hydrated != null) {
+      return { price: hydrated.price, promoPrice: hydrated.promoPrice };
+    }
+  }
+
   const poly = extractPricesFromPolyComponent(html);
   if (poly != null && poly.price > 0) {
     return { price: poly.price, promoPrice: poly.promoPrice };
@@ -558,8 +587,8 @@ export function extractPricesFromHtml(html: string): {
   // Alinha com a página real: JSON-LD costuma trazer o preço atual (oferta); o "Antes:"
   // no bloco de preço é o preço normal. Isso estabiliza o sync quando a ordem dos
   // .andes-money-amount no HTML difere da ordem no DOM do navegador.
-  const lower = htmlSan.toLowerCase();
-  const rowIdx = lower.indexOf("ui-pdp-container__row--price");
+  const lowerSan = htmlSan.toLowerCase();
+  const rowIdx = lowerSan.indexOf("ui-pdp-container__row--price");
   const priceRowSlice =
     rowIdx !== -1 ? htmlSan.slice(rowIdx, rowIdx + 30000) : htmlSan;
   const antes = extractAntesPriceFromAria(priceRowSlice);

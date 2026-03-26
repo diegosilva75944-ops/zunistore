@@ -12,6 +12,7 @@ const CASES: {
   { url: "https://meli.la/2x3muYy", expectPrice: 1199, expectPromo: 999 },
   { url: "https://meli.la/1NV24Sq", expectPrice: 1000, expectPromo: 649.9 },
   { url: "https://meli.la/2gDjPzH", expectPrice: 650.9, expectPromo: 403.41 },
+  { url: "https://meli.la/19TU25y", expectPrice: 535.55, expectPromo: 356.62 },
 ];
 
 function approx(a: number, b: number, eps = 0.01): boolean {
