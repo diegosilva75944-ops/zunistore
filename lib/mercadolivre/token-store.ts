@@ -16,6 +16,35 @@ export class TokenStorePersistenceError extends Error {
   }
 }
 
+type ErrorLike = {
+  code?: string;
+  message?: string;
+  detail?: string;
+  cause?: unknown;
+  original?: unknown;
+  originalError?: unknown;
+  errors?: unknown[];
+};
+
+function sanitizeText(s: string | undefined, max = 280) {
+  if (!s) return undefined;
+  return s.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function unwrapErrorLike(err: unknown): ErrorLike {
+  if (!err || typeof err !== "object") {
+    if (typeof err === "string") return { message: err };
+    return {};
+  }
+  const e = err as ErrorLike;
+  if (typeof e.code === "string" || typeof e.message === "string") return e;
+  if (e.cause && e.cause !== err) return unwrapErrorLike(e.cause);
+  if (e.original && e.original !== err) return unwrapErrorLike(e.original);
+  if (e.originalError && e.originalError !== err) return unwrapErrorLike(e.originalError);
+  if (Array.isArray(e.errors) && e.errors.length > 0) return unwrapErrorLike(e.errors[0]);
+  return e;
+}
+
 function classifySqlPersistenceError(err: unknown): TokenStorePersistenceError {
   if (err instanceof Error && /DATABASE_URL|POSTGRES_URL/.test(err.message)) {
     return new TokenStorePersistenceError(
@@ -28,18 +57,20 @@ function classifySqlPersistenceError(err: unknown): TokenStorePersistenceError {
     );
   }
 
-  const e = err as { code?: string; message?: string; detail?: string };
+  const e = unwrapErrorLike(err);
+  const message = sanitizeText(e.message);
+  const detail = sanitizeText(e.detail);
   if (typeof e?.code === "string") {
-    if (e.code === "28P01") return new TokenStorePersistenceError("Falha de autenticação no banco.", "db_auth_failed", 500, e.code, e.message, err);
-    if (e.code === "3D000") return new TokenStorePersistenceError("Banco não encontrado.", "db_not_found", 500, e.code, e.message, err);
-    if (e.code === "42P01") return new TokenStorePersistenceError("Tabela de tokens não encontrada.", "db_table_not_found", 500, e.code, e.message, err);
-    if (e.code === "42501") return new TokenStorePersistenceError("Permissão negada no banco.", "db_permission_denied", 500, e.code, e.message, err);
-    if (e.code === "23505") return new TokenStorePersistenceError("Violação de unicidade no upsert.", "db_unique_violation", 409, e.code, e.message, err);
-    return new TokenStorePersistenceError("Erro SQL ao salvar tokens.", "db_sql_error", 500, e.code, e.message ?? e.detail, err);
+    if (e.code === "28P01") return new TokenStorePersistenceError("Falha de autenticação no banco.", "db_auth_failed", 500, e.code, message ?? detail, err);
+    if (e.code === "3D000") return new TokenStorePersistenceError("Banco não encontrado.", "db_not_found", 500, e.code, message ?? detail, err);
+    if (e.code === "42P01") return new TokenStorePersistenceError("Tabela de tokens não encontrada.", "db_table_not_found", 500, e.code, message ?? detail, err);
+    if (e.code === "42501") return new TokenStorePersistenceError("Permissão negada no banco.", "db_permission_denied", 500, e.code, message ?? detail, err);
+    if (e.code === "23505") return new TokenStorePersistenceError("Violação de unicidade no upsert.", "db_unique_violation", 409, e.code, message ?? detail, err);
+    return new TokenStorePersistenceError("Erro SQL ao salvar tokens.", "db_sql_error", 500, e.code, message ?? detail, err);
   }
 
-  if (err instanceof Error) {
-    const msg = err.message || "Erro desconhecido ao persistir token.";
+  const msg = message ?? (err instanceof Error ? err.message : undefined) ?? "Erro desconhecido ao persistir token.";
+  if (msg) {
     if (/timeout|timed out|ETIMEDOUT/i.test(msg)) {
       return new TokenStorePersistenceError("Timeout na conexão com banco.", "db_timeout", 500, undefined, msg, err);
     }
@@ -54,7 +85,7 @@ function classifySqlPersistenceError(err: unknown): TokenStorePersistenceError {
     "db_unknown_error",
     500,
     undefined,
-    "Erro sem mensagem estruturada.",
+    sanitizeText(JSON.stringify(err).slice(0, 280)) ?? "Erro sem mensagem estruturada.",
     err,
   );
 }

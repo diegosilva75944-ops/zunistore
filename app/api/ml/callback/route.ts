@@ -173,7 +173,7 @@ export async function GET(req: Request) {
           reason: db.reason,
           dbStatus: db.status,
           sqlState: db.sqlState,
-          detail: debug ? db.detail : undefined,
+          detail: debug || db.reason === "db_unknown_error" ? db.detail : undefined,
         },
         { status: db.status },
       );
