@@ -4,9 +4,14 @@
  */
 import { fetchPricesFromUrl } from "../lib/ml-price";
 
-const CASES: { url: string; expectPrice: number; expectPromo: number }[] = [
+const CASES: {
+  url: string;
+  expectPrice: number;
+  expectPromo: number | null;
+}[] = [
   { url: "https://meli.la/2x3muYy", expectPrice: 1199, expectPromo: 999 },
-  { url: "https://meli.la/1NV24Sq", expectPrice: 1000, expectPromo: 649.9 },
+  // Perfil: “Agora” com centavos no aria → só preço normal (lista) para o catálogo
+  { url: "https://meli.la/1NV24Sq", expectPrice: 1000, expectPromo: null },
 ];
 
 function approx(a: number, b: number, eps = 0.01): boolean {
@@ -23,13 +28,14 @@ async function main() {
       console.log("Divergência string vs { affiliateUrl }:", r.kind, r2.kind);
     }
     if (r.kind === "ok") {
-      const ok =
-        approx(r.price, expectPrice) &&
-        r.promoPrice != null &&
-        approx(r.promoPrice, expectPromo);
+      const promoOk =
+        expectPromo == null
+          ? r.promoPrice == null
+          : r.promoPrice != null && approx(r.promoPrice, expectPromo);
+      const ok = approx(r.price, expectPrice) && promoOk;
       console.log(
         ok
-          ? `OK (esperado ~${expectPrice} / ~${expectPromo})`
+          ? `OK (esperado ~${expectPrice} / promo ${expectPromo})`
           : `FALHA esperado price=${expectPrice} promo=${expectPromo} obtido ${r.price} ${r.promoPrice}`,
       );
     }

@@ -473,6 +473,16 @@ function extractPricesFromPolyComponent(html: string): {
   const a = parsePolyAriaMlPrice(block, "Antes");
   const b = parsePolyAriaMlPrice(block, "Agora");
   if (a != null && b != null && a > b) {
+    // No perfil social, o “Antes” costuma ser o preço de referência (ex.: ~~R$ 1.000~~). Quando o “Agora”
+    // vem só com centavos no aria (ex.: “649 reais com 90 centavos”) e o “Antes” é só “N reais”, o card
+    // enfatiza o valor riscado; para o sync do catálogo usamos só o preço normal, sem promo — caso contrário
+    // o site mostraria o à vista (649) em vez do valor de lista (1000). Ofertas como “999 reais” sem
+    // “com … centavos” no aria continuam com promo.
+    const antesLabelHasCentavos = /aria-label=["']Antes:[^"']*centavos/i.test(block);
+    const agoraLabelHasCentavos = /aria-label=["']Agora:[^"']*centavos/i.test(block);
+    if (agoraLabelHasCentavos && !antesLabelHasCentavos) {
+      return { price: a, promoPrice: null };
+    }
     return { price: a, promoPrice: b };
   }
 
