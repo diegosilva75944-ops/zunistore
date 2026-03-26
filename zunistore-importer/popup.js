@@ -495,6 +495,24 @@ function extractPricesFromMlDom(doc) {
   const polyRoot = firstElementNotInOtherSellers(doc, ".poly-component__price");
   if (polyRoot) {
     const amountEls = Array.from(polyRoot.querySelectorAll(".andes-money-amount"));
+    const previous = [];
+    const current = [];
+    for (const el of amountEls) {
+      const n = parseAndesMoney(el);
+      if (n == null || n <= 0) continue;
+      if (el.classList.contains("andes-money-amount--previous")) {
+        previous.push(n);
+      } else {
+        current.push(n);
+      }
+    }
+    if (previous.length && current.length) {
+      const price = Math.max(...previous);
+      const promo = Math.min(...current);
+      if (promo < price) {
+        return { price, promoPrice: promo };
+      }
+    }
     const amounts = [];
     for (const el of amountEls) {
       const n = parseAndesMoney(el);

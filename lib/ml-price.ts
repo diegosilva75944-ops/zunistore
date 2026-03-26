@@ -11,6 +11,16 @@ function parseBRL(text: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Perfil social / HTML compacto: R$ 999, R$ 1.199, R$ 1.199,90 */
+function parseBRLFlexible(text: string): number | null {
+  const m = String(text || "").match(/R\$\s*([\d\.]+)(?:,(\d{1,2}))?/i);
+  if (!m) return null;
+  const intPart = m[1].replace(/\./g, "");
+  const dec = m[2] != null ? m[2].padEnd(2, "0").slice(0, 2) : "00";
+  const n = parseFloat(`${intPart}.${dec}`);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** Simula parseAndesMoney da extensão: fraction (ex: 1.234) + cents (ex: 56) -> número */
 function parseAndesMoneyFromHtml(block: string): number | null {
   const fractionMatch = block.match(/andes-money-amount__fraction[^>]*>([\d.]+)</i);
@@ -418,8 +428,9 @@ function htmlToVisibleText(html: string): string {
 }
 
 /**
- * Bloco de preço em páginas com link de afiliado (poly-component).
- * Ordem no DOM: 1º = preço normal; 2º logo abaixo = promocional (quando houver oferta).
+ * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
+ * Só o primeiro card (até o próximo poly ou ~14k) — evita “Quem viu também comprou”.
+ * `andes-money-amount--previous` = preço normal (de); valor sem previous = atual/promo.
  */
 function extractPricesFromPolyComponent(html: string): {
   price: number;
@@ -428,25 +439,48 @@ function extractPricesFromPolyComponent(html: string): {
   const lower = html.toLowerCase();
   const idx = lower.indexOf("poly-component__price");
   if (idx === -1) return null;
-  const block = html.slice(idx, idx + 40_000);
+  const nextPoly = lower.indexOf("poly-component__price", idx + 30);
+  const blockEnd =
+    nextPoly === -1 ? idx + 14_000 : Math.min(nextPoly, idx + 14_000);
+  const block = html.slice(idx, blockEnd);
 
-  const amounts: number[] = [];
+  const previous: number[] = [];
+  const current: number[] = [];
+  const ordered: number[] = [];
   const amountBlockRe =
     /<[^>]*class=["'][^"']*andes-money-amount[^"']*["'][^>]*>[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,300}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
   for (const m of block.matchAll(amountBlockRe)) {
+    const start = m.index ?? 0;
+    const ctx = block.slice(Math.max(0, start - 500), start + (m[0]?.length ?? 0));
     const fractionStr = (m[1] || "").replace(/\./g, "");
     const centsStr = ((m[2] || "") as string).padStart(2, "0");
     if (!fractionStr) continue;
     const n = parseFloat(`${fractionStr}.${centsStr}`);
-    if (Number.isFinite(n) && n > 0) amounts.push(n);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    ordered.push(n);
+    if (/andes-money-amount--previous|--previous/i.test(ctx)) {
+      previous.push(n);
+    } else {
+      current.push(n);
+    }
   }
+
+  if (previous.length && current.length) {
+    const normal = Math.max(...previous);
+    const promo = Math.min(...current);
+    if (promo < normal) {
+      return { price: normal, promoPrice: promo };
+    }
+  }
+
+  const amounts = ordered;
 
   if (amounts.length === 0) {
     const vis = htmlToVisibleText(block);
-    const re = /R\$\s*([\d\.]+,\d{2})/g;
+    const re = /R\$\s*[\d\.]+(?:,\d{1,2})?/gi;
     let mm: RegExpExecArray | null;
     while ((mm = re.exec(vis)) !== null) {
-      const n = parseBRL(mm[0]);
+      const n = parseBRLFlexible(mm[0]);
       if (n != null && n > 0) amounts.push(n);
     }
   }
@@ -590,7 +624,7 @@ export function normalizeMercadoLivreProductUrl(
   }
 }
 
-/** Prioriza `affiliate_url` (HTML com poly-component de afiliado); senão `source_url` (catálogo limpo). */
+/** Prioriza `affiliate_url` (HTML com poly-component; meli.la redireciona para ML). Senão `source_url`. */
 export function resolveMercadoLivreFetchUrl(
   sourceUrl: string | null | undefined,
   affiliateUrl: string | null | undefined,
@@ -598,6 +632,14 @@ export function resolveMercadoLivreFetchUrl(
   const aff = String(affiliateUrl ?? "").trim();
   const src = String(sourceUrl ?? "").trim();
   if (aff) {
+    try {
+      const h = new URL(aff).hostname.toLowerCase();
+      if (h === "meli.la" || h.endsWith(".meli.la")) {
+        return aff;
+      }
+    } catch {
+      /* ignore */
+    }
     return normalizeMercadoLivreProductUrl(aff, { keepSearch: true });
   }
   if (src) {
@@ -625,7 +667,7 @@ export type FetchMlPriceResult =
 function looksLikeMlBlockedOrChallenge(html: string): boolean {
   const s = html.slice(0, 320_000).toLowerCase();
   if (
-    /ui-pdp-price__main-container|poly-component__price|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"/i.test(
+    /ui-pdp-price__main-container|poly-component__price|perfil\s+social|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"/i.test(
       s,
     )
   ) {
