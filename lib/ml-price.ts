@@ -1,6 +1,10 @@
 /**
- * Extração de preços da página do Mercado Livre — alinhada à extensão (content_script + popup).
- * Ordem no HTML: 1) poly-component__price (afiliado: 1º normal, 2º promo)  2) JSON-LD  3) DOM ML  4) regex R$.
+ * Extração de preços da página do Mercado Livre — espelha `zunistore-importer/content_script.js`
+ * (`extractPricesFromMlDom` + merge em `extractFromJsonLd`).
+ *
+ * Ordem DOM na extensão: 1) `.poly-component__price` (classes `--previous` vs demais → max/min ou 1º/2º valor)
+ * 2) `.ui-pdp-container__row--price` 3) `.ui-pdp-price__main-container` / `.ui-pdp-price` 4) fallbacks meta/second-line
+ * 5) regex R$. O sync combina isso com JSON-LD como no popup.
  */
 
 function parseBRL(text: string): number | null {
@@ -98,18 +102,6 @@ function extractAntesPriceFromAria(fragment: string): number | null {
   return v > 0 ? v : null;
 }
 
-/** Evita tratar parcelamento (ex.: "10x" de R$ 10,00) como "2º preço" do produto. */
-function pairTwoMeaningfulPrices(sortedDesc: number[]): { price: number; promoPrice: number | null } | null {
-  const uniq = [...new Set(sortedDesc)].sort((a, b) => b - a);
-  if (uniq.length === 0) return null;
-  if (uniq.length === 1) return { price: uniq[0], promoPrice: null };
-  const a0 = uniq[0];
-  const a1 = uniq[1];
-  const plausiblePair = a1 >= a0 * 0.12 || (a1 >= 50 && a0 > 100);
-  if (plausiblePair && a0 > a1) return { price: a0, promoPrice: a1 };
-  return { price: a0, promoPrice: null };
-}
-
 /**
  * Replica extractPricesFromMlDom da extensão (content_script) usando regex no HTML.
  * 1) Preço original: .ui-pdp-price__original-value ou .andes-money-amount--previous (parseAndesMoney ou aria-label)
@@ -196,13 +188,13 @@ function extractPricesFromMlDomLike(htmlToParse: string): { price: number; promo
       if (Number.isFinite(n) && n > 0) amounts.push(n);
     }
 
-    // Ordem no HTML nem sempre coincide com a ordem no DOM (navegador). Para o mesmo
-    // bloco, o par "normal + oferta" costuma ser o maior e o menor valor relevantes;
-    // valores muito pequenos (ex.: parcela "10x") são descartados por plausibilidade.
-    const pair = pairTwoMeaningfulPrices(amounts);
-    if (pair) {
-      domPrice = pair.price;
-      domPromoPrice = pair.promoPrice;
+    // Igual à extensão: 1ª linha = preço normal, 2ª = promo se for menor (não reordena por tamanho).
+    if (amounts.length >= 1) {
+      const price = amounts[0];
+      const promoLine = amounts[1];
+      domPrice = price;
+      domPromoPrice =
+        promoLine != null && promoLine < price ? promoLine : null;
     }
   }
 
@@ -236,8 +228,14 @@ function extractPricesFromMlDomLike(htmlToParse: string): { price: number; promo
       if (Number.isFinite(n) && n > 0) amounts.push(n);
     }
 
-    const pairMain = pairTwoMeaningfulPrices(amounts);
-    if (pairMain) return pairMain;
+    // Igual à extensão no main-container: 1ª linha, 2ª como promo se menor.
+    if (amounts.length >= 1) {
+      const line1 = amounts[0];
+      const promoLine = amounts[1];
+      const promoPrice =
+        promoLine != null && promoLine < line1 ? promoLine : null;
+      return { price: line1, promoPrice };
+    }
   }
 
   // Original: aria-label="Antes: N reais (com N centavos)" (igual à extensão)
@@ -466,6 +464,87 @@ function extractOrderedPolyMoneyAmounts(block: string): number[] {
 }
 
 /**
+ * Mesma regra do primeiro `poly-component__price` em `content_script.js`: para cada `.andes-money-amount`
+ * em ordem de aparição, classifica como "previous" se o trecho antes da `fraction` ainda está na seção
+ * riscada (antes de `poly-price__current`). Depois: max(previous) + min(current) se ambos existirem e
+ * promo &lt; price; senão 1º e 2º valores na ordem (promo se 2º &lt; 1º). Ignora parcelas.
+ */
+function isPolyFractionInPreviousSection(html: string, pos: number): boolean {
+  const before = html.slice(Math.max(0, pos - 4000), pos);
+  const lastPrev = before.lastIndexOf("andes-money-amount--previous");
+  const lastCur = before.lastIndexOf("poly-price__current");
+  if (lastPrev === -1) return false;
+  if (lastCur !== -1 && lastCur > lastPrev) return false;
+  return true;
+}
+
+function extractPolyPricesLikeExtensionFromHtml(html: string): {
+  price: number;
+  promoPrice: number | null;
+} | null {
+  const lower = html.toLowerCase();
+  const idx = lower.indexOf("poly-component__price");
+  if (idx === -1) return null;
+  const nextPoly = lower.indexOf("poly-component__price", idx + 30);
+  const blockEnd =
+    nextPoly === -1 ? idx + 14_000 : Math.min(nextPoly, idx + 14_000);
+  let block = html.slice(idx, blockEnd);
+  const instIdx = block.toLowerCase().indexOf("poly-price__installments");
+  if (instIdx !== -1) {
+    block = block.slice(0, instIdx);
+  }
+
+  const fractionRe = /andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>/gi;
+  const amounts: { n: number; isPrevious: boolean }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = fractionRe.exec(block)) !== null) {
+    const pos = m.index;
+    const isPrevious = isPolyFractionInPreviousSection(block, pos);
+    const segment = block.slice(pos, pos + 400);
+    const cents = segment.match(/andes-money-amount__cents[^>]*>(\d{1,2})</i);
+    const frac = m[1] ?? "";
+    const fs = frac.replace(/\./g, "");
+    let n: number;
+    if (cents?.[1]) {
+      n = parseFloat(`${fs}.${cents[1].padStart(2, "0")}`);
+    } else {
+      const parsed = parseMlMoneyFraction(frac);
+      if (parsed == null) continue;
+      n = parsed;
+    }
+    if (Number.isFinite(n) && n > 0) amounts.push({ n, isPrevious });
+  }
+
+  const previous = amounts.filter((x) => x.isPrevious).map((x) => x.n);
+  const current = amounts.filter((x) => !x.isPrevious).map((x) => x.n);
+  if (previous.length && current.length) {
+    const price = Math.max(...previous);
+    const promo = Math.min(...current);
+    if (promo < price) {
+      return { price, promoPrice: promo };
+    }
+  }
+  const seq = amounts.map((x) => x.n);
+  if (seq.length >= 1) {
+    const price = seq[0];
+    const promoLine = seq[1];
+    const promoPrice =
+      promoLine != null && promoLine < price ? promoLine : null;
+    return { price, promoPrice };
+  }
+  return null;
+}
+
+function computeDomPricesLikeExtension(htmlSan: string): {
+  price: number;
+  promoPrice: number | null;
+} | null {
+  const poly = extractPolyPricesLikeExtensionFromHtml(htmlSan);
+  if (poly != null && poly.price > 0) return poly;
+  return extractPricesFromMlDomLike(htmlSan);
+}
+
+/**
  * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
  * Só o primeiro card: até o próximo `poly-component__price` — evita “Quem viu também comprou”.
  * Regra de sync (como aparece na tela):
@@ -605,32 +684,10 @@ export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
-  const lower = html.toLowerCase();
-  // 1) Payload ancorado ao MLB do primeiro card (perfil social)
-  let hydrated =
-    lower.includes("poly-component__price") ?
-      extractHydrationPricePairForFeaturedPoly(html)
-    : null;
-  // 2) Primeiro par no payload (fallback)
-  if (hydrated == null) {
-    hydrated = extractFirstMlHydrationPricePair(html);
-  }
-  if (hydrated != null) {
-    return { price: hydrated.price, promoPrice: hydrated.promoPrice };
-  }
-
-  // 3) Primeiro card poly-component__price (DOM)
-  const poly = extractPricesFromPolyComponent(html);
-  if (poly != null && poly.price > 0) {
-    return { price: poly.price, promoPrice: poly.promoPrice };
-  }
-
   const htmlSan = sanitizeMlHtmlForPrice(html);
   const json = extractFromJsonLd(html);
 
-  // Alinha com a página real: JSON-LD costuma trazer o preço atual (oferta); o "Antes:"
-  // no bloco de preço é o preço normal. Isso estabiliza o sync quando a ordem dos
-  // .andes-money-amount no HTML difere da ordem no DOM do navegador.
+  // JSON-LD (oferta) + "Antes:" no bloco de preço — mesmo ajuste que a extensão usa com DOM vs JSON-LD.
   const lowerSan = htmlSan.toLowerCase();
   const rowIdx = lowerSan.indexOf("ui-pdp-container__row--price");
   const priceRowSlice =
@@ -640,14 +697,12 @@ export function extractPricesFromHtml(html: string): {
     return { price: antes, promoPrice: json.price };
   }
 
-  // Replica o fluxo da importação (extensão/popup):
-  // - tenta JSON-LD; se tiver, ajusta com DOM (quando DOM trouxer price+promo, ou quando DOM.price > json.price)
-  // - se JSON-LD não trouxer promo, tenta regex em texto visível (innerText-like)
-  // - se não houver JSON-LD, cai para DOM e depois regex.
+  // DOM como `extractPricesFromMlDom` na extensão: poly (regra --previous) → row → main → fallbacks.
+  const dom = computeDomPricesLikeExtension(htmlSan);
+
   if (json) {
-    const dom = extractPricesFromMlDomLike(htmlSan);
     if (dom && dom.price != null && dom.promoPrice != null) {
-      return dom;
+      return { price: dom.price, promoPrice: dom.promoPrice };
     }
     if (dom && dom.price != null && json.price != null && dom.price > json.price) {
       return { price: dom.price, promoPrice: json.price };
@@ -661,7 +716,6 @@ export function extractPricesFromHtml(html: string): {
     return json;
   }
 
-  const dom = extractPricesFromMlDomLike(htmlSan);
   if (dom) return dom;
 
   const fromRegex = findPromoAndPrice(htmlToVisibleText(htmlSan));
@@ -669,18 +723,36 @@ export function extractPricesFromHtml(html: string): {
     return { price: fromRegex.price, promoPrice: fromRegex.promoPrice };
   }
 
-  // Fallback: só remove "outros vendedores". O sanitizeMlHtmlForPrice também remove buy-box/sticky;
-  // em alguns HTMLs servidos ao fetch, o preço principal só aparece nesses blocos — sem isso o sync falhava.
   const htmlMinimal = stripOtherSellersBlocks(html);
   const metaOnly = extractMetaItempropPrice(htmlMinimal);
   if (metaOnly != null) {
     return { price: metaOnly, promoPrice: null };
   }
-  const domLoose = extractPricesFromMlDomLike(htmlMinimal);
+  const domLoose = computeDomPricesLikeExtension(
+    sanitizeMlHtmlForPrice(htmlMinimal),
+  );
   if (domLoose) return domLoose;
   const fromLoose = findPromoAndPrice(htmlToVisibleText(htmlMinimal));
   if (fromLoose.price != null && fromLoose.price > 0) {
     return { price: fromLoose.price, promoPrice: fromLoose.promoPrice };
+  }
+
+  // HTML de fetch (ex.: perfil meli.la) sem DOM igual ao navegador: payload JSON embutido ou poly via regex.
+  const lower = html.toLowerCase();
+  let hydrated =
+    lower.includes("poly-component__price") ?
+      extractHydrationPricePairForFeaturedPoly(html)
+    : null;
+  if (hydrated == null) {
+    hydrated = extractFirstMlHydrationPricePair(html);
+  }
+  if (hydrated != null) {
+    return { price: hydrated.price, promoPrice: hydrated.promoPrice };
+  }
+
+  const poly = extractPricesFromPolyComponent(html);
+  if (poly != null && poly.price > 0) {
+    return { price: poly.price, promoPrice: poly.promoPrice };
   }
 
   return { price: null, promoPrice: null };
