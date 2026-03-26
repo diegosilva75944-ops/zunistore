@@ -6,7 +6,37 @@ import { exchangeCodeForToken, computeExpiresAt, getMercadoLivreTokenEndpointUrl
 import { getMlTokenByUserId, upsertMlToken } from "@/lib/mercadolivre/token-store";
 import { consumeOAuthState } from "@/lib/mercadolivre/oauth-state-store";
 import { MercadoLivreError } from "@/services/mercadolivre/errors";
-import { PostgrestError } from "@/lib/postgrest/server";
+
+function parseDbError(err: unknown): {
+  reason: string;
+  detail?: string;
+  sqlState?: string;
+  status: number;
+} {
+  if (err instanceof Error && /DATABASE_URL|POSTGRES_URL/.test(err.message)) {
+    return {
+      reason: "database_url_missing",
+      detail: "DATABASE_URL/POSTGRES_URL não configurada no servidor.",
+      status: 500,
+    };
+  }
+
+  const e = err as { code?: string; message?: string };
+  if (typeof e?.code === "string") {
+    if (e.code === "28P01") return { reason: "db_auth_failed", detail: e.message, sqlState: e.code, status: 500 };
+    if (e.code === "3D000") return { reason: "db_not_found", detail: e.message, sqlState: e.code, status: 500 };
+    if (e.code === "42P01") return { reason: "db_table_not_found", detail: e.message, sqlState: e.code, status: 500 };
+    if (e.code === "42501") return { reason: "db_permission_denied", detail: e.message, sqlState: e.code, status: 500 };
+    if (e.code === "23505") return { reason: "db_unique_violation", detail: e.message, sqlState: e.code, status: 409 };
+    return { reason: "db_sql_error", detail: e.message, sqlState: e.code, status: 500 };
+  }
+
+  return {
+    reason: "db_unknown_error",
+    detail: err instanceof Error ? err.message : "Erro desconhecido ao persistir token.",
+    status: 500,
+  };
+}
 
 export const runtime = "nodejs";
 
@@ -126,25 +156,17 @@ export async function GET(req: Request) {
       console.log("[ml-oauth][callback] persist_token:done", { userId });
     } catch (e) {
       console.error("[ml-oauth][callback] persist_token_failed", e);
-      const dbStatus = e instanceof PostgrestError ? e.status : undefined;
-      if (e instanceof PostgrestError) {
-        console.error("[ml-oauth][callback] persist_token_failed_details", {
-          status: e.status,
-          details: e.details,
-        });
-      }
+      const db = parseDbError(e);
       return NextResponse.json(
         {
           success: false,
           error: "Falha ao salvar tokens no banco",
-          dbStatus,
-          hint:
-            dbStatus === 404
-              ? "Tabela de tokens não encontrada na API do banco (PostgREST). Verifique se a migration `public.mercadolivre_tokens` foi aplicada em produção e se o schema cache da API foi recarregado."
-              : undefined,
-          detail: debug ? (e instanceof PostgrestError ? e.details ?? e.message : e instanceof Error ? e.message : e) : undefined,
+          reason: db.reason,
+          dbStatus: db.status,
+          sqlState: db.sqlState,
+          detail: debug ? db.detail : undefined,
         },
-        { status: 500 },
+        { status: db.status },
       );
     }
 
@@ -172,7 +194,7 @@ export async function GET(req: Request) {
   } catch (e) {
     console.error("[ml-oauth][callback] token_exchange_or_persist_failed", e);
     const externalStatus = e instanceof MercadoLivreError ? e.status : undefined;
-    const dbStatus = e instanceof PostgrestError ? e.status : undefined;
+    const db = parseDbError(e);
     const detail = debug
       ? e instanceof MercadoLivreError
         ? e.details ?? e.message
@@ -180,13 +202,15 @@ export async function GET(req: Request) {
           ? e.message
           : e
       : undefined;
-    const status = externalStatus ?? dbStatus ?? 500;
+    const status = externalStatus ?? db.status ?? 500;
     return NextResponse.json(
       {
         success: false,
         error: "Falha ao trocar code por token",
         externalStatus,
-        dbStatus,
+        dbStatus: externalStatus ? undefined : db.status,
+        reason: externalStatus ? undefined : db.reason,
+        sqlState: externalStatus ? undefined : db.sqlState,
         detail,
       },
       { status },
