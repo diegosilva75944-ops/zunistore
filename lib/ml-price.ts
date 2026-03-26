@@ -436,6 +436,24 @@ function parseMlMoneyFraction(raw: string): number | null {
 }
 
 /**
+ * `aria-label` no poly (perfil/afiliado): "Antes: 1000 reais" ou "Agora: 649 reais com 90 centavos".
+ * Deve alinhar a `extractAntesPriceFromAria` (PDP): milhar com "." no número e centavos opcionais.
+ */
+function parsePolyAriaMlPrice(block: string, which: "Antes" | "Agora"): number | null {
+  const re = new RegExp(
+    `aria-label=["']${which}:\\s*([\\d.]+)\\s*reais(?:\\s*com\\s*(\\d+)\\s*centavos?)?["']`,
+    "i",
+  );
+  const m = block.match(re);
+  if (!m) return null;
+  const reais = Number(String(m[1] ?? "").replace(/\./g, ""));
+  const centavos = m[2] ? Number(m[2]) : 0;
+  if (!Number.isFinite(reais) || !Number.isFinite(centavos)) return null;
+  const v = reais + centavos / 100;
+  return v > 0 ? v : null;
+}
+
+/**
  * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
  * Só o primeiro card (até o próximo poly ou ~14k) — evita “Quem viu também comprou”.
  * O ML costuma expor `aria-label="Antes: … reais"` / `Agora: … reais"`; o “de” em `<s>` pode não ter centavos no HTML.
@@ -452,14 +470,10 @@ function extractPricesFromPolyComponent(html: string): {
     nextPoly === -1 ? idx + 14_000 : Math.min(nextPoly, idx + 14_000);
   let block = html.slice(idx, blockEnd);
 
-  const antesAria = block.match(/aria-label=["']Antes:\s*([\d.]+)\s*reais/i);
-  const agoraAria = block.match(/aria-label=["']Agora:\s*([\d.]+)\s*reais/i);
-  if (antesAria && agoraAria) {
-    const a = parseMlMoneyFraction(antesAria[1] ?? "");
-    const b = parseMlMoneyFraction(agoraAria[1] ?? "");
-    if (a != null && b != null && a > b) {
-      return { price: a, promoPrice: b };
-    }
+  const a = parsePolyAriaMlPrice(block, "Antes");
+  const b = parsePolyAriaMlPrice(block, "Agora");
+  if (a != null && b != null && a > b) {
+    return { price: a, promoPrice: b };
   }
 
   const instIdx = block.toLowerCase().indexOf("poly-price__installments");
