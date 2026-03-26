@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/admin/auth";
-import { exchangeCodeForToken, computeExpiresAt } from "@/lib/mercadolivre/oauth";
+import { exchangeCodeForToken, computeExpiresAt, getMercadoLivreTokenEndpointUrl } from "@/lib/mercadolivre/oauth";
 import { getMlTokenByUserId, upsertMlToken } from "@/lib/mercadolivre/token-store";
 import { consumeOAuthState } from "@/lib/mercadolivre/oauth-state-store";
 import { MercadoLivreError } from "@/services/mercadolivre/errors";
+import { PostgrestError } from "@/lib/postgrest/server";
 
 export const runtime = "nodejs";
 
@@ -99,18 +100,43 @@ export async function GET(req: Request) {
   if (debug) console.log("[ml-oauth][callback] state_validated", { cookieOk: true, stateStoreOk: stateConsumed.ok });
 
   try {
+    console.log("[ml-oauth][callback] token_endpoint", { url: getMercadoLivreTokenEndpointUrl() });
+
     const token = await exchangeCodeForToken(parsed.data.code);
     const userId = String(token.user_id);
 
-    await upsertMlToken({
-      user_id: userId,
-      access_token: token.access_token,
-      refresh_token: token.refresh_token,
+    console.log("[ml-oauth][callback] token_exchange_ok", {
+      userId,
       token_type: token.token_type ?? "bearer",
-      scope: token.scope ?? null,
       expires_in: token.expires_in,
-      expires_at: computeExpiresAt(token.expires_in),
+      scope: token.scope ?? null,
     });
+
+    try {
+      console.log("[ml-oauth][callback] persist_token:start", { userId });
+      await upsertMlToken({
+        user_id: userId,
+        access_token: token.access_token,
+        refresh_token: token.refresh_token,
+        token_type: token.token_type ?? "bearer",
+        scope: token.scope ?? null,
+        expires_in: token.expires_in,
+        expires_at: computeExpiresAt(token.expires_in),
+      });
+      console.log("[ml-oauth][callback] persist_token:done", { userId });
+    } catch (e) {
+      console.error("[ml-oauth][callback] persist_token_failed", e);
+      const dbStatus = e instanceof PostgrestError ? e.status : undefined;
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Falha ao salvar tokens no banco",
+          dbStatus,
+          detail: debug ? (e instanceof PostgrestError ? e.details ?? e.message : e instanceof Error ? e.message : e) : undefined,
+        },
+        { status: 500 },
+      );
+    }
 
     const row = await getMlTokenByUserId(userId);
     if (debug) {
@@ -136,6 +162,7 @@ export async function GET(req: Request) {
   } catch (e) {
     console.error("[ml-oauth][callback] token_exchange_or_persist_failed", e);
     const externalStatus = e instanceof MercadoLivreError ? e.status : undefined;
+    const dbStatus = e instanceof PostgrestError ? e.status : undefined;
     const detail = debug
       ? e instanceof MercadoLivreError
         ? e.details ?? e.message
@@ -143,14 +170,16 @@ export async function GET(req: Request) {
           ? e.message
           : e
       : undefined;
+    const status = externalStatus ?? dbStatus ?? 500;
     return NextResponse.json(
       {
         success: false,
         error: "Falha ao trocar code por token",
         externalStatus,
+        dbStatus,
         detail,
       },
-      { status: 502 },
+      { status },
     );
   }
 }

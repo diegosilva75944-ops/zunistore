@@ -27,9 +27,26 @@ function tokenEndpoint(): string {
   return `${base}/oauth/token`;
 }
 
+export function getMercadoLivreTokenEndpointUrl(): string {
+  return tokenEndpoint();
+}
+
 async function postForm(body: Record<string, string>): Promise<unknown> {
   const url = tokenEndpoint();
   const form = new URLSearchParams(body);
+  const debug = process.env.NODE_ENV !== "production";
+  if (debug) {
+    console.log("[ml-oauth] token endpoint request", {
+      url,
+      grant_type: body.grant_type,
+      has_code: Boolean(body.code),
+      has_refresh_token: Boolean(body.refresh_token),
+      has_redirect_uri: Boolean(body.redirect_uri),
+      has_client_id: Boolean(body.client_id),
+      has_client_secret: Boolean(body.client_secret),
+      redirect_uri: body.redirect_uri,
+    });
+  }
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
@@ -43,9 +60,9 @@ async function postForm(body: Record<string, string>): Promise<unknown> {
   } catch {
     json = text;
   }
-  const debug = process.env.NODE_ENV !== "production";
   if (debug) {
     console.log("[ml-oauth] token endpoint response", {
+      url,
       status: res.status,
       ok: res.ok,
       body: redactTokenPayload(json),
