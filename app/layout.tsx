@@ -4,6 +4,12 @@ import "./globals.css";
 import { getSiteSettings } from "@/lib/store";
 import { getOptionalEnv } from "@/lib/env";
 
+/**
+ * PostgREST usa `fetch(..., { cache: "no-store" })`. Sem isto, o `next build` tenta pré-renderizar
+ * rotas e dispara DYNAMIC_SERVER_USAGE em cascata (layout + Header + páginas).
+ */
+export const dynamic = "force-dynamic";
+
 const env = getOptionalEnv();
 
 const geistSans = Geist({
