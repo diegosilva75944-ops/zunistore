@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
 import { getAdminSession } from "@/lib/admin/auth";
-import { fetchPricesFromUrl } from "@/lib/ml-price";
+import { fetchMlPricesLikeImport } from "@/services/mercadolivre/sync-prices-like-import";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
@@ -36,7 +36,7 @@ async function syncAllProducts() {
     }
 
     try {
-      const ml = await fetchPricesFromUrl({
+      const ml = await fetchMlPricesLikeImport({
         sourceUrl: p.source_url,
         affiliateUrl: p.affiliate_url,
       });
@@ -50,12 +50,7 @@ async function syncAllProducts() {
         continue;
       }
 
-      const { price, promoPrice: promo } = ml;
-
-      const is_offer = promo != null && promo < price;
-      const off_percent = is_offer
-        ? Math.round((1 - promo! / price) * 100)
-        : 0;
+      const { price, promo_price: promo, is_offer, off_percent } = ml;
 
       const oldPrice = Number(p.price) || 0;
       const oldPromo = p.promo_price != null ? Number(p.promo_price) : null;

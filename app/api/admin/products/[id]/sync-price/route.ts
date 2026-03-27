@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { postgrestGet, postgrestPatch, PostgrestError } from "@/lib/postgrest/server";
-import { fetchPricesFromUrl, type FetchMlPriceResult } from "@/lib/ml-price";
+import { fetchMlPricesLikeImport } from "@/services/mercadolivre/sync-prices-like-import";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
@@ -37,9 +37,9 @@ export async function POST(
       );
     }
 
-    let ml: FetchMlPriceResult;
+    let ml: Awaited<ReturnType<typeof fetchMlPricesLikeImport>>;
     try {
-      ml = await fetchPricesFromUrl({ sourceUrl, affiliateUrl });
+      ml = await fetchMlPricesLikeImport({ sourceUrl, affiliateUrl });
     } catch (e) {
       const message =
         e instanceof Error ? e.message : "Falha ao buscar a página do Mercado Livre.";
@@ -101,11 +101,7 @@ export async function POST(
       });
     }
 
-    const { price, promoPrice: promo } = ml;
-    const is_offer = promo != null && promo < price;
-    const off_percent = is_offer
-      ? Math.min(100, Math.max(0, Math.round((1 - promo! / price) * 100)))
-      : 0;
+    const { price, promo_price: promo, is_offer, off_percent } = ml;
 
     const oldPrice = Number((row as any).price) || 0;
     const oldPromo =
