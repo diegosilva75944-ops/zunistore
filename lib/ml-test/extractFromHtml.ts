@@ -76,6 +76,69 @@ function fromMainPriceBlock($: CheerioAPI, el: Cheerio<Element>): boolean {
   );
 }
 
+function buildContainerPath($: CheerioAPI, el: Cheerio<Element>, depth = 6): string {
+  const parts: string[] = [];
+  let $cur: Cheerio<Element> | null = el;
+  for (let i = 0; i < depth && $cur && $cur.length; i++) {
+    const id = $cur.attr("id");
+    const cls = ($cur.attr("class") || "").trim().split(/\s+/).slice(0, 2).join(".");
+    const tag = ($cur[0] as Element)?.name || "div";
+    if (id) parts.push(`${tag}#${id}`);
+    else if (cls) parts.push(`${tag}.${cls}`);
+    else parts.push(tag);
+    $cur = $cur.parent() as Cheerio<Element>;
+  }
+  return parts.join(" < ");
+}
+
+function inferPriceContextFlags($: CheerioAPI, el: Cheerio<Element>): {
+  isBestPriceLabel: boolean;
+  isCrossSell: boolean;
+  isOfficialStoreOffer: boolean;
+  isOtherSeller: boolean;
+} {
+  const chain = $(el)
+    .parents()
+    .toArray()
+    .map((n) => `${(n as Element).attribs?.id || ""} ${(n as Element).attribs?.class || ""}`)
+    .join(" ");
+  const low = chain.toLowerCase();
+  const txt = $(el).text().toLowerCase();
+  const isBestPriceLabel =
+    /melhor\s+preço|best\s+price|ui-pdp-price--best|price-best|menor\s+preço/i.test(low + " " + txt);
+  const isCrossSell =
+    /carousel|reco|recommend|cross|vitrine|quem viu|related|compare/i.test(low) ||
+    isRecommendationContext("", $, el);
+  const isOfficialStoreOffer = /official|loja oficial|brand/i.test(low);
+  const isOtherSeller = isInOtherSellers($, el);
+  return { isBestPriceLabel, isCrossSell, isOfficialStoreOffer, isOtherSeller };
+}
+
+function baseMeta(): Pick<
+  PriceCandidate,
+  | "containerId"
+  | "containerPath"
+  | "isBestPriceLabel"
+  | "isCrossSell"
+  | "isOfficialStoreOffer"
+  | "isOtherSeller"
+  | "isVisible"
+  | "isStriked"
+  | "score"
+> {
+  return {
+    containerId: null,
+    containerPath: "",
+    isBestPriceLabel: false,
+    isCrossSell: false,
+    isOfficialStoreOffer: false,
+    isOtherSeller: false,
+    isVisible: true,
+    isStriked: false,
+    score: 0,
+  };
+}
+
 function extractJsonLdProduct(html: string): {
   title: string | null;
   description: string | null;
@@ -159,6 +222,9 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     steps.push(`[${label}] JSON-LD Product encontrado`);
     if (jsonLd.highPrice != null && jsonLd.lowPrice != null && jsonLd.highPrice > jsonLd.lowPrice) {
       candidates.push({
+        ...baseMeta(),
+        containerPath: "json-ld",
+        isVisible: false,
         value: roundMoney(jsonLd.highPrice),
         rawText: `highPrice:${jsonLd.highPrice}`,
         nearText: "json-ld offers",
@@ -171,6 +237,9 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
         isCurrentCandidate: false,
       });
       candidates.push({
+        ...baseMeta(),
+        containerPath: "json-ld",
+        isVisible: false,
         value: roundMoney(jsonLd.lowPrice),
         rawText: `lowPrice:${jsonLd.lowPrice}`,
         nearText: "json-ld offers",
@@ -184,6 +253,9 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
       });
     } else if (jsonLd.price != null) {
       candidates.push({
+        ...baseMeta(),
+        containerPath: "json-ld",
+        isVisible: false,
         value: roundMoney(jsonLd.price),
         rawText: `price:${jsonLd.price}`,
         nearText: "json-ld offers",
@@ -204,6 +276,9 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     const n = Number(String(content).replace(",", "."));
     if (!Number.isFinite(n) || n <= 0) return;
     candidates.push({
+      ...baseMeta(),
+      containerPath: "head|meta[itemprop=price]",
+      isVisible: false,
       value: roundMoney(n),
       rawText: `meta price=${content}`,
       nearText: "meta[itemprop=price]",
@@ -222,7 +297,12 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     const aria = $el.attr("aria-label");
     const antes = parseAntesAria(aria);
     if (antes != null) {
+      const flags = inferPriceContextFlags($, $el as Cheerio<Element>);
       candidates.push({
+        ...baseMeta(),
+        ...flags,
+        containerPath: buildContainerPath($, $el as Cheerio<Element>),
+        isStriked: true,
         value: antes,
         rawText: aria || "",
         nearText: nearText($, $el),
@@ -238,7 +318,12 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     }
     const n = parseAndesMoney($, $el as Cheerio<Element>);
     if (n != null && $el.is(".andes-money-amount--previous, .ui-pdp-price__original-value, s")) {
+      const flags = inferPriceContextFlags($, $el as Cheerio<Element>);
       candidates.push({
+        ...baseMeta(),
+        ...flags,
+        containerPath: buildContainerPath($, $el as Cheerio<Element>),
+        isStriked: true,
         value: n,
         rawText: $el.text().replace(/\s+/g, " ").trim(),
         nearText: nearText($, $el as Cheerio<Element>),
@@ -269,8 +354,14 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     const isPrev =
       $el.hasClass("andes-money-amount--previous") ||
       $el.closest(".andes-money-amount--previous").length > 0;
+    const flags = inferPriceContextFlags($, $el as Cheerio<Element>);
 
     candidates.push({
+      ...baseMeta(),
+      ...flags,
+      containerPath: buildContainerPath($, $el as Cheerio<Element>),
+      isStriked: isPrev,
+      score: flags.isBestPriceLabel ? -50 : flags.isOtherSeller ? -80 : 0,
       value: n,
       rawText: txt,
       nearText: nt,
@@ -294,6 +385,8 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     const val = parseBRLFromSnippet(mm[0]);
     if (val == null) continue;
     candidates.push({
+      ...baseMeta(),
+      containerPath: "regex-snippet",
       value: val,
       rawText: mm[0],
       nearText: snippet,

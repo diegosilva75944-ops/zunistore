@@ -36,8 +36,18 @@ export function TestMlImportDebug({ data }: Props) {
               <div className="font-semibold text-zinc-700 mb-1">Bloco principal vencedor</div>
               <div className="rounded-lg bg-white p-2 ring-1 ring-zinc-200 space-y-1 text-zinc-600">
                 <div>
+                  <span className="text-zinc-500">id:</span>{" "}
+                  <span className="font-mono">{data.debug.chosenBlock.id}</span>
+                </div>
+                <div>
                   <span className="text-zinc-500">Seletor:</span>{" "}
                   <span className="font-mono">{data.debug.chosenBlock.selector}</span>
+                </div>
+                <div>
+                  <span className="text-zinc-500">Motivo:</span> {data.debug.chosenBlock.reason}
+                </div>
+                <div>
+                  <span className="text-zinc-500">Score:</span> {data.debug.chosenBlock.score}
                 </div>
                 <div>
                   <span className="text-zinc-500">Preço riscado no DOM:</span>{" "}
@@ -95,6 +105,36 @@ export function TestMlImportDebug({ data }: Props) {
               </table>
             </div>
           </div>
+
+          {data.debug.usedCandidates.length > 0 && (
+            <div>
+              <div className="font-semibold text-zinc-700 mb-1">
+                Candidatos usados na UI ({data.debug.usedCandidates.length})
+              </div>
+              <div className="overflow-x-auto rounded-lg bg-white ring-1 ring-zinc-200">
+                <table className="min-w-full text-left text-[11px]">
+                  <thead className="bg-zinc-100 text-zinc-700">
+                    <tr>
+                      <th className="px-2 py-1">índice</th>
+                      <th className="px-2 py-1">valor</th>
+                      <th className="px-2 py-1">fonte</th>
+                      <th className="px-2 py-1">motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.debug.usedCandidates.map((row, i) => (
+                      <tr key={i} className="border-t border-zinc-100">
+                        <td className="px-2 py-1 font-mono">{row.index}</td>
+                        <td className="px-2 py-1 font-mono">{row.value}</td>
+                        <td className="px-2 py-1">{row.source}</td>
+                        <td className="px-2 py-1 text-zinc-600">{row.reason}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {data.debug.ignoredCandidates.length > 0 && (
             <div>

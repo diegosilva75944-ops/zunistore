@@ -38,6 +38,7 @@ export async function runTestMlImport(
         rawSignals: { ...extracted.rawSignals, fetchUrl, layer: "headless" },
         chosenBlock: resolved.chosenBlock,
         chosenSignals: resolved.chosenSignals,
+        usedCandidates: resolved.usedCandidates,
         ignoredCandidates: resolved.ignoredCandidates,
       },
     };
@@ -99,6 +100,7 @@ export async function runTestMlImport(
       },
       chosenBlock: resolved.chosenBlock,
       chosenSignals: resolved.chosenSignals,
+      usedCandidates: resolved.usedCandidates,
       ignoredCandidates: resolved.ignoredCandidates,
     },
   };

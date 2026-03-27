@@ -9,5 +9,6 @@ export type {
   PricingPreview,
   ResolvePreviewPricingResult,
   TestMlImportResult,
+  UsedCandidateEntry,
 } from "./types";
 export { runTestMlImport } from "./pipeline";

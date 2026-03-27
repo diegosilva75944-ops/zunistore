@@ -8,8 +8,10 @@ import type {
   PriceDataSource,
   PricingDisplayMode,
   ResolvePreviewPricingResult,
+  UsedCandidateEntry,
 } from "./types";
 import { clampPercent, roundMoney } from "./normalize";
+import { resolveMainVisualBlock } from "./resolveMainVisualBlock";
 
 function detectInstallment(text: string): boolean {
   return /(\d+\s*x\s*)|parcelad|sem juros|juros|parcela/i.test(text);
@@ -33,29 +35,6 @@ function parseAntesAria(aria: string | undefined): number | null {
   const cent = m[2] ? Number(m[2]) : 0;
   if (!Number.isFinite(reais)) return null;
   return roundMoney(reais + cent / 100);
-}
-
-function isRecoCarousel($: CheerioAPI, el: Cheerio<Element>): boolean {
-  return $(el).parents().toArray().some((n) => {
-    const c = ((n as Element).attribs?.class || "").toLowerCase();
-    return (
-      c.includes("carousel") ||
-      c.includes("reco") ||
-      c.includes("recommend") ||
-      c.includes("search-ui")
-    );
-  });
-}
-
-function pickWinningBlock($: CheerioAPI): { el: Cheerio<Element>; selector: string } | null {
-  const order = [".ui-pdp-container__row--price", ".ui-pdp-price__main-container", ".ui-pdp-price"];
-  for (const sel of order) {
-    const el = $(sel).first();
-    if (el.length && !isRecoCarousel($, el as Cheerio<Element>)) {
-      return { el: el as Cheerio<Element>, selector: sel };
-    }
-  }
-  return null;
 }
 
 function snippetOf($: CheerioAPI, $el: Cheerio<Element>, maxLen: number): string {
@@ -118,29 +97,65 @@ function collectVisibleCurrentAndesInBlock($: CheerioAPI, $scope: Cheerio<Elemen
   return [...new Set(out.filter((n) => Number.isFinite(n) && n > 0))];
 }
 
-function metaPriceInBlock($: CheerioAPI, $block: Cheerio<Element>): number | null {
-  let best: number | null = null;
-  $block.find('meta[itemprop="price"]').each((_, el) => {
-    const content = (el as unknown as Element).attribs?.content;
-    if (!content) return;
-    const n = Number(String(content).replace(",", "."));
-    if (Number.isFinite(n) && n > 0) {
-      best = roundMoney(n);
-    }
-  });
-  return best;
-}
+/**
+ * Regra somente dentro do bloco vencedor (após remover parcelas):
+ * - Com preço riscado + atual: max(anteriores) e min(atuais) se max > min
+ * - Sem riscado explícito mas ≥2 valores distintos: maior = original, menor = atual
+ */
+function resolvePricesFromBlockDom(
+  $: CheerioAPI,
+  $strippedBlock: Cheerio<Element>,
+  notes: string[],
+): { current: number | null; original: number | null; displayMode: PricingDisplayMode } {
+  const prevVals = collectVisiblePreviousInBlock($, $strippedBlock);
+  const curVals = collectVisibleCurrentAndesInBlock($, $strippedBlock);
+  const uniqPrev = [...new Set(prevVals)].sort((a, b) => a - b);
+  const uniqCur = [...new Set(curVals)].sort((a, b) => a - b);
 
-/** Meta de oferta costuma estar no &lt;head&gt;; só como apoio ao preço atual quando o bloco não tem andes. */
-function metaPriceInDocument($: CheerioAPI): number | null {
-  let best: number | null = null;
-  $('meta[itemprop="price"]').each((_, el) => {
-    const content = (el as unknown as Element).attribs?.content;
-    if (!content) return;
-    const n = Number(String(content).replace(",", "."));
-    if (Number.isFinite(n) && n > 0) best = roundMoney(n);
-  });
-  return best;
+  if (uniqPrev.length && uniqCur.length) {
+    const original = roundMoney(Math.max(...uniqPrev));
+    const current = roundMoney(Math.min(...uniqCur));
+    if (original > current) {
+      notes.push("Par anterior (riscado) + atual no bloco: min(atual)=promo, max(anterior)=original.");
+      return { current: current, original: original, displayMode: "discounted_price" };
+    }
+    notes.push("Valores de anterior não são maiores que o atual no bloco — tratando como preço único.");
+    return { current: current, original: null, displayMode: "single_price" };
+  }
+
+  const allDistinct = [...new Set([...uniqPrev, ...uniqCur])].sort((a, b) => a - b);
+  if (allDistinct.length >= 2) {
+    const low = allDistinct[0];
+    const high = allDistinct[allDistinct.length - 1];
+    if (high > low) {
+      notes.push("Dois+ preços distintos no bloco (sem riscado explícito): menor=atual, maior=original.");
+      return {
+        current: roundMoney(low),
+        original: roundMoney(high),
+        displayMode: "discounted_price",
+      };
+    }
+  }
+
+  if (uniqCur.length === 1) {
+    return { current: uniqCur[0], original: null, displayMode: "single_price" };
+  }
+
+  if (uniqCur.length > 1) {
+    const low = Math.min(...uniqCur);
+    const high = Math.max(...uniqCur);
+    if (high > low) {
+      notes.push("Múltiplos andes no bloco: menor=atual, maior=original.");
+      return {
+        current: roundMoney(low),
+        original: roundMoney(high),
+        displayMode: "discounted_price",
+      };
+    }
+    return { current: roundMoney(low), original: null, displayMode: "single_price" };
+  }
+
+  return { current: null, original: null, displayMode: "unknown" };
 }
 
 function pickInstallmentFromCandidates(
@@ -157,11 +172,17 @@ function pickInstallmentFromCandidates(
   };
 }
 
+function isUsableFallback(c: PriceCandidate): boolean {
+  if (c.isInstallment || c.isShipping || c.isRecommendation) return false;
+  if (c.isBestPriceLabel || c.isCrossSell || c.isOtherSeller) return false;
+  return true;
+}
+
 function fallbackSinglePriceFromCandidates(candidates: PriceCandidate[]): {
   currentPrice: number | null;
   confidence: PriceConfidence;
 } {
-  const valid = candidates.filter((c) => c.value > 0 && Number.isFinite(c.value));
+  const valid = candidates.filter((c) => c.value > 0 && Number.isFinite(c.value) && isUsableFallback(c));
   if (!valid.length) return { currentPrice: null, confidence: "low" };
 
   const pool = valid.filter((c) => !c.isInstallment && !c.isShipping && !c.isRecommendation);
@@ -180,7 +201,6 @@ function fallbackSinglePriceFromCandidates(candidates: PriceCandidate[]): {
 
   const nums = [...new Set(use.map((c) => c.value))].sort((a, b) => a - b);
   if (nums.length === 1) return { currentPrice: roundMoney(nums[0]), confidence: main.length ? "medium" : "low" };
-  /** Nunca emparelhar max/min global: um único valor conservador (menor) como preço exibido, sem “original”. */
   return { currentPrice: roundMoney(nums[0]), confidence: "low" };
 }
 
@@ -197,6 +217,9 @@ function buildIgnoredList(
       reasons.get(i) ||
       (c.isInstallment ? "parcelamento / linha secundária — não usado como preço principal" :
       c.isRecommendation ? "contexto de vitrine/recomendação" :
+      c.isBestPriceLabel ? "rótulo ‘melhor preço’ / oferta paralela — ignorado para UI principal" :
+      c.isOtherSeller ? "bloco de outros vendedores — fora do buy box principal" :
+      c.isCrossSell ? "cross-sell / carrossel — fora do buy box principal" :
       !c.fromMainBlock ? "fora do bloco principal vencedor — não compõe a UI final" :
       c.isOriginalCandidate && c.source !== "andes_dom" && c.source !== "aria" ?
         "candidato a ‘original’ só em meta/json — sem par visível no bloco vencedor" :
@@ -206,11 +229,27 @@ function buildIgnoredList(
   return out;
 }
 
+function buildUsedList(candidates: PriceCandidate[], usedIndices: Set<number>): UsedCandidateEntry[] {
+  const out: UsedCandidateEntry[] = [];
+  const sorted = [...usedIndices].sort((a, b) => a - b);
+  for (const i of sorted) {
+    const c = candidates[i];
+    if (!c) continue;
+    out.push({
+      index: i,
+      value: c.value,
+      source: c.source,
+      reason: "alinhado ao preço final resolvido no bloco visual vencedor (ou fallback permitido)",
+    });
+  }
+  return out;
+}
+
 function computeUsedIndices(
   candidates: PriceCandidate[],
   currentPrice: number | null,
   originalPrice: number | null,
-  opts: { usedMetaHeadForCurrent?: boolean },
+  opts: { allowMetaHead?: boolean },
 ): Set<number> {
   const used = new Set<number>();
   const tol = 0.02;
@@ -219,7 +258,7 @@ function computeUsedIndices(
     if (c.isInstallment || c.isRecommendation) continue;
     if (currentPrice != null && Math.abs(c.value - currentPrice) <= tol) {
       if (c.source === "json_ld") continue;
-      if (c.source === "meta" && !c.fromMainBlock && !opts.usedMetaHeadForCurrent) continue;
+      if (c.source === "meta" && !opts.allowMetaHead) continue;
       if (c.isOriginalCandidate && !c.isCurrentCandidate && originalPrice == null) continue;
       used.add(i);
     }
@@ -249,9 +288,8 @@ export function resolvePreviewPricing(
   const chosenSignals: Record<string, unknown> = { layer: sourceLayer };
 
   const reasonOverride = new Map<number, string>();
-  let usedMetaHeadForCurrent = false;
 
-  const blockPick = pickWinningBlock($);
+  const blockPick = resolveMainVisualBlock($);
   let chosenBlock: ChosenBlockInfo | null = null;
   let currentPrice: number | null = null;
   let originalPrice: number | null = null;
@@ -261,23 +299,20 @@ export function resolvePreviewPricing(
   const { installmentPrice, installments } = pickInstallmentFromCandidates(candidates);
 
   if (!blockPick) {
-    notes.push("Bloco principal (.ui-pdp-*) não encontrado — fallback por candidatos (sem par max/min global).");
+    notes.push("Bloco visual principal de preço não encontrado — fallback restrito (sem min/max global).");
     const fb = fallbackSinglePriceFromCandidates(candidates);
     currentPrice = fb.currentPrice;
     confidence = fb.confidence;
     displayMode = currentPrice != null ? "single_price" : "unknown";
     chosenSignals.fallback = "no_winning_block";
-    const usedIndices = computeUsedIndices(candidates, currentPrice, null, {});
+    const usedIndices = computeUsedIndices(candidates, currentPrice, null, { allowMetaHead: false });
     const ignored = buildIgnoredList(candidates, usedIndices, reasonOverride);
-    const discountPercent =
-      originalPrice != null && currentPrice != null && originalPrice > currentPrice ?
-        clampPercent((1 - currentPrice / originalPrice) * 100)
-      : null;
+    const usedCandidates = buildUsedList(candidates, usedIndices);
     return {
       pricing: {
         currentPrice,
         originalPrice: null,
-        discountPercent,
+        discountPercent: null,
         hasDiscount: false,
         displayMode,
         installmentPrice,
@@ -287,95 +322,67 @@ export function resolvePreviewPricing(
       },
       chosenBlock: null,
       chosenSignals,
+      usedCandidates,
       ignoredCandidates: ignored,
     };
   }
 
   const $rawBlock = blockPick.el;
   const $block = stripNoiseFromPriceBlock($, $rawBlock);
-  const previousVals = collectVisiblePreviousInBlock($, $block);
-  const currentAndes = collectVisibleCurrentAndesInBlock($, $block);
-  const metaInBlock = metaPriceInBlock($, $rawBlock);
+  const domResolved = resolvePricesFromBlockDom($, $block, notes);
 
-  chosenSignals.metaPriceInBlock = metaInBlock;
-  chosenSignals.previousDom = previousVals;
-  chosenSignals.currentAndesDom = currentAndes;
+  currentPrice = domResolved.current;
+  originalPrice = domResolved.original;
+  displayMode = domResolved.displayMode;
 
-  const hasStrikethroughPrevious = previousVals.length > 0;
-
-  let domCurrent: number | null = null;
-  if (currentAndes.length === 1) {
-    domCurrent = currentAndes[0];
-  } else if (currentAndes.length > 1) {
-    /** Após remover parcelas, múltiplos valores: priorizar o maior (preço principal; evita confundir com fragmentos). */
-    domCurrent = roundMoney(Math.max(...currentAndes));
-    notes.push("Múltiplos valores andes no bloco após limpeza — usando o maior como atual.");
-  }
-
-  if (metaInBlock != null) {
-    if (domCurrent == null) {
-      domCurrent = metaInBlock;
-      notes.push("Preço atual do meta[itemprop=price] dentro do bloco (sem andes isolado).");
-    } else if (Math.abs(domCurrent - metaInBlock) > 0.02) {
-      notes.push("Meta no bloco difere do andes — priorizando DOM andes.");
-    }
-  }
-
-  if (domCurrent == null) {
-    const headMeta = metaPriceInDocument($);
-    if (headMeta != null) {
-      domCurrent = headMeta;
-      usedMetaHeadForCurrent = true;
-      notes.push("Fallback: meta[itemprop=price] no documento (bloco sem andes explícito).");
-    }
-  }
-
-  if (hasStrikethroughPrevious && domCurrent != null) {
-    const prevMax = roundMoney(Math.max(...previousVals));
-    if (prevMax > domCurrent) {
-      originalPrice = prevMax;
-      currentPrice = domCurrent;
-      displayMode = "discounted_price";
-      confidence = "high";
-    } else {
-      originalPrice = null;
-      currentPrice = domCurrent;
-      displayMode = "single_price";
-      confidence = "high";
-      notes.push("Preço ‘anterior’ no DOM não é maior que o atual — tratando como preço único.");
-    }
-  } else if (domCurrent != null) {
-    originalPrice = null;
-    currentPrice = domCurrent;
-    displayMode = "single_price";
-    confidence = "high";
-    candidates.forEach((c, i) => {
-      if (c.isOriginalCandidate && c.source !== "andes_dom" && c.source !== "aria") {
-        reasonOverride.set(i, "‘original’ só em JSON-LD/meta — sem preço riscado visível no bloco vencedor");
-      }
-    });
-  } else {
-    notes.push("Sem preço visível claro no bloco — fallback conservador.");
+  if (currentPrice == null) {
+    notes.push("Sem preço andes suficiente no bloco vencedor — fallback por candidatos filtrados.");
     const fb = fallbackSinglePriceFromCandidates(candidates);
     currentPrice = fb.currentPrice;
     confidence = fb.confidence;
     displayMode = currentPrice != null ? "single_price" : "unknown";
-    chosenSignals.fallback = "block_empty";
+    originalPrice = null;
+    chosenSignals.fallback = "block_empty_or_no_andes";
+    candidates.forEach((c, i) => {
+      if (c.isOriginalCandidate && c.source !== "andes_dom" && c.source !== "aria") {
+        reasonOverride.set(i, "‘original’ só em JSON-LD/meta — sem correspondência visual no bloco vencedor");
+      }
+    });
+  } else {
+    confidence = "high";
+    if (displayMode === "single_price") {
+      candidates.forEach((c, i) => {
+        if (c.isOriginalCandidate && c.source !== "andes_dom" && c.source !== "aria") {
+          reasonOverride.set(i, "‘original’ só em JSON-LD/meta — sem correspondência visual no bloco vencedor");
+        }
+      });
+    }
   }
 
+  const prevInBlock = collectVisiblePreviousInBlock($, $block);
+  const curInBlock = collectVisibleCurrentAndesInBlock($, $block);
+
   chosenBlock = {
+    id: blockPick.id,
     selector: blockPick.selector,
+    reason: blockPick.reason,
+    score: blockPick.score,
     snippet: snippetOf($, $rawBlock, 420),
-    hasStrikethroughPrevious: hasStrikethroughPrevious,
-    previousInBlockCount: previousVals.length,
-    currentInBlockCount: currentAndes.length,
+    hasStrikethroughPrevious: prevInBlock.length > 0,
+    previousInBlockCount: prevInBlock.length,
+    currentInBlockCount: curInBlock.length,
     notes,
   };
-  chosenSignals.winningSelector = blockPick.selector;
-  chosenSignals.usedMetaHeadForCurrent = usedMetaHeadForCurrent;
+  chosenSignals.winningBlock = {
+    id: blockPick.id,
+    selector: blockPick.selector,
+    reason: blockPick.reason,
+    score: blockPick.score,
+  };
 
   const hasDiscount =
     originalPrice != null && currentPrice != null && originalPrice > currentPrice;
+
   const discountPercent =
     hasDiscount && currentPrice != null && originalPrice != null ?
       clampPercent((1 - currentPrice / originalPrice) * 100)
@@ -386,9 +393,10 @@ export function resolvePreviewPricing(
   }
 
   const usedIndices = computeUsedIndices(candidates, currentPrice, originalPrice, {
-    usedMetaHeadForCurrent,
+    allowMetaHead: false,
   });
   const ignoredCandidates = buildIgnoredList(candidates, usedIndices, reasonOverride);
+  const usedCandidates = buildUsedList(candidates, usedIndices);
 
   return {
     pricing: {
@@ -396,7 +404,7 @@ export function resolvePreviewPricing(
       originalPrice: hasDiscount ? originalPrice : null,
       discountPercent: hasDiscount ? discountPercent : null,
       hasDiscount,
-      displayMode: hasDiscount ? "discounted_price" : displayMode,
+      displayMode: hasDiscount ? "discounted_price" : displayMode === "unknown" ? "unknown" : "single_price",
       installmentPrice,
       installments,
       confidence,
@@ -404,6 +412,7 @@ export function resolvePreviewPricing(
     },
     chosenBlock,
     chosenSignals,
+    usedCandidates,
     ignoredCandidates,
   };
 }
@@ -420,14 +429,12 @@ export function scoreResolved(r: ResolvePreviewPricingResult): number {
   return s;
 }
 
-function shiftIgnored(
-  r: ResolvePreviewPricingResult,
-  offset: number,
-): ResolvePreviewPricingResult {
+function shiftResolveResult(r: ResolvePreviewPricingResult, offset: number): ResolvePreviewPricingResult {
   if (offset <= 0) return r;
   return {
     ...r,
     ignoredCandidates: r.ignoredCandidates.map((e) => ({ ...e, index: e.index + offset })),
+    usedCandidates: r.usedCandidates.map((e) => ({ ...e, index: e.index + offset })),
   };
 }
 
@@ -441,13 +448,13 @@ export function mergeResolvedDisplay(
   }
   if (a.pricing.currentPrice == null && b.pricing.currentPrice != null) {
     return {
-      ...shiftIgnored(b, bCandidateOffset),
+      ...shiftResolveResult(b, bCandidateOffset),
       pricing: { ...b.pricing, source: "mixed" },
     };
   }
   if (scoreResolved(b) > scoreResolved(a)) {
     return {
-      ...shiftIgnored(b, bCandidateOffset),
+      ...shiftResolveResult(b, bCandidateOffset),
       pricing: { ...b.pricing, source: "mixed" },
     };
   }

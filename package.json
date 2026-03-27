@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "replace": "node scripts/replace-all.js",
     "postinstall": "npx playwright install chromium --with-deps",
     "test:playwright": "node scripts/test-playwright.js"
@@ -39,6 +40,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }

@@ -5,7 +5,10 @@ export type PriceDataSource = "html" | "json_embedded" | "headless" | "mixed";
 export type PricingDisplayMode = "single_price" | "discounted_price" | "unknown";
 
 export type ChosenBlockInfo = {
+  id: string;
   selector: string;
+  reason: string;
+  score: number;
   snippet: string | null;
   hasStrikethroughPrevious: boolean;
   previousInBlockCount: number;
@@ -24,9 +27,26 @@ export type PriceCandidate = {
   isRecommendation: boolean;
   isOriginalCandidate: boolean;
   isCurrentCandidate: boolean;
+  /** Metadados extras para decisão / debug */
+  containerId?: string | null;
+  containerPath?: string;
+  isBestPriceLabel?: boolean;
+  isOfficialStoreOffer?: boolean;
+  isCrossSell?: boolean;
+  isVisible?: boolean;
+  isStriked?: boolean;
+  isOtherSeller?: boolean;
+  score?: number;
 };
 
 export type IgnoredCandidateEntry = {
+  index: number;
+  value: number;
+  source: PriceCandidate["source"];
+  reason: string;
+};
+
+export type UsedCandidateEntry = {
   index: number;
   value: number;
   source: PriceCandidate["source"];
@@ -49,6 +69,7 @@ export type ResolvePreviewPricingResult = {
   pricing: PricingPreview;
   chosenBlock: ChosenBlockInfo | null;
   chosenSignals: Record<string, unknown>;
+  usedCandidates: UsedCandidateEntry[];
   ignoredCandidates: IgnoredCandidateEntry[];
 };
 
@@ -64,6 +85,7 @@ export type TestMlImportResult = {
     rawSignals: Record<string, unknown>;
     chosenBlock: ChosenBlockInfo | null;
     chosenSignals: Record<string, unknown>;
+    usedCandidates: UsedCandidateEntry[];
     ignoredCandidates: IgnoredCandidateEntry[];
   };
 };
