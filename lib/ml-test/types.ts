@@ -79,6 +79,10 @@ export type TestMlImportResult = {
   shortDescription: string;
   fullDescription: string;
   images: string[];
+  /** Nota média (0–5), ex.: JSON-LD aggregateRating ou DOM */
+  rating: number | null;
+  /** Quantidade de avaliações */
+  reviewsCount: number | null;
   pricing: PricingPreview;
   debug: {
     candidates: PriceCandidate[];
@@ -98,6 +102,8 @@ export type ExtractFromHtmlOutput = {
   fullDescription: string;
   shortDescription: string;
   images: string[];
+  rating: number | null;
+  reviewsCount: number | null;
   candidates: PriceCandidate[];
   extractionSteps: string[];
   rawSignals: Record<string, unknown>;

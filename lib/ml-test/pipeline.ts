@@ -5,6 +5,7 @@ import { extractFromHtml } from "./extractFromHtml";
 import { fetchMlHtml } from "./fetchHtml";
 import { fetchHtmlWithPlaywright } from "./extractWithBrowser";
 import { makeShortDescription, preferLongerText } from "./extractDescriptions";
+import { preferMaxNullable } from "./extractReviews";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
 import { isWeakResolved, mergeResolvedDisplay, resolvePreviewPricing } from "./resolvePreviewPricing";
 
@@ -32,6 +33,8 @@ export async function runTestMlImport(
       shortDescription: extracted.shortDescription,
       fullDescription: extracted.fullDescription,
       images: extracted.images,
+      rating: extracted.rating,
+      reviewsCount: extracted.reviewsCount,
       pricing: resolved.pricing,
       debug: {
         candidates: extracted.candidates,
@@ -78,6 +81,8 @@ export async function runTestMlImport(
         images: extracted.images.length ? extracted.images : headlessExtract.images,
         fullDescription: mergedFull,
         shortDescription: mergedShort.trim() || makeShortDescription(mergedFull, mergedTitle),
+        rating: headlessExtract.rating ?? extracted.rating,
+        reviewsCount: preferMaxNullable(extracted.reviewsCount, headlessExtract.reviewsCount),
       };
       globalSteps.push(...headlessExtract.extractionSteps);
       htmlSource = resolved.pricing.source;
@@ -91,6 +96,8 @@ export async function runTestMlImport(
     shortDescription: extracted.shortDescription,
     fullDescription: extracted.fullDescription,
     images: extracted.images,
+    rating: extracted.rating,
+    reviewsCount: extracted.reviewsCount,
     pricing: {
       ...resolved.pricing,
       source: mode === "html" ? "html" : htmlSource,

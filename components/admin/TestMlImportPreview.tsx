@@ -12,7 +12,7 @@ type Props = {
 };
 
 export function TestMlImportPreview({ data }: Props) {
-  const { pricing, title, shortDescription, fullDescription, images } = data;
+  const { pricing, title, shortDescription, fullDescription, images, rating, reviewsCount } = data;
   const hasPromo =
     pricing.hasDiscount &&
     pricing.displayMode === "discounted_price" &&
@@ -29,6 +29,20 @@ export function TestMlImportPreview({ data }: Props) {
           <span className="font-semibold">{pricing.confidence}</span> · Modo:{" "}
           <span className="font-mono">{pricing.displayMode}</span>
         </p>
+        {(rating != null || reviewsCount != null) && (
+          <p className="text-sm text-zinc-700 mt-2">
+            <span className="font-semibold text-amber-700">
+              {rating != null ? rating.toFixed(1) : "—"}
+            </span>
+            <span className="text-zinc-500"> /5</span>
+            {reviewsCount != null && (
+              <span className="text-zinc-600">
+                {" "}
+                · {new Intl.NumberFormat("pt-BR").format(reviewsCount)} avaliações
+              </span>
+            )}
+          </p>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

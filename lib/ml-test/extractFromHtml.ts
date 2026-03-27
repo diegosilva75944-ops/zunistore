@@ -8,6 +8,7 @@ import {
   makeShortDescription,
   preferLongerText,
 } from "./extractDescriptions";
+import { extractRatingAndReviews, preferMaxNullable } from "./extractReviews";
 import { detectSecondaryPriceLineText, parseBRLFromSnippet, roundMoney } from "./normalize";
 
 function stripScriptsStyles(html: string): string {
@@ -147,6 +148,8 @@ function extractJsonLdProduct(html: string): {
   price: number | null;
   highPrice: number | null;
   lowPrice: number | null;
+  ratingValue: number | null;
+  reviewCount: number | null;
 } | null {
   const scriptRe = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m: RegExpExecArray | null;
@@ -185,6 +188,26 @@ function extractJsonLdProduct(html: string): {
         if (Number.isFinite(h) && h > 0) highPrice = h;
         if (Number.isFinite(l) && l > 0) lowPrice = l;
       }
+      let ratingValue: number | null = null;
+      let reviewCount: number | null = null;
+      const agg = o.aggregateRating;
+      if (agg && typeof agg === "object" && !Array.isArray(agg)) {
+        const a = agg as Record<string, unknown>;
+        const rv = a.ratingValue;
+        if (typeof rv === "number" && Number.isFinite(rv) && rv >= 0 && rv <= 5) {
+          ratingValue = rv;
+        } else if (typeof rv === "string") {
+          const n = parseFloat(rv.replace(",", "."));
+          if (Number.isFinite(n) && n >= 0 && n <= 5) ratingValue = n;
+        }
+        const rc = a.reviewCount;
+        if (typeof rc === "number" && Number.isFinite(rc) && rc >= 0) {
+          reviewCount = Math.round(rc);
+        } else if (typeof rc === "string") {
+          const n = parseInt(String(rc).replace(/\D/g, ""), 10);
+          if (Number.isFinite(n) && n >= 0) reviewCount = n;
+        }
+      }
       return {
         title: name,
         description: desc,
@@ -192,6 +215,8 @@ function extractJsonLdProduct(html: string): {
         price,
         highPrice,
         lowPrice,
+        ratingValue,
+        reviewCount,
       };
     }
   }
@@ -218,6 +243,13 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
   const shortFromSpecs = extractShortDescriptionFromHighlightedSpecs($);
   const shortDescription = shortFromSpecs.trim() || makeShortDescription(fullDesc, title);
   const images = extractGalleryImages($);
+
+  const domReviews = extractRatingAndReviews($, html);
+  const rating =
+    jsonLd?.ratingValue != null && Number.isFinite(jsonLd.ratingValue) ? jsonLd.ratingValue : domReviews.rating;
+  const reviewsCount = preferMaxNullable(jsonLd?.reviewCount, domReviews.reviewsCount);
+  rawSignals.rating = rating;
+  rawSignals.reviewsCount = reviewsCount;
 
   const candidates: PriceCandidate[] = [];
 
@@ -423,6 +455,8 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     fullDescription: fullDesc,
     shortDescription,
     images: imagesOut,
+    rating,
+    reviewsCount,
     candidates,
     extractionSteps: steps,
     rawSignals,
