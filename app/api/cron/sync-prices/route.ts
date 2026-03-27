@@ -1,98 +1,50 @@
 import { NextResponse } from "next/server";
-import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
 import { getAdminSession } from "@/lib/admin/auth";
-import { fetchMlPricesLikeImport } from "@/services/mercadolivre/sync-prices-like-import";
-import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
+import { runCronMlFullReimportOne } from "@/services/mercadolivre/cron-ml-reimport";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
-
-async function syncAllProducts() {
-  let rows: { id: string; source_url: string | null; affiliate_url: string | null; price: number; promo_price: number | null }[];
-  try {
-    const products = await postgrestGet<any[]>("products", {
-      select: "id,source_url,affiliate_url,price,promo_price",
-      order: "updated_at.asc",
-      limit: "50",
-    });
-    rows = Array.isArray(products) ? products : [];
-  } catch {
-    return { ok: false, error: "Failed to load products.", total: 0, updated: 0, skipped: 0, failed: 0, deleted: 0 };
-  }
-
-  if (!rows.length) {
-    return { ok: true, total: 0, updated: 0, skipped: 0, failed: 0, deleted: 0 };
-  }
-
-  let updated = 0;
-  let skipped = 0;
-  let failed = 0;
-  let deleted = 0;
-
-  for (const p of rows) {
-    if (!p.source_url && !p.affiliate_url) {
-      skipped += 1;
-      continue;
-    }
-
-    try {
-      const ml = await fetchMlPricesLikeImport({
-        sourceUrl: p.source_url,
-        affiliateUrl: p.affiliate_url,
-      });
-      if (ml.kind === "listing_gone") {
-        await moveProductToDeletedHistoryAndDelete(p.id, "sync_not_found");
-        deleted += 1;
-        continue;
-      }
-      if (ml.kind === "unreadable" || ml.kind === "http_error" || ml.kind === "blocked") {
-        failed += 1;
-        continue;
-      }
-
-      const { price, promo_price: promo, is_offer, off_percent } = ml;
-
-      const oldPrice = Number(p.price) || 0;
-      const oldPromo = p.promo_price != null ? Number(p.promo_price) : null;
-      await recordProductPriceChange({
-        productId: p.id,
-        oldPrice,
-        newPrice: price,
-        oldPromoPrice: oldPromo,
-        newPromoPrice: promo ?? null,
-        source: "sync_batch",
-      });
-
-      await postgrestPatch("products", {
-        price,
-        promo_price: promo,
-        is_offer,
-        off_percent,
-        last_seen_at: new Date().toISOString(),
-      }, { id: `eq.${p.id}` });
-
-      updated += 1;
-    } catch {
-      failed += 1;
-    }
-  }
-
-  return {
-    ok: true,
-    total: rows.length,
-    updated,
-    skipped,
-    failed,
-    deleted,
-  };
-}
+/** Reimportação ML (Teste ML + persist) pode acionar Playwright — tempo maior que só preço. */
+export const maxDuration = 300;
 
 export async function GET(_req: Request) {
-  const result = await syncAllProducts();
+  const result = await runCronMlFullReimportOne();
   if (!result.ok) {
-    return NextResponse.json(result, { status: 500 });
+    return NextResponse.json(
+      {
+        ok: false,
+        mode: "ml_full_reimport",
+        error: result.error,
+        product_id: result.product_id,
+        code6: result.code6,
+      },
+      { status: 500 },
+    );
   }
-  return NextResponse.json(result);
+  if (result.skipped) {
+    return NextResponse.json({
+      ok: true,
+      mode: "ml_full_reimport",
+      skipped: true,
+      reason: result.reason,
+      total: 0,
+      reimported: 0,
+      deleted: 0,
+      failed: 0,
+    });
+  }
+  return NextResponse.json({
+    ok: true,
+    mode: "ml_full_reimport",
+    skipped: false,
+    product_id: result.product_id,
+    code6: result.code6,
+    reimported: result.reimported ? 1 : 0,
+    deleted: result.deleted ? 1 : 0,
+    listing_gone: result.listing_gone,
+    total: 1,
+    updated: result.reimported ? 1 : 0,
+    failed: 0,
+  });
 }
 
 export async function POST(_req: Request) {
@@ -101,9 +53,42 @@ export async function POST(_req: Request) {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
   }
 
-  const result = await syncAllProducts();
+  const result = await runCronMlFullReimportOne();
   if (!result.ok) {
-    return NextResponse.json(result, { status: 500 });
+    return NextResponse.json(
+      {
+        ok: false,
+        mode: "ml_full_reimport",
+        error: result.error,
+        product_id: result.product_id,
+        code6: result.code6,
+      },
+      { status: 500 },
+    );
   }
-  return NextResponse.json(result);
+  if (result.skipped) {
+    return NextResponse.json({
+      ok: true,
+      mode: "ml_full_reimport",
+      skipped: true,
+      reason: result.reason,
+      total: 0,
+      reimported: 0,
+      deleted: 0,
+      failed: 0,
+    });
+  }
+  return NextResponse.json({
+    ok: true,
+    mode: "ml_full_reimport",
+    skipped: false,
+    product_id: result.product_id,
+    code6: result.code6,
+    reimported: result.reimported ? 1 : 0,
+    deleted: result.deleted ? 1 : 0,
+    listing_gone: result.listing_gone,
+    total: 1,
+    updated: result.reimported ? 1 : 0,
+    failed: 0,
+  });
 }

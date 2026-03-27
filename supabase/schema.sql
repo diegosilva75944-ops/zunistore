@@ -172,6 +172,7 @@ create table if not exists public.site_settings (
   id uuid primary key default gen_random_uuid(),
   logo_url text null,
   colors jsonb null,
+  cron_ml_reimport_cursor_code6 text null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
