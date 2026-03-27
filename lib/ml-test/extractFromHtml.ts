@@ -3,7 +3,7 @@ import type { Element } from "domhandler";
 import type { ExtractFromHtmlOutput, PriceCandidate } from "./types";
 import { extractGalleryImages } from "./extractImages";
 import { extractFullDescription, makeShortDescription } from "./extractDescriptions";
-import { parseBRLFromSnippet, roundMoney } from "./normalize";
+import { detectSecondaryPriceLineText, parseBRLFromSnippet, roundMoney } from "./normalize";
 
 function stripScriptsStyles(html: string): string {
   return html
@@ -37,10 +37,6 @@ function isRecommendationContext(text: string, $: CheerioAPI, el: Cheerio<Elemen
       c.includes("search-ui")
     );
   });
-}
-
-function detectInstallment(text: string): boolean {
-  return /(\d+\s*x\s*)|parcelad|sem juros|juros|parcela/i.test(text);
 }
 
 function detectShipping(text: string): boolean {
@@ -343,7 +339,10 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     if (isInOtherSellers($, $el as Cheerio<Element>)) return;
     const txt = $el.text().replace(/\s+/g, " ").trim();
     const nt = nearText($, $el as Cheerio<Element>);
-    const inst = detectInstallment(nt + " " + txt);
+    const subtitleCtx = $el.closest(".ui-pdp-price__subtitles");
+    const inst =
+      detectSecondaryPriceLineText(nt + " " + txt) ||
+      (subtitleCtx.length > 0 && detectSecondaryPriceLineText(subtitleCtx.text()));
     const ship = detectShipping(nt + " " + txt);
     const reco =
       isRecommendationContext(nt, $, $el as Cheerio<Element>) &&
@@ -381,7 +380,7 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
   let count = 0;
   while ((mm = re.exec(visible)) !== null && count < 12) {
     const snippet = visible.slice(Math.max(0, mm.index - 60), mm.index + 40);
-    if (detectInstallment(snippet) || detectShipping(snippet)) continue;
+    if (detectSecondaryPriceLineText(snippet) || detectShipping(snippet)) continue;
     const val = parseBRLFromSnippet(mm[0]);
     if (val == null) continue;
     candidates.push({
@@ -392,7 +391,7 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
       nearText: snippet,
       source: "regex",
       fromMainBlock: /ui-pdp|andes-money/i.test(snippet),
-      isInstallment: detectInstallment(snippet),
+      isInstallment: detectSecondaryPriceLineText(snippet),
       isShipping: detectShipping(snippet),
       isRecommendation: /recomend|vitrine/i.test(snippet),
       isOriginalCandidate: /antes|de\s+R\$|original|previous/i.test(snippet),

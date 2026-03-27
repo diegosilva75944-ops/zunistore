@@ -10,12 +10,8 @@ import type {
   ResolvePreviewPricingResult,
   UsedCandidateEntry,
 } from "./types";
-import { discountPercentFromPair, roundMoney } from "./normalize";
+import { detectSecondaryPriceLineText, discountPercentFromPair, roundMoney } from "./normalize";
 import { resolveMainVisualBlock } from "./resolveMainVisualBlock";
-
-function detectInstallment(text: string): boolean {
-  return /(\d+\s*x\s*)|parcelad|sem juros|juros|parcela/i.test(text);
-}
 
 function parseAndesMoney($: CheerioAPI, el: Cheerio<Element>): number | null {
   const fraction = el.find(".andes-money-amount__fraction").first().text().trim();
@@ -51,7 +47,12 @@ function stripNoiseFromPriceBlock($: CheerioAPI, $root: Cheerio<Element>): Cheer
   ).remove();
   $b.find(".ui-pdp-price__second-line").each((_, e) => {
     const t = $(e).text();
-    if (detectInstallment(t)) $(e).remove();
+    if (detectSecondaryPriceLineText(t)) $(e).remove();
+  });
+  /** “10x R$ … sem juros” fica em subtitles, não na second-line — evita min() pegar a parcela. */
+  $b.find(".ui-pdp-price__subtitles").each((_, e) => {
+    const t = $(e).text();
+    if (detectSecondaryPriceLineText(t)) $(e).remove();
   });
   $b.find("[class*='reco'], [class*='carousel']").each((_, e) => {
     const c = ($(e).attr("class") || "").toLowerCase();
@@ -95,6 +96,7 @@ function collectVisibleCurrentAndesInBlock($: CheerioAPI, $scope: Cheerio<Elemen
   $scope.find(".andes-money-amount").each((_, el) => {
     const $el = $(el as unknown as Element);
     if (isPreviousMoneyNode($, $el)) return;
+    if ($el.closest(".ui-pdp-price__subtitles").length) return;
     const n = parseAndesMoney($, $el);
     if (n != null) out.push(n);
   });

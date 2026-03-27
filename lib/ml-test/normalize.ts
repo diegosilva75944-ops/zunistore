@@ -81,3 +81,21 @@ export function clampPercent(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.min(100, Math.max(0, Math.round(n)));
 }
+
+/** Parcelas / “sem juros” — não é o preço principal à vista no bloco. */
+export function detectInstallmentKeywords(text: string): boolean {
+  return /(\d+\s*x\s*)|parcelad|sem juros|juros|parcela/i.test(String(text || ""));
+}
+
+/** Texto típico de preço condicionado ao cartão / crédito (linha secundária). */
+export function detectCardPaymentKeywords(text: string): boolean {
+  const t = String(text || "").replace(/\s+/g, " ");
+  return /\bno\s+cart[aã]o|cart[aã]o\s+de\s+cr[eé]dito|mercado\s+cr[eé]dito|via\s+cart[aã]o|parcelas?\s+no\s+cart|em\s+at[eé]\s+no\s+cart|\bmp\s+cr[eé]dito\b/i.test(
+    t,
+  );
+}
+
+/** Linha que não deve compor o preço “principal” exibido (parcela ou cartão). */
+export function detectSecondaryPriceLineText(text: string): boolean {
+  return detectInstallmentKeywords(text) || detectCardPaymentKeywords(text);
+}

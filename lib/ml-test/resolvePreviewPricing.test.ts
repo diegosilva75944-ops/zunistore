@@ -85,6 +85,38 @@ describe("resolvePreviewPricing", () => {
     expect(r.chosenBlock?.selector).toBe(".ui-pdp-container__row--price");
   });
 
+  it("ignora parcela em ui-pdp-price__subtitles (ex.: 10x R$ 102,99) e usa o preço da second-line", () => {
+    const html = `
+<!DOCTYPE html><html><body>
+<div class="ui-pdp-main">
+  <div class="ui-pdp-container__row ui-pdp-container__row--price" id="price">
+    <div class="ui-pdp-price__main-container">
+      <s class="andes-money-amount ui-pdp-price__original-value andes-money-amount--previous">
+        <span class="andes-money-amount__fraction">1.378</span>
+        <span class="andes-money-amount__cents">54</span>
+      </s>
+      <div class="ui-pdp-price__second-line">
+        <span class="andes-money-amount">
+          <span class="andes-money-amount__fraction">947</span>
+          <span class="andes-money-amount__cents">51</span>
+        </span>
+      </div>
+      <div class="ui-pdp-price__subtitles" role="group">
+        <p><span>10x </span><span class="andes-money-amount">
+          <span class="andes-money-amount__fraction">102</span>
+          <span class="andes-money-amount__cents">99</span>
+        </span><span> sem juros</span></p>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>`;
+    const r = resolvePreviewPricing(html, [], "html");
+    expect(r.pricing.currentPrice).toBe(947.51);
+    expect(r.pricing.originalPrice).toBe(1378.54);
+    expect(r.pricing.hasDiscount).toBe(true);
+  });
+
   it("CASO 2 sem classe previous: dois andes distintos → menor=atual, maior=original", () => {
     const html = `
 <!DOCTYPE html><html><body>
