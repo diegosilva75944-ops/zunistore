@@ -37,7 +37,7 @@ describe("resolvePreviewPricing", () => {
     expect(r.pricing.originalPrice).toBe(1378.54);
     expect(r.pricing.hasDiscount).toBe(true);
     expect(r.pricing.displayMode).toBe("discounted_price");
-    expect(r.pricing.discountPercent).toBe(31);
+    expect(r.pricing.discountPercent).toBeCloseTo(31.27, 2);
     expect(r.chosenBlock?.selector).toBe(".ui-pdp-container__row--price");
   });
 
@@ -59,6 +59,30 @@ describe("resolvePreviewPricing", () => {
     expect(r.pricing.originalPrice).toBeNull();
     expect(r.pricing.hasDiscount).toBe(false);
     expect(r.pricing.displayMode).toBe("single_price");
+  });
+
+  it("ignora primeiro row com ‘Melhor preço’ e usa o segundo na coluna principal", () => {
+    const html = `
+<!DOCTYPE html><html><body>
+<div class="ui-pdp-main">
+  <h1>Produto</h1>
+  <div class="ui-pdp-container__row--price">
+    Melhor preço R$ 964,90 em outra loja
+  </div>
+  <div class="ui-pdp-container__row--price">
+    <span class="andes-money-amount andes-money-amount--previous">
+      <span class="andes-money-amount__fraction">1.378</span><span class="andes-money-amount__cents">54</span>
+    </span>
+    <span class="andes-money-amount">
+      <span class="andes-money-amount__fraction">947</span><span class="andes-money-amount__cents">51</span>
+    </span>
+  </div>
+</div>
+</body></html>`;
+    const r = resolvePreviewPricing(html, [], "html");
+    expect(r.pricing.currentPrice).toBe(947.51);
+    expect(r.pricing.originalPrice).toBe(1378.54);
+    expect(r.chosenBlock?.selector).toBe(".ui-pdp-container__row--price");
   });
 
   it("CASO 2 sem classe previous: dois andes distintos → menor=atual, maior=original", () => {

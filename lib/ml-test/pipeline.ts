@@ -40,6 +40,7 @@ export async function runTestMlImport(
         chosenSignals: resolved.chosenSignals,
         usedCandidates: resolved.usedCandidates,
         ignoredCandidates: resolved.ignoredCandidates,
+        discardReasons: resolved.discardReasons,
       },
     };
   }
@@ -102,6 +103,7 @@ export async function runTestMlImport(
       chosenSignals: resolved.chosenSignals,
       usedCandidates: resolved.usedCandidates,
       ignoredCandidates: resolved.ignoredCandidates,
+      discardReasons: resolved.discardReasons,
     },
   };
 }

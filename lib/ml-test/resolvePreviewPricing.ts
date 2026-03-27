@@ -10,7 +10,7 @@ import type {
   ResolvePreviewPricingResult,
   UsedCandidateEntry,
 } from "./types";
-import { clampPercent, roundMoney } from "./normalize";
+import { discountPercentFromPair, roundMoney } from "./normalize";
 import { resolveMainVisualBlock } from "./resolveMainVisualBlock";
 
 function detectInstallment(text: string): boolean {
@@ -45,6 +45,10 @@ function snippetOf($: CheerioAPI, $el: Cheerio<Element>, maxLen: number): string
 function stripNoiseFromPriceBlock($: CheerioAPI, $root: Cheerio<Element>): Cheerio<Element> {
   const $b = $root.clone();
   $b.find(".poly-price__installments").remove();
+  /** Comparadores / bookmarks dentro do row podem injetar segundo preço falso */
+  $b.find(
+    '[class*="poly-compare"], [class*="ui-pdp-compare"], .ui-pdp-bookmark, [class*="compare-prices"]',
+  ).remove();
   $b.find(".ui-pdp-price__second-line").each((_, e) => {
     const t = $(e).text();
     if (detectInstallment(t)) $(e).remove();
@@ -98,9 +102,8 @@ function collectVisibleCurrentAndesInBlock($: CheerioAPI, $scope: Cheerio<Elemen
 }
 
 /**
- * Regra somente dentro do bloco vencedor (após remover parcelas):
- * - Com preço riscado + atual: max(anteriores) e min(atuais) se max > min
- * - Sem riscado explícito mas ≥2 valores distintos: maior = original, menor = atual
+ * Somente dentro do bloco vencedor (DOM clonado e limpo).
+ * Dois preços distintos: menor = atual, maior = original (regra do buy box).
  */
 function resolvePricesFromBlockDom(
   $: CheerioAPI,
@@ -172,38 +175,6 @@ function pickInstallmentFromCandidates(
   };
 }
 
-function isUsableFallback(c: PriceCandidate): boolean {
-  if (c.isInstallment || c.isShipping || c.isRecommendation) return false;
-  if (c.isBestPriceLabel || c.isCrossSell || c.isOtherSeller) return false;
-  return true;
-}
-
-function fallbackSinglePriceFromCandidates(candidates: PriceCandidate[]): {
-  currentPrice: number | null;
-  confidence: PriceConfidence;
-} {
-  const valid = candidates.filter((c) => c.value > 0 && Number.isFinite(c.value) && isUsableFallback(c));
-  if (!valid.length) return { currentPrice: null, confidence: "low" };
-
-  const pool = valid.filter((c) => !c.isInstallment && !c.isShipping && !c.isRecommendation);
-  const main = pool.filter((c) => c.fromMainBlock);
-  const use = main.length ? main : pool;
-  if (!use.length) return { currentPrice: null, confidence: "low" };
-
-  const currents = use.filter((c) => c.isCurrentCandidate && !c.isOriginalCandidate);
-  if (currents.length) {
-    const vals = [...new Set(currents.map((c) => c.value))].sort((a, b) => a - b);
-    return {
-      currentPrice: roundMoney(vals[0]),
-      confidence: main.length ? "medium" : "low",
-    };
-  }
-
-  const nums = [...new Set(use.map((c) => c.value))].sort((a, b) => a - b);
-  if (nums.length === 1) return { currentPrice: roundMoney(nums[0]), confidence: main.length ? "medium" : "low" };
-  return { currentPrice: roundMoney(nums[0]), confidence: "low" };
-}
-
 function buildIgnoredList(
   candidates: PriceCandidate[],
   usedIndices: Set<number>,
@@ -239,8 +210,28 @@ function buildUsedList(candidates: PriceCandidate[], usedIndices: Set<number>): 
       index: i,
       value: c.value,
       source: c.source,
-      reason: "alinhado ao preço final resolvido no bloco visual vencedor (ou fallback permitido)",
+      reason: "alinhado ao preço final resolvido no bloco visual vencedor",
     });
+  }
+  return out;
+}
+
+function buildDiscardReasons(
+  chosenBlock: ChosenBlockInfo | null,
+  ignored: IgnoredCandidateEntry[],
+  preamble: string[],
+): string[] {
+  const out = [...preamble];
+  if (chosenBlock?.notes?.length) {
+    for (const n of chosenBlock.notes) out.push(`resolver: ${n}`);
+  }
+  const cap = 48;
+  for (let i = 0; i < Math.min(ignored.length, cap); i++) {
+    const ig = ignored[i];
+    out.push(`ignorado ${ig.value} (${ig.source}): ${ig.reason}`);
+  }
+  if (ignored.length > cap) {
+    out.push(`… e mais ${ignored.length - cap} candidatos ignorados (ver tabela).`);
   }
   return out;
 }
@@ -249,7 +240,6 @@ function computeUsedIndices(
   candidates: PriceCandidate[],
   currentPrice: number | null,
   originalPrice: number | null,
-  opts: { allowMetaHead?: boolean },
 ): Set<number> {
   const used = new Set<number>();
   const tol = 0.02;
@@ -257,8 +247,7 @@ function computeUsedIndices(
     const c = candidates[i];
     if (c.isInstallment || c.isRecommendation) continue;
     if (currentPrice != null && Math.abs(c.value - currentPrice) <= tol) {
-      if (c.source === "json_ld") continue;
-      if (c.source === "meta" && !opts.allowMetaHead) continue;
+      if (c.source === "json_ld" || c.source === "meta") continue;
       if (c.isOriginalCandidate && !c.isCurrentCandidate && originalPrice == null) continue;
       used.add(i);
     }
@@ -299,31 +288,33 @@ export function resolvePreviewPricing(
   const { installmentPrice, installments } = pickInstallmentFromCandidates(candidates);
 
   if (!blockPick) {
-    notes.push("Bloco visual principal de preço não encontrado — fallback restrito (sem min/max global).");
-    const fb = fallbackSinglePriceFromCandidates(candidates);
-    currentPrice = fb.currentPrice;
-    confidence = fb.confidence;
-    displayMode = currentPrice != null ? "single_price" : "unknown";
+    notes.push(
+      "Bloco principal não encontrado — preço final NÃO inferido por candidatos globais (evita min/max da página).",
+    );
     chosenSignals.fallback = "no_winning_block";
-    const usedIndices = computeUsedIndices(candidates, currentPrice, null, { allowMetaHead: false });
+    const usedIndices = new Set<number>();
     const ignored = buildIgnoredList(candidates, usedIndices, reasonOverride);
     const usedCandidates = buildUsedList(candidates, usedIndices);
+    const discardReasons = buildDiscardReasons(null, ignored, [
+      "Regra: sem bloco vencedor identificado, json_ld/meta/aria não definem preço de exibição.",
+    ]);
     return {
       pricing: {
-        currentPrice,
+        currentPrice: null,
         originalPrice: null,
         discountPercent: null,
         hasDiscount: false,
-        displayMode,
+        displayMode: "unknown",
         installmentPrice,
         installments,
-        confidence,
+        confidence: "low",
         source: sourceLayer,
       },
       chosenBlock: null,
       chosenSignals,
       usedCandidates,
       ignoredCandidates: ignored,
+      discardReasons,
     };
   }
 
@@ -336,16 +327,16 @@ export function resolvePreviewPricing(
   displayMode = domResolved.displayMode;
 
   if (currentPrice == null) {
-    notes.push("Sem preço andes suficiente no bloco vencedor — fallback por candidatos filtrados.");
-    const fb = fallbackSinglePriceFromCandidates(candidates);
-    currentPrice = fb.currentPrice;
-    confidence = fb.confidence;
-    displayMode = currentPrice != null ? "single_price" : "unknown";
+    notes.push(
+      "Não foi possível extrair preço andes do DOM do bloco vencedor — fallback global desativado (evita valores de outros blocos).",
+    );
+    chosenSignals.fallback = "no_price_in_winning_block_dom";
     originalPrice = null;
-    chosenSignals.fallback = "block_empty_or_no_andes";
+    displayMode = "unknown";
+    confidence = "low";
     candidates.forEach((c, i) => {
       if (c.isOriginalCandidate && c.source !== "andes_dom" && c.source !== "aria") {
-        reasonOverride.set(i, "‘original’ só em JSON-LD/meta — sem correspondência visual no bloco vencedor");
+        reasonOverride.set(i, "‘original’ só em JSON-LD/meta — sem par visível no bloco vencedor");
       }
     });
   } else {
@@ -385,18 +376,22 @@ export function resolvePreviewPricing(
 
   const discountPercent =
     hasDiscount && currentPrice != null && originalPrice != null ?
-      clampPercent((1 - currentPrice / originalPrice) * 100)
+      discountPercentFromPair(currentPrice, originalPrice)
     : null;
 
   if (!hasDiscount) {
     originalPrice = null;
   }
 
-  const usedIndices = computeUsedIndices(candidates, currentPrice, originalPrice, {
-    allowMetaHead: false,
-  });
+  const usedIndices = computeUsedIndices(candidates, currentPrice, originalPrice);
   const ignoredCandidates = buildIgnoredList(candidates, usedIndices, reasonOverride);
   const usedCandidates = buildUsedList(candidates, usedIndices);
+
+  const discardReasons = buildDiscardReasons(chosenBlock, ignoredCandidates, [
+    `Bloco vencedor: ${blockPick.selector} (${blockPick.id})`,
+    `Motivo da escolha do bloco: ${blockPick.reason}`,
+    "Preço final = somente valores .andes-money visíveis no DOM deste bloco (após remover parcelas/widgets de comparar).",
+  ]);
 
   return {
     pricing: {
@@ -414,6 +409,7 @@ export function resolvePreviewPricing(
     chosenSignals,
     usedCandidates,
     ignoredCandidates,
+    discardReasons,
   };
 }
 

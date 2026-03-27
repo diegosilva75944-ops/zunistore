@@ -22,6 +22,17 @@ export function TestMlImportDebug({ data }: Props) {
       </button>
       {open && (
         <div className="mt-3 space-y-3 text-xs">
+          {data.debug.discardReasons.length > 0 && (
+            <div>
+              <div className="font-semibold text-zinc-700 mb-1">Motivos de descarte (resumo)</div>
+              <ul className="list-disc pl-4 space-y-0.5 text-zinc-600">
+                {data.debug.discardReasons.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div>
             <div className="font-semibold text-zinc-700 mb-1">Passos</div>
             <ul className="list-disc pl-4 space-y-0.5 text-zinc-600 font-mono">

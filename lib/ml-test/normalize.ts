@@ -70,6 +70,13 @@ export function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Percentual de desconto (0–100) com 2 casas, para exibição no preview. */
+export function discountPercentFromPair(current: number, original: number): number {
+  if (!(original > 0) || !Number.isFinite(current)) return 0;
+  const p = (1 - current / original) * 100;
+  return roundMoney(Math.min(100, Math.max(0, p)));
+}
+
 export function clampPercent(n: number): number {
   if (!Number.isFinite(n)) return 0;
   return Math.min(100, Math.max(0, Math.round(n)));

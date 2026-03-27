@@ -71,6 +71,7 @@ export type ResolvePreviewPricingResult = {
   chosenSignals: Record<string, unknown>;
   usedCandidates: UsedCandidateEntry[];
   ignoredCandidates: IgnoredCandidateEntry[];
+  discardReasons: string[];
 };
 
 export type TestMlImportResult = {
@@ -87,6 +88,8 @@ export type TestMlImportResult = {
     chosenSignals: Record<string, unknown>;
     usedCandidates: UsedCandidateEntry[];
     ignoredCandidates: IgnoredCandidateEntry[];
+    /** Resumo legível de por que valores/blocos foram descartados para o preço final */
+    discardReasons: string[];
   };
 };
 

@@ -45,7 +45,9 @@ export function TestMlImportPreview({ data }: Props) {
         <div className="rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
           <div className="text-xs text-zinc-500">OFF</div>
           <div className="text-lg font-semibold text-zinc-900">
-            {hasPromo && pricing.discountPercent != null ? `${pricing.discountPercent}%` : "—"}
+            {hasPromo && pricing.discountPercent != null ?
+              `${new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(pricing.discountPercent)}%`
+            : "—"}
           </div>
         </div>
         <div className="rounded-xl bg-zinc-50 p-3 ring-1 ring-zinc-200">
