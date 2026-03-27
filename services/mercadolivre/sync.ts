@@ -1,14 +1,80 @@
 import "server-only";
 
 import { runTestMlImport } from "@/lib/ml-test/pipeline";
-import { normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
-import { postgrestGet } from "@/lib/postgrest/server";
+import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
+import { normalizeMercadoLivreProductUrl, resolveMercadoLivreFetchUrl } from "@/lib/ml-price";
+import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
 import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
 import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
 import { mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Garante `product_external_listings` (ML) para o produto quando a URL é PDP do ML mas a linha ainda não existe
+ * (dados antigos ou importação incompleta). Sem isso, `mlSyncImportedProduct` não roda.
+ */
+export async function ensureMercadoLivreListingRowForProduct(
+  productId: string,
+  sourceUrl: string | null,
+  affiliateUrl: string | null,
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const existing = await postgrestGet<any[]>("product_external_listings", {
+    select: "id",
+    origin: "eq.mercadolivre",
+    product_id: `eq.${productId}`,
+    limit: "1",
+  });
+  if (Array.isArray(existing) && existing[0]) return { ok: true };
+
+  const resolved = resolveMercadoLivreFetchUrl(sourceUrl, affiliateUrl);
+  if (!String(resolved || "").trim()) {
+    return { ok: false, reason: "Sem URL do Mercado Livre." };
+  }
+
+  const fetchUrl = normalizeMlFetchUrl(String(resolved), { keepSearch: true });
+  if (!isMercadoLivreProductUrl(fetchUrl)) {
+    return { ok: false, reason: "URL não é do Mercado Livre." };
+  }
+
+  let externalId: string;
+  try {
+    externalId = extractMlItemIdFromUrl(fetchUrl);
+  } catch {
+    return { ok: false, reason: "Não foi possível obter o ID do anúncio (MLB…) na URL." };
+  }
+
+  const src = sourceUrl && String(sourceUrl).trim().startsWith("http") ? String(sourceUrl) : "";
+  const aff = affiliateUrl && String(affiliateUrl).trim().startsWith("http") ? String(affiliateUrl) : "";
+
+  const permalink =
+    src && isMercadoLivreProductUrl(src) ?
+      normalizeMercadoLivreProductUrl(src, { keepSearch: true })
+    : aff && isMercadoLivreProductUrl(aff) ?
+      normalizeMercadoLivreProductUrl(aff, { keepSearch: true })
+    : `https://www.mercadolivre.com.br/p/${externalId}`;
+
+  try {
+    await postgrestPost(
+      "product_external_listings",
+      {
+        product_id: productId,
+        origin: "mercadolivre",
+        origin_tipo: "public_listing",
+        external_id: externalId,
+        external_permalink: permalink,
+        import_mode: "admin_internal",
+      },
+      "service",
+      { upsert: true, onConflict: "product_id", returning: false },
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: msg || "Falha ao criar vínculo do anúncio." };
+  }
+  return { ok: true };
 }
 
 export async function mlSyncImportedProduct(productId: string) {

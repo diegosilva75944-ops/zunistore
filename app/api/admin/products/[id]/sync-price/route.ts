@@ -5,9 +5,10 @@ import {
   moveProductToDeletedHistoryAndDelete,
   recordProductPriceChange,
 } from "@/lib/admin/db";
-import { fetchPricesFromUrl } from "@/lib/ml-price";
+import { fetchPricesFromUrl, resolveMercadoLivreFetchUrl } from "@/lib/ml-price";
+import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
 import { fetchMlPricesLikeImport } from "@/services/mercadolivre/sync-prices-like-import";
-import { mlSyncImportedProduct } from "@/services/mercadolivre/sync";
+import { ensureMercadoLivreListingRowForProduct, mlSyncImportedProduct } from "@/services/mercadolivre/sync";
 
 export const runtime = "nodejs";
 /** Reimportação ML (Teste ML + persist) pode acionar Playwright. */
@@ -59,7 +60,27 @@ export async function POST(
       product_id: `eq.${id}`,
       limit: "1",
     });
-    const hasMercadoLivreListing = Array.isArray(listingRows) && Boolean(listingRows[0]);
+    let hasMercadoLivreListing = Array.isArray(listingRows) && Boolean(listingRows[0]);
+
+    if (!hasMercadoLivreListing) {
+      const ensured = await ensureMercadoLivreListingRowForProduct(id, sourceUrl, affiliateUrl);
+      if (ensured.ok) {
+        hasMercadoLivreListing = true;
+      } else {
+        const raw = resolveMercadoLivreFetchUrl(sourceUrl, affiliateUrl);
+        const probe = raw ? normalizeMlFetchUrl(raw, { keepSearch: true }) : "";
+        if (probe && isMercadoLivreProductUrl(probe)) {
+          return NextResponse.json(
+            {
+              ok: false,
+              mode: "ml_full_reimport",
+              error: `Não foi possível preparar a reimportação ML: ${ensured.reason}`,
+            },
+            { status: 422 },
+          );
+        }
+      }
+    }
 
     if (hasMercadoLivreListing) {
       const priceUrl =

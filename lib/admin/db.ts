@@ -477,14 +477,29 @@ export async function adminPurgePriceHistory(opts: {
   }
 }
 
+const INTERNAL_SITE_SETTINGS_COLOR_PREFIX = "__cron_";
+
 export async function adminUpdateSiteColors(colors: Record<string, string>) {
-  const rows = await postgrestGet<any[]>("site_settings", { select: "id", limit: "1" });
+  const rows = await postgrestGet<any[]>("site_settings", { select: "id,colors", limit: "1" });
   const data = Array.isArray(rows) ? rows[0] : null;
+  const prev =
+    data?.colors && typeof data.colors === "object" && data.colors !== null ?
+      { ...(data.colors as Record<string, string>) }
+    : {};
+  const merged: Record<string, string> = { ...prev };
+  for (const [k, v] of Object.entries(colors)) {
+    merged[k] = v;
+  }
+  for (const k of Object.keys(prev)) {
+    if (k.startsWith(INTERNAL_SITE_SETTINGS_COLOR_PREFIX) && !(k in colors)) {
+      merged[k] = prev[k];
+    }
+  }
   if (!data) {
-    await postgrestPost("site_settings", { colors });
+    await postgrestPost("site_settings", { colors: merged });
     return;
   }
-  await postgrestPatch("site_settings", { colors }, { id: `eq.${data.id}` });
+  await postgrestPatch("site_settings", { colors: merged }, { id: `eq.${data.id}` });
 }
 
 export async function adminUpdateLogoUrl(logoUrl: string | null) {
@@ -502,7 +517,14 @@ export async function adminGetSiteSettings() {
     select: "id,logo_url,colors",
     limit: "1",
   });
-  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  if (!row) return null;
+  const c = row.colors;
+  if (!c || typeof c !== "object") return row;
+  const colors = Object.fromEntries(
+    Object.entries(c as Record<string, unknown>).filter(([k]) => !k.startsWith(INTERNAL_SITE_SETTINGS_COLOR_PREFIX)),
+  );
+  return { ...row, colors };
 }
 
 export async function adminGetContactSettings() {

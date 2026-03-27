@@ -280,25 +280,46 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   }
 
   async function syncAllPrices() {
-    if (!confirm("Sincronizar preços de TODOS os produtos? Isso pode levar alguns segundos.")) return;
-    
+    if (
+      !confirm(
+        "O job automático reimporta 1 produto do Mercado Livre por execução (mesmo fluxo da aba Teste ML), na ordem decrescente do código. Pode levar até alguns minutos se o Playwright for acionado. Continuar?",
+      )
+    )
+      return;
+
     setSyncing(true);
     setSyncResult(null);
-    
+
     try {
       const res = await fetch("/api/cron/sync-prices", {
         method: "POST",
       });
-      
+
       const data = await res.json().catch(() => null);
-      
+
       if (!res.ok || !data?.ok) {
         setSyncResult(`Erro: ${data?.error || "Falha na sincronização"}`);
         return;
       }
-      
-      const deletedPart = data.deleted ? `, Removidos (não encontrados): ${data.deleted}` : "";
-      setSyncResult(`Sincronizado! Total: ${data.total}, Atualizados: ${data.updated}, Ignorados: ${data.skipped}, Falhas: ${data.failed}${deletedPart}`);
+
+      if (data.mode === "ml_full_reimport") {
+        if (data.skipped && data.reason === "no_ml_products") {
+          setSyncResult("Nenhum produto com vínculo Mercado Livre para processar.");
+        } else if (data.deleted) {
+          setSyncResult(
+            "Anúncio não encontrado no ML: produto removido do catálogo e salvo no histórico de deletados.",
+          );
+        } else {
+          setSyncResult(
+            `Reimportação ML concluída (código ${data.code6 ?? "?"}). Próxima execução do cron seguirá para o próximo produto.`,
+          );
+        }
+      } else {
+        const deletedPart = data.deleted ? `, Removidos (não encontrados): ${data.deleted}` : "";
+        setSyncResult(
+          `Sincronizado! Total: ${data.total}, Atualizados: ${data.updated}, Ignorados: ${data.skipped}, Falhas: ${data.failed}${deletedPart}`,
+        );
+      }
 
       await fetchProducts(true);
       fetch("/api/admin/products/affiliate-expired-count")

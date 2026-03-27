@@ -1,5 +1,6 @@
 import "server-only";
 
+import { CRON_ML_REIMPORT_CURSOR_COLORS_KEY } from "@/lib/site-settings-internal";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { postgrestGet, postgrestPatch, postgrestPost } from "@/lib/postgrest/server";
@@ -28,24 +29,30 @@ export type CronMlFullReimportResult =
       error: string;
     };
 
+function parseCursorFromColors(colors: unknown): string | null {
+  if (!colors || typeof colors !== "object") return null;
+  const raw = (colors as Record<string, unknown>)[CRON_ML_REIMPORT_CURSOR_COLORS_KEY];
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  return raw.trim();
+}
+
 async function getSiteSettingsRow(): Promise<{ id: string; cron_ml_reimport_cursor_code6: string | null } | null> {
   const rows = await postgrestGet<any[]>("site_settings", {
-    select: "id,cron_ml_reimport_cursor_code6",
+    select: "id,colors",
     limit: "1",
   });
   const row = Array.isArray(rows) ? rows[0] : null;
   if (!row?.id) return null;
   return {
     id: String(row.id),
-    cron_ml_reimport_cursor_code6:
-      row.cron_ml_reimport_cursor_code6 != null ? String(row.cron_ml_reimport_cursor_code6) : null,
+    cron_ml_reimport_cursor_code6: parseCursorFromColors(row.colors),
   };
 }
 
 async function ensureSiteSettingsRow(): Promise<{ id: string; cron_ml_reimport_cursor_code6: string | null }> {
   let row = await getSiteSettingsRow();
   if (!row) {
-    await postgrestPost("site_settings", { colors: null });
+    await postgrestPost("site_settings", { colors: {} });
     row = await getSiteSettingsRow();
   }
   if (!row) {
@@ -55,12 +62,27 @@ async function ensureSiteSettingsRow(): Promise<{ id: string; cron_ml_reimport_c
 }
 
 async function setCronCursor(code6: string | null): Promise<void> {
-  const row = await getSiteSettingsRow();
-  if (!row) {
-    await postgrestPost("site_settings", { cron_ml_reimport_cursor_code6: code6 });
+  const rows = await postgrestGet<any[]>("site_settings", {
+    select: "id,colors",
+    limit: "1",
+  });
+  const data = Array.isArray(rows) ? rows[0] : null;
+  const prev =
+    data?.colors && typeof data.colors === "object" && data.colors !== null ?
+      { ...(data.colors as Record<string, unknown>) }
+    : {};
+
+  if (code6 == null || code6 === "") {
+    delete prev[CRON_ML_REIMPORT_CURSOR_COLORS_KEY];
+  } else {
+    prev[CRON_ML_REIMPORT_CURSOR_COLORS_KEY] = code6;
+  }
+
+  if (!data?.id) {
+    await postgrestPost("site_settings", { colors: prev });
     return;
   }
-  await postgrestPatch("site_settings", { cron_ml_reimport_cursor_code6: code6 }, { id: `eq.${row.id}` });
+  await postgrestPatch("site_settings", { colors: prev }, { id: `eq.${data.id}` });
 }
 
 /**
