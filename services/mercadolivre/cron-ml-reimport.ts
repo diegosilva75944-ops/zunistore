@@ -1,147 +1,82 @@
 import "server-only";
 
-import { CRON_ML_REIMPORT_CURSOR_COLORS_KEY } from "@/lib/site-settings-internal";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
-import { postgrestGet, postgrestPatch, postgrestPost } from "@/lib/postgrest/server";
+import { postgrestGet } from "@/lib/postgrest/server";
 import { mlSyncImportedProduct } from "@/services/mercadolivre/sync";
 
-export type CronMlFullReimportResult =
+const BATCH_PAGE = 500;
+/** Pausa entre produtos para reduzir bloqueio / carga no ML. */
+const DELAY_MS_BETWEEN_PRODUCTS = 400;
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+export type CronMlBatchFailure = { product_id: string; code6: string; error: string };
+
+export type CronMlFullReimportBatchResult =
   | {
       ok: true;
       skipped: true;
       reason: "no_ml_products";
+      total: number;
+      reimported: number;
+      deleted: number;
+      failed: number;
+      skipped_no_url: number;
+      failures: CronMlBatchFailure[];
     }
   | {
       ok: true;
       skipped: false;
-      product_id: string;
-      code6: string;
-      reimported: boolean;
-      deleted: boolean;
-      listing_gone: boolean;
+      total: number;
+      reimported: number;
+      deleted: number;
+      failed: number;
+      skipped_no_url: number;
+      failures: CronMlBatchFailure[];
     }
   | {
       ok: false;
-      skipped: false;
-      product_id?: string;
-      code6?: string;
       error: string;
+      total?: number;
+      reimported?: number;
+      deleted?: number;
+      failed?: number;
+      failures?: CronMlBatchFailure[];
     };
 
-function parseCursorFromColors(colors: unknown): string | null {
-  if (!colors || typeof colors !== "object") return null;
-  const raw = (colors as Record<string, unknown>)[CRON_ML_REIMPORT_CURSOR_COLORS_KEY];
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  return raw.trim();
-}
-
-async function getSiteSettingsRow(): Promise<{ id: string; cron_ml_reimport_cursor_code6: string | null } | null> {
-  const rows = await postgrestGet<any[]>("site_settings", {
-    select: "id,colors",
-    limit: "1",
-  });
-  const row = Array.isArray(rows) ? rows[0] : null;
-  if (!row?.id) return null;
-  return {
-    id: String(row.id),
-    cron_ml_reimport_cursor_code6: parseCursorFromColors(row.colors),
-  };
-}
-
-async function ensureSiteSettingsRow(): Promise<{ id: string; cron_ml_reimport_cursor_code6: string | null }> {
-  let row = await getSiteSettingsRow();
-  if (!row) {
-    await postgrestPost("site_settings", { colors: {} });
-    row = await getSiteSettingsRow();
-  }
-  if (!row) {
-    throw new Error("Não foi possível criar ou ler site_settings.");
-  }
-  return row;
-}
-
-async function setCronCursor(code6: string | null): Promise<void> {
-  const rows = await postgrestGet<any[]>("site_settings", {
-    select: "id,colors",
-    limit: "1",
-  });
-  const data = Array.isArray(rows) ? rows[0] : null;
-  const prev =
-    data?.colors && typeof data.colors === "object" && data.colors !== null ?
-      { ...(data.colors as Record<string, unknown>) }
-    : {};
-
-  if (code6 == null || code6 === "") {
-    delete prev[CRON_ML_REIMPORT_CURSOR_COLORS_KEY];
-  } else {
-    prev[CRON_ML_REIMPORT_CURSOR_COLORS_KEY] = code6;
-  }
-
-  if (!data?.id) {
-    await postgrestPost("site_settings", { colors: prev });
-    return;
-  }
-  await postgrestPatch("site_settings", { colors: prev }, { id: `eq.${data.id}` });
-}
-
-/**
- * Próximo produto com vínculo ML, em ordem decrescente de code6.
- * Com `cursorCode6`, retorna o maior code6 estritamente menor (rodízio); se não houver, faz wrap e volta ao maior.
- */
-export async function pickNextMlProductDescCode6(cursorCode6: string | null): Promise<{
-  id: string;
-  code6: string;
-} | null> {
-  const base: Record<string, string> = {
-    select: "id,code6,product_external_listings!inner(origin)",
-    "product_external_listings.origin": "eq.mercadolivre",
-    order: "code6.desc",
-    limit: "1",
-  };
-
-  const tryQuery = async (cursor: string | null) => {
-    const params: Record<string, string> = { ...base };
-    if (cursor) {
-      params.code6 = `lt.${encodeURIComponent(cursor)}`;
+/** Todos os produtos com vínculo ML, maior code6 primeiro. */
+export async function listAllMlProductsDescCode6(): Promise<{ id: string; code6: string }[]> {
+  const out: { id: string; code6: string }[] = [];
+  for (let offset = 0; ; offset += BATCH_PAGE) {
+    const rows = await postgrestGet<any[]>("products", {
+      select: "id,code6,product_external_listings!inner(origin)",
+      "product_external_listings.origin": "eq.mercadolivre",
+      order: "code6.desc",
+      limit: String(BATCH_PAGE),
+      offset: String(offset),
+    });
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) break;
+    for (const r of list) {
+      if (r?.id && r?.code6) out.push({ id: String(r.id), code6: String(r.code6) });
     }
-    const rows = await postgrestGet<any[]>("products", params);
-    const row = Array.isArray(rows) ? rows[0] : null;
-    if (row?.id && row?.code6) {
-      return { id: String(row.id), code6: String(row.code6) };
-    }
-    return null;
-  };
-
-  let next = await tryQuery(cursorCode6);
-  if (!next && cursorCode6) {
-    next = await tryQuery(null);
+    if (list.length < BATCH_PAGE) break;
   }
-  return next;
+  return out;
 }
 
-/**
- * Uma execução do cron: reimporta um único produto ML (mesmo fluxo da aba Teste ML → `mlImportOrUpdateProduct`),
- * preservando id/code6, substituindo imagens pelo array importado.
- */
-export async function runCronMlFullReimportOne(): Promise<CronMlFullReimportResult> {
-  let settings: { id: string; cron_ml_reimport_cursor_code6: string | null };
-  try {
-    settings = await ensureSiteSettingsRow();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, skipped: false, error: msg };
-  }
-
-  const cursor = settings.cron_ml_reimport_cursor_code6;
-  const pick = await pickNextMlProductDescCode6(cursor);
-  if (!pick) {
-    return { ok: true, skipped: true, reason: "no_ml_products" };
-  }
-
-  const productId = pick.id;
-  const code6 = pick.code6;
-
+async function processOneMlProduct(
+  productId: string,
+  code6: string,
+): Promise<
+  | { kind: "reimported" }
+  | { kind: "deleted" }
+  | { kind: "failed"; error: string }
+  | { kind: "skip_no_urls" }
+> {
   const prodRows = await postgrestGet<any[]>("products", {
     select: "id,price,promo_price,source_url,affiliate_url",
     id: `eq.${productId}`,
@@ -149,8 +84,7 @@ export async function runCronMlFullReimportOne(): Promise<CronMlFullReimportResu
   });
   const prod = Array.isArray(prodRows) ? prodRows[0] : null;
   if (!prod) {
-    await setCronCursor(code6);
-    return { ok: false, skipped: false, product_id: productId, code6, error: "Produto não encontrado após seleção." };
+    return { kind: "failed", error: "Produto não encontrado." };
   }
 
   const sourceUrl = prod.source_url as string | null | undefined;
@@ -163,49 +97,26 @@ export async function runCronMlFullReimportOne(): Promise<CronMlFullReimportResu
     : null;
 
   if (!priceUrl) {
-    return {
-      ok: false,
-      skipped: false,
-      product_id: productId,
-      code6,
-      error: "Produto sem source_url/affiliate_url válidos para checagem do anúncio.",
-    };
+    return { kind: "skip_no_urls" };
   }
 
   const oldPrice = Number(prod.price) || 0;
   const oldPromo = prod.promo_price != null ? Number(prod.promo_price) : null;
 
-  /** Só usa a checagem leve para anúncio removido; demais casos seguem para o mesmo pipeline da aba Teste ML. */
   const quick = await fetchPricesFromUrl(priceUrl);
   if (quick.kind === "listing_gone") {
     try {
       await moveProductToDeletedHistoryAndDelete(productId, "sync_not_found");
     } catch (e) {
-      return {
-        ok: false,
-        skipped: false,
-        product_id: productId,
-        code6,
-        error: e instanceof Error ? e.message : "Falha ao arquivar produto removido.",
-      };
+      return { kind: "failed", error: e instanceof Error ? e.message : "Falha ao arquivar produto removido." };
     }
-    await setCronCursor(null);
-    return {
-      ok: true,
-      skipped: false,
-      product_id: productId,
-      code6,
-      reimported: false,
-      deleted: true,
-      listing_gone: true,
-    };
+    return { kind: "deleted" };
   }
 
   try {
     await mlSyncImportedProduct(productId);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, skipped: false, product_id: productId, code6, error: msg };
+    return { kind: "failed", error: e instanceof Error ? e.message : String(e) };
   }
 
   const afterRows = await postgrestGet<any[]>("products", {
@@ -229,15 +140,68 @@ export async function runCronMlFullReimportOne(): Promise<CronMlFullReimportResu
     }
   }
 
-  await setCronCursor(code6);
+  return { kind: "reimported" };
+}
+
+/**
+ * Uma execução do cron / botão “sincronizar todos”: reimporta **todos** os produtos ML,
+ * **um por um**, em ordem **decrescente** de `code6` (mesmo fluxo da aba Teste ML).
+ */
+export async function runCronMlFullReimportAll(): Promise<CronMlFullReimportBatchResult> {
+  let all: { id: string; code6: string }[];
+  try {
+    all = await listAllMlProductsDescCode6();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
+
+  if (!all.length) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "no_ml_products",
+      total: 0,
+      reimported: 0,
+      deleted: 0,
+      failed: 0,
+      skipped_no_url: 0,
+      failures: [],
+    };
+  }
+
+  let reimported = 0;
+  let deleted = 0;
+  let failed = 0;
+  let skipped_no_url = 0;
+  const failures: CronMlBatchFailure[] = [];
+
+  for (let i = 0; i < all.length; i++) {
+    const { id, code6 } = all[i];
+    const result = await processOneMlProduct(id, code6);
+    if (result.kind === "reimported") {
+      reimported += 1;
+    } else if (result.kind === "deleted") {
+      deleted += 1;
+    } else if (result.kind === "failed") {
+      failed += 1;
+      failures.push({ product_id: id, code6, error: result.error });
+    } else if (result.kind === "skip_no_urls") {
+      skipped_no_url += 1;
+    }
+    if (i < all.length - 1 && DELAY_MS_BETWEEN_PRODUCTS > 0) {
+      await sleep(DELAY_MS_BETWEEN_PRODUCTS);
+    }
+  }
 
   return {
     ok: true,
     skipped: false,
-    product_id: productId,
-    code6,
-    reimported: true,
-    deleted: false,
-    listing_gone: false,
+    total: all.length,
+    reimported,
+    deleted,
+    failed,
+    skipped_no_url,
+    failures,
   };
 }

@@ -282,7 +282,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   async function syncAllPrices() {
     if (
       !confirm(
-        "O job automático reimporta 1 produto do Mercado Livre por execução (mesmo fluxo da aba Teste ML), na ordem decrescente do código. Pode levar até alguns minutos se o Playwright for acionado. Continuar?",
+        "Serão reimportados TODOS os produtos com vínculo Mercado Livre, um por um, em ordem decrescente do código (mesmo fluxo da aba Teste ML). Pode levar muitos minutos. Continuar?",
       )
     )
       return;
@@ -305,14 +305,20 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       if (data.mode === "ml_full_reimport") {
         if (data.skipped && data.reason === "no_ml_products") {
           setSyncResult("Nenhum produto com vínculo Mercado Livre para processar.");
-        } else if (data.deleted) {
-          setSyncResult(
-            "Anúncio não encontrado no ML: produto removido do catálogo e salvo no histórico de deletados.",
-          );
         } else {
-          setSyncResult(
-            `Reimportação ML concluída (código ${data.code6 ?? "?"}). Próxima execução do cron seguirá para o próximo produto.`,
-          );
+          const failN = typeof data.failed === "number" ? data.failed : 0;
+          const skipUrl = typeof data.skipped_no_url === "number" ? data.skipped_no_url : 0;
+          let msg = `Reimportação ML concluída. Total na fila: ${data.total ?? 0}, atualizados: ${data.reimported ?? 0}, removidos (anúncio inexistente): ${data.deleted ?? 0}`;
+          if (skipUrl > 0) msg += `, ignorados (sem URL de anúncio): ${skipUrl}`;
+          if (failN > 0) msg += `, falhas: ${failN}`;
+          if (Array.isArray(data.failures) && data.failures.length > 0) {
+            const sample = data.failures
+              .slice(0, 5)
+              .map((f: { code6?: string; error?: string }) => `${f.code6 ?? "?"}: ${f.error ?? ""}`)
+              .join(" | ");
+            msg += `\nExemplos: ${sample}`;
+          }
+          setSyncResult(msg);
         }
       } else {
         const deletedPart = data.deleted ? `, Removidos (não encontrados): ${data.deleted}` : "";
@@ -813,7 +819,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
             </>
           ) : (
             <>
-              🔄 Sincronizar Todos os Preços
+              🔄 Sincronizar todos (ML)
             </>
           )}
         </button>

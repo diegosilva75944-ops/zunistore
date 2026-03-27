@@ -1,50 +1,55 @@
 import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/admin/auth";
-import { runCronMlFullReimportOne } from "@/services/mercadolivre/cron-ml-reimport";
+import { runCronMlFullReimportAll } from "@/services/mercadolivre/cron-ml-reimport";
 
 export const runtime = "nodejs";
-/** Reimportação ML (Teste ML + persist) pode acionar Playwright — tempo maior que só preço. */
-export const maxDuration = 300;
+/** Vários produtos + Playwright: use o máximo permitido no host (ex.: Vercel Pro até 900s). */
+export const maxDuration = 900;
 
-export async function GET(_req: Request) {
-  const result = await runCronMlFullReimportOne();
+function jsonFromBatch(result: Awaited<ReturnType<typeof runCronMlFullReimportAll>>) {
   if (!result.ok) {
-    return NextResponse.json(
-      {
-        ok: false,
-        mode: "ml_full_reimport",
-        error: result.error,
-        product_id: result.product_id,
-        code6: result.code6,
-      },
-      { status: 500 },
-    );
+    return {
+      ok: false as const,
+      mode: "ml_full_reimport" as const,
+      error: result.error,
+    };
   }
   if (result.skipped) {
-    return NextResponse.json({
-      ok: true,
-      mode: "ml_full_reimport",
+    return {
+      ok: true as const,
+      mode: "ml_full_reimport" as const,
       skipped: true,
       reason: result.reason,
-      total: 0,
-      reimported: 0,
-      deleted: 0,
-      failed: 0,
-    });
+      total: result.total,
+      reimported: result.reimported,
+      deleted: result.deleted,
+      failed: result.failed,
+      skipped_no_url: result.skipped_no_url,
+      failures: result.failures.slice(0, 40),
+    };
   }
-  return NextResponse.json({
-    ok: true,
-    mode: "ml_full_reimport",
+  return {
+    ok: true as const,
+    mode: "ml_full_reimport" as const,
     skipped: false,
-    product_id: result.product_id,
-    code6: result.code6,
-    reimported: result.reimported ? 1 : 0,
-    deleted: result.deleted ? 1 : 0,
-    listing_gone: result.listing_gone,
-    total: 1,
-    updated: result.reimported ? 1 : 0,
-    failed: 0,
-  });
+    total: result.total,
+    reimported: result.reimported,
+    deleted: result.deleted,
+    failed: result.failed,
+    skipped_no_url: result.skipped_no_url,
+    failures: result.failures.slice(0, 40),
+    updated: result.reimported,
+    skipped_legacy: 0,
+  };
+}
+
+export async function GET(_req: Request) {
+  const result = await runCronMlFullReimportAll();
+  const body = jsonFromBatch(result);
+  if (!result.ok) {
+    return NextResponse.json(body, { status: 500 });
+  }
+  return NextResponse.json(body);
 }
 
 export async function POST(_req: Request) {
@@ -53,42 +58,10 @@ export async function POST(_req: Request) {
     return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
   }
 
-  const result = await runCronMlFullReimportOne();
+  const result = await runCronMlFullReimportAll();
+  const body = jsonFromBatch(result);
   if (!result.ok) {
-    return NextResponse.json(
-      {
-        ok: false,
-        mode: "ml_full_reimport",
-        error: result.error,
-        product_id: result.product_id,
-        code6: result.code6,
-      },
-      { status: 500 },
-    );
+    return NextResponse.json(body, { status: 500 });
   }
-  if (result.skipped) {
-    return NextResponse.json({
-      ok: true,
-      mode: "ml_full_reimport",
-      skipped: true,
-      reason: result.reason,
-      total: 0,
-      reimported: 0,
-      deleted: 0,
-      failed: 0,
-    });
-  }
-  return NextResponse.json({
-    ok: true,
-    mode: "ml_full_reimport",
-    skipped: false,
-    product_id: result.product_id,
-    code6: result.code6,
-    reimported: result.reimported ? 1 : 0,
-    deleted: result.deleted ? 1 : 0,
-    listing_gone: result.listing_gone,
-    total: 1,
-    updated: result.reimported ? 1 : 0,
-    failed: 0,
-  });
+  return NextResponse.json(body);
 }

@@ -45,16 +45,34 @@ export function extractMlItemIdFromUrl(input: string): string {
   const m3 = path.match(/\b(MLB\d{6,})\b/i);
   if (m3?.[1]) candidates.push(m3[1].toUpperCase());
 
+  // Query / fragment (ex.: ?item_id=MLB…, tracking, afiliado)
+  const pathSearchHash = `${url.pathname}${url.search}${url.hash}`;
+  const m4 = pathSearchHash.match(/\b(MLB\d{6,})\b/i);
+  if (m4?.[1]) candidates.push(m4[1].toUpperCase());
+
+  // URL inteira (hostname raro ou MLB só no meio do href)
+  const m5 = url.href.match(/\b(MLB\d{6,})\b/i);
+  if (m5?.[1]) candidates.push(m5[1].toUpperCase());
+
   const id = candidates.find((x) => /^MLB\d{6,}$/.test(x));
   if (!id) {
     throw new MercadoLivreError(
       "invalid_item_id",
       "Não consegui extrair o item_id do link. Tente colar a URL do anúncio do produto (…/MLB-… ou …/p/MLB…).",
-      { details: { pathname: path } },
+      { details: { pathname: path, href: url.href } },
     );
   }
 
   return id;
+}
+
+/** Não lança — útil para tentar redirect depois. */
+export function tryExtractMlItemIdFromUrl(input: string): string | null {
+  try {
+    return extractMlItemIdFromUrl(input);
+  } catch {
+    return null;
+  }
 }
 
 export function isValidMlItemId(id: string): boolean {

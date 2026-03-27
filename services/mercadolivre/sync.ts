@@ -4,6 +4,7 @@ import { runTestMlImport } from "@/lib/ml-test/pipeline";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
 import { normalizeMercadoLivreProductUrl, resolveMercadoLivreFetchUrl } from "@/lib/ml-price";
 import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
+import { extractMlItemIdFromUrlWithRedirects } from "@/services/mercadolivre/ml-url-resolve";
 import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
 import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
 import { mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
@@ -41,9 +42,10 @@ export async function ensureMercadoLivreListingRowForProduct(
 
   let externalId: string;
   try {
-    externalId = extractMlItemIdFromUrl(fetchUrl);
-  } catch {
-    return { ok: false, reason: "Não foi possível obter o ID do anúncio (MLB…) na URL." };
+    externalId = await extractMlItemIdFromUrlWithRedirects(fetchUrl);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, reason: msg || "Não foi possível obter o ID do anúncio (MLB…) na URL." };
   }
 
   const src = sourceUrl && String(sourceUrl).trim().startsWith("http") ? String(sourceUrl) : "";
