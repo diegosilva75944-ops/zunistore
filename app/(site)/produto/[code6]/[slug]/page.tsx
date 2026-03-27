@@ -15,8 +15,10 @@ export async function generateMetadata(props: {
   const product = await getProductByCode6(code6);
   if (!product) return { title: "Produto não encontrado" };
 
-  const hasPromo = product.promo_price != null && product.promo_price < product.price;
-  const finalPrice = hasPromo ? (product.promo_price as number) : product.price;
+  const listPriceMeta = Number(product.price);
+  const salePriceMeta = product.promo_price == null ? null : Number(product.promo_price);
+  const hasPromo = salePriceMeta != null && Number.isFinite(listPriceMeta) && salePriceMeta < listPriceMeta;
+  const finalPrice = hasPromo ? (salePriceMeta as number) : listPriceMeta;
   const priceStr = formatBRL(finalPrice);
 
   const baseUrl = await getBaseUrl();
@@ -68,8 +70,10 @@ export default async function ProdutoPage(props: {
     limit: 8,
   });
 
-  const hasPromo = product.promo_price != null && product.promo_price < product.price;
-  const finalPrice = hasPromo ? (product.promo_price as number) : product.price;
+  const listPriceMeta = Number(product.price);
+  const salePriceMeta = product.promo_price == null ? null : Number(product.promo_price);
+  const hasPromo = salePriceMeta != null && Number.isFinite(listPriceMeta) && salePriceMeta < listPriceMeta;
+  const finalPrice = hasPromo ? (salePriceMeta as number) : listPriceMeta;
 
   const baseUrl = await getBaseUrl();
   const pageUrl = `${baseUrl}/produto/${product.code6}/${product.slug}`;
@@ -118,7 +122,7 @@ export default async function ProdutoPage(props: {
 
           <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-2">
             {hasPromo ? (
-              <div className="text-sm text-zinc-500 line-through">{formatBRL(product.price)}</div>
+              <div className="text-sm text-zinc-500 line-through">{formatBRL(listPriceMeta)}</div>
             ) : null}
             <div className={`text-3xl font-bold ${hasPromo ? "text-zuni-green" : "text-zinc-900"}`}>
               {formatBRL(finalPrice)}
@@ -256,7 +260,9 @@ function splitDescriptionIntoLines(text: string): string[] {
 }
 
 function buildProductJsonLd(product: any, pageUrl: string) {
-  const price = product.promo_price ?? product.price;
+  const list = Number(product.price);
+  const sale = product.promo_price == null ? null : Number(product.promo_price);
+  const price = sale != null && Number.isFinite(list) && sale < list ? sale : list;
   const descFull = [product.description, product.description_detail]
     .filter((s: string) => typeof s === "string" && s.trim())
     .join("\n\n")

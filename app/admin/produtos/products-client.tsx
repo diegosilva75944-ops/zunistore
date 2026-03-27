@@ -1018,7 +1018,9 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           <tbody>
             {items.map((p) => {
               const img = p.images?.[0] ?? null;
-              const hasPromo = p.promo_price != null && p.promo_price < (p.price ?? 0);
+              const listP = Number(p.price ?? 0);
+              const saleP = p.promo_price == null ? null : Number(p.promo_price);
+              const hasPromo = saleP != null && Number.isFinite(listP) && saleP < listP;
               return (
                 <tr key={p.id} className="border-t border-zinc-100">
                   <td className="p-3">

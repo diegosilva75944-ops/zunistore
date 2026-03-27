@@ -4,7 +4,9 @@ import { Product } from "@/lib/store";
 
 export function ProductCard({ product }: { product: Pick<Product, "code6" | "slug" | "title" | "images" | "price" | "promo_price" | "is_offer" | "off_percent" | "affiliate_url"> }) {
   const img = product.images?.[0] ?? null;
-  const hasPromo = product.promo_price != null && product.promo_price < product.price;
+  const listPrice = Number(product.price);
+  const salePrice = product.promo_price == null ? null : Number(product.promo_price);
+  const hasPromo = salePrice != null && Number.isFinite(listPrice) && salePrice < listPrice;
 
   return (
     <div className="rounded-2xl bg-zuni-surface shadow-sm ring-1 ring-zinc-200 hover:ring-zinc-300 transition overflow-hidden flex flex-col">
@@ -41,11 +43,11 @@ export function ProductCard({ product }: { product: Pick<Product, "code6" | "slu
         <div className="mt-auto space-y-1">
           {hasPromo ? (
             <div className="text-xs text-zinc-500 line-through">
-              {formatBRL(product.price)}
+              {formatBRL(listPrice)}
             </div>
           ) : null}
           <div className={`text-base font-semibold ${hasPromo ? "text-zuni-green" : "text-zinc-900"}`}>
-            {formatBRL(hasPromo ? (product.promo_price as number) : product.price)}
+            {formatBRL(hasPromo ? (salePrice as number) : listPrice)}
           </div>
         </div>
 

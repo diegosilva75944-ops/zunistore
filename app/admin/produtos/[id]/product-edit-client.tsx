@@ -3,6 +3,14 @@
 import { useState } from "react";
 import { SitePageLoader } from "@/components/SitePageLoader";
 
+function formatBRLPreview(raw: string): string | null {
+  const t = String(raw ?? "").trim();
+  if (!t) return null;
+  const n = Number(t.replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+}
+
 export function ProductEditClient({
   product,
   categories,
@@ -90,22 +98,28 @@ export function ProductEditClient({
           </select>
         </Field>
 
-        <Field label="Preço">
+        <Field label="Preço de vitrine (lista)">
           <input
             value={form.price}
             onChange={(e) => setForm((s) => ({ ...s, price: e.target.value }))}
             inputMode="decimal"
             className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
           />
+          {formatBRLPreview(form.price) ? (
+            <p className="text-xs text-zinc-500">Exibição: {formatBRLPreview(form.price)}</p>
+          ) : null}
         </Field>
 
-        <Field label="Preço promocional (opcional)">
+        <Field label="Preço à vista / promo (opcional)">
           <input
             value={form.promo_price}
             onChange={(e) => setForm((s) => ({ ...s, promo_price: e.target.value }))}
             inputMode="decimal"
             className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
           />
+          {formatBRLPreview(form.promo_price) ? (
+            <p className="text-xs text-zinc-500">Exibição: {formatBRLPreview(form.promo_price)}</p>
+          ) : null}
         </Field>
 
         <Field label="Rating (opcional)">
@@ -166,6 +180,10 @@ export function ProductEditClient({
             onChange={(e) => setForm((s) => ({ ...s, source_url: e.target.value }))}
             className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm font-mono"
           />
+          <p className="text-xs text-zinc-500">
+            Para o sync de preço coincidir com a aba Teste ML, use a URL completa da PDP (inclua{" "}
+            <span className="font-mono">?pdp_filters=…</span> quando for oferta).
+          </p>
         </Field>
       </div>
 

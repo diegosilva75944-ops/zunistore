@@ -823,13 +823,25 @@ export function normalizeMercadoLivreProductUrl(
   }
 }
 
-/** Prioriza `affiliate_url` (HTML com poly-component; meli.la redireciona para ML). Senão `source_url`. */
+/**
+ * URL usada no fetch de preço (sync / fallback).
+ *
+ * - Se `source_url` tiver `pdp_filters=` (oferta/deal na PDP), usa essa URL com query — mesma página que a aba
+ *   **Teste ML** quando você cola o link completo do navegador.
+ * - Senão prioriza `affiliate_url` (poly / meli.la), depois `source_url`.
+ * - Mantém `search` quando faz sentido (`keepSearch: true`), alinhado a `normalizeMlFetchUrl(..., { keepSearch: true })` no sync por permalink.
+ */
 export function resolveMercadoLivreFetchUrl(
   sourceUrl: string | null | undefined,
   affiliateUrl: string | null | undefined,
 ): string {
   const aff = String(affiliateUrl ?? "").trim();
   const src = String(sourceUrl ?? "").trim();
+
+  if (src.includes("pdp_filters=")) {
+    return normalizeMercadoLivreProductUrl(src, { keepSearch: true });
+  }
+
   if (aff) {
     try {
       const h = new URL(aff).hostname.toLowerCase();
@@ -841,9 +853,11 @@ export function resolveMercadoLivreFetchUrl(
     }
     return normalizeMercadoLivreProductUrl(aff, { keepSearch: true });
   }
+
   if (src) {
-    return normalizeMercadoLivreProductUrl(src, { keepSearch: false });
+    return normalizeMercadoLivreProductUrl(src, { keepSearch: true });
   }
+
   return "";
 }
 
