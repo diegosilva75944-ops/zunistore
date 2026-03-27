@@ -335,6 +335,17 @@ do $$ begin
   with check (true);
 exception when duplicate_object then null; end $$;
 
+-- Metadados externos: sem política, RLS bloqueia INSERT/UPSERT mesmo com service_role em alguns PostgREST.
+grant select, insert, update, delete on table public.product_external_listings to service_role;
+do $$ begin
+  create policy "service_role manage product_external_listings"
+  on public.product_external_listings
+  for all
+  to service_role
+  using (true)
+  with check (true);
+exception when duplicate_object then null; end $$;
+
 do $$ begin
   create policy "public read categories" on public.categories for select using (true);
 exception when duplicate_object then null; end $$;
