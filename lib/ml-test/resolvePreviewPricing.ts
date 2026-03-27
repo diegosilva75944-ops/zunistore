@@ -11,17 +11,8 @@ import type {
   UsedCandidateEntry,
 } from "./types";
 import { detectSecondaryPriceLineText, discountPercentFromPair, roundMoney } from "./normalize";
+import { parseAndesMoneyCheerio } from "./parseAndesMoney";
 import { resolveMainVisualBlock } from "./resolveMainVisualBlock";
-
-function parseAndesMoney($: CheerioAPI, el: Cheerio<Element>): number | null {
-  const fraction = el.find(".andes-money-amount__fraction").first().text().trim();
-  const cents = el.find(".andes-money-amount__cents").first().text().trim();
-  if (!fraction) return null;
-  const fs = fraction.replace(/\./g, "");
-  const dec = cents && /^\d{1,2}$/.test(cents) ? cents.padStart(2, "0") : "00";
-  const n = parseFloat(`${fs}.${dec}`);
-  return Number.isFinite(n) && n > 0 ? roundMoney(n) : null;
-}
 
 function parseAntesAria(aria: string | undefined): number | null {
   if (!aria) return null;
@@ -77,11 +68,11 @@ function isPreviousMoneyNode($: CheerioAPI, $el: Cheerio<Element>): boolean {
 function collectVisiblePreviousInBlock($: CheerioAPI, $scope: Cheerio<Element>): number[] {
   const out: number[] = [];
   $scope.find(".andes-money-amount--previous").each((_, el) => {
-    const n = parseAndesMoney($, $(el) as Cheerio<Element>);
+    const n = parseAndesMoneyCheerio($, $(el) as Cheerio<Element>);
     if (n != null) out.push(n);
   });
   $scope.find(".ui-pdp-price__original-value").each((_, el) => {
-    const n = parseAndesMoney($, $(el) as Cheerio<Element>);
+    const n = parseAndesMoneyCheerio($, $(el) as Cheerio<Element>);
     if (n != null) out.push(n);
   });
   $scope.find("s[aria-label]").each((_, el) => {
@@ -97,7 +88,7 @@ function collectVisibleCurrentAndesInBlock($: CheerioAPI, $scope: Cheerio<Elemen
     const $el = $(el as unknown as Element);
     if (isPreviousMoneyNode($, $el)) return;
     if ($el.closest(".ui-pdp-price__subtitles").length) return;
-    const n = parseAndesMoney($, $el);
+    const n = parseAndesMoneyCheerio($, $el);
     if (n != null) out.push(n);
   });
   return [...new Set(out.filter((n) => Number.isFinite(n) && n > 0))];

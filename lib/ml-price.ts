@@ -6,6 +6,7 @@
  * 2) `.ui-pdp-container__row--price` 3) `.ui-pdp-price__main-container` / `.ui-pdp-price` 4) fallbacks meta/second-line
  * 5) regex R$. O sync combina isso com JSON-LD como no popup.
  */
+import { parseAndesFractionCentsToNumber } from "@/lib/ml-test/parseAndesMoney";
 import { extractMercadoLivrePrices } from "@/lib/mercadolivre/price-extractor";
 
 function parseBRL(text: string): number | null {
@@ -28,13 +29,12 @@ function parseBRLFlexible(text: string): number | null {
 
 /** Simula parseAndesMoney da extensão: fraction (ex: 1.234) + cents (ex: 56) -> número */
 function parseAndesMoneyFromHtml(block: string): number | null {
-  const fractionMatch = block.match(/andes-money-amount__fraction[^>]*>([\d.]+)</i);
+  const fractionMatch = block.match(/andes-money-amount__fraction[^>]*>([^<]+)</i);
   if (!fractionMatch) return null;
-  const fractionStr = fractionMatch[1].replace(/\./g, "");
+  const rawFrac = fractionMatch[1].trim();
   const centsMatch = block.match(/andes-money-amount__cents[^>]*>(\d{1,2})</i);
-  const centsStr = centsMatch && centsMatch[1] ? centsMatch[1].padStart(2, "0") : "00";
-  const n = parseFloat(`${fractionStr}.${centsStr}`);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  const centsStr = centsMatch?.[1] ?? "";
+  return parseAndesFractionCentsToNumber(rawFrac, centsStr);
 }
 
 /** Remove seção "outros vendedores" (preços paralelos que não são do anúncio principal). */
@@ -178,15 +178,20 @@ function extractPricesFromMlDomLike(htmlToParse: string): { price: number; promo
   if (priceRowIdx !== -1) {
     const block = htmlToParse.slice(priceRowIdx, priceRowIdx + 20000);
     const amountRe =
-      /andes-money-amount__fraction[^>]*>([\d.]+)[\s\S]{0,250}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
+      /andes-money-amount__fraction[^>]*>([\d.,]+)[\s\S]{0,250}?andes-money-amount__cents[^>]*>(\d{1,2})/gi;
 
     const amounts: number[] = [];
     for (const m of block.matchAll(amountRe)) {
-      const fractionStr = (m[1] || "").replace(/\./g, "");
-      const centsStr = (m[2] || "00").padStart(2, "0");
-      if (!fractionStr) continue;
-      const n = parseFloat(`${fractionStr}.${centsStr}`);
-      if (Number.isFinite(n) && n > 0) amounts.push(n);
+      const n = parseAndesFractionCentsToNumber(String(m[1] ?? "").trim(), String(m[2] ?? ""));
+      if (n != null && n > 0) amounts.push(n);
+    }
+
+    if (amounts.length === 0) {
+      const fracOnly = /andes-money-amount__fraction[^>]*>([\d.,]+)</gi;
+      for (const m of block.matchAll(fracOnly)) {
+        const n = parseAndesFractionCentsToNumber(String(m[1] ?? "").trim(), "");
+        if (n != null && n > 0) amounts.push(n);
+      }
     }
 
     // Igual à extensão: 1ª linha = preço normal, 2ª = promo se for menor (não reordena por tamanho).
@@ -215,18 +220,24 @@ function extractPricesFromMlDomLike(htmlToParse: string): { price: number; promo
 
     const amounts: number[] = [];
     const amountBlockRe =
-      /<[^>]*class=["'][^"']*andes-money-amount[^"']*["'][^>]*>[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.]+)<\/[^>]*>[\s\S]{0,300}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
+      /<[^>]*class=["'][^"']*andes-money-amount[^"']*["'][^>]*>[\s\S]{0,600}?andes-money-amount__fraction[^>]*>([\d.,]+)<\/[^>]*>[\s\S]{0,300}?andes-money-amount__cents[^>]*>(\d{1,2})<\/[^>]*>/gi;
 
     for (const m of mainBlock.matchAll(amountBlockRe)) {
       const blockStr = m[0] || "";
       if (blockStr.includes("andes-money-amount--previous") || blockStr.includes("--previous")) continue;
 
-      const fractionStr = (m[1] || "").replace(/\./g, "");
-      const centsStr = (m[2] || "00").padStart(2, "0");
-      if (!fractionStr) continue;
+      const n = parseAndesFractionCentsToNumber(String(m[1] ?? "").trim(), String(m[2] ?? ""));
+      if (n != null && n > 0) amounts.push(n);
+    }
 
-      const n = parseFloat(`${fractionStr}.${centsStr}`);
-      if (Number.isFinite(n) && n > 0) amounts.push(n);
+    if (amounts.length === 0) {
+      const fracOnly = /andes-money-amount__fraction[^>]*>([\d.,]+)</gi;
+      for (const m of mainBlock.matchAll(fracOnly)) {
+        const blockStr = m[0] || "";
+        if (blockStr.includes("andes-money-amount--previous") || blockStr.includes("--previous")) continue;
+        const n = parseAndesFractionCentsToNumber(String(m[1] ?? "").trim(), "");
+        if (n != null && n > 0) amounts.push(n);
+      }
     }
 
     // Igual à extensão no main-container: 1ª linha, 2ª como promo se menor.

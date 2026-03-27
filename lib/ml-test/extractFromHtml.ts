@@ -11,6 +11,7 @@ import {
 } from "./extractDescriptions";
 import { extractRatingAndReviews, preferMaxNullable } from "./extractReviews";
 import { detectSecondaryPriceLineText, parseBRLFromSnippet, roundMoney } from "./normalize";
+import { parseAndesMoneyCheerio, parseNumberLikeMlBr } from "./parseAndesMoney";
 
 function stripScriptsStyles(html: string): string {
   return html
@@ -48,16 +49,6 @@ function isRecommendationContext(text: string, $: CheerioAPI, el: Cheerio<Elemen
 
 function detectShipping(text: string): boolean {
   return /frete|entrega|envio|retira/i.test(text);
-}
-
-function parseAndesMoney($: CheerioAPI, el: Cheerio<Element>): number | null {
-  const fraction = el.find(".andes-money-amount__fraction").first().text().trim();
-  const cents = el.find(".andes-money-amount__cents").first().text().trim();
-  if (!fraction) return null;
-  const fs = fraction.replace(/\./g, "");
-  const dec = cents && /^\d{1,2}$/.test(cents) ? cents.padStart(2, "0") : "00";
-  const n = parseFloat(`${fs}.${dec}`);
-  return Number.isFinite(n) && n > 0 ? roundMoney(n) : null;
 }
 
 function parseAntesAria(aria: string | undefined): number | null {
@@ -313,7 +304,8 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
   $('meta[itemprop="price"]').each((_, el) => {
     const content = (el as unknown as Element).attribs?.content;
     if (!content) return;
-    const n = Number(String(content).replace(",", "."));
+    const raw = String(content).trim();
+    const n = parseNumberLikeMlBr(raw) ?? Number(raw.replace(",", "."));
     if (!Number.isFinite(n) || n <= 0) return;
     candidates.push({
       ...baseMeta(),
@@ -356,7 +348,7 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
       });
       return;
     }
-    const n = parseAndesMoney($, $el as Cheerio<Element>);
+    const n = parseAndesMoneyCheerio($, $el as Cheerio<Element>);
     if (n != null && $el.is(".andes-money-amount--previous, .ui-pdp-price__original-value, s")) {
       const flags = inferPriceContextFlags($, $el as Cheerio<Element>);
       candidates.push({
@@ -392,7 +384,7 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
       isRecommendationContext(nt, $, $el as Cheerio<Element>) &&
       !$el.closest(".ui-pdp-container__row--price, .poly-component__price").length;
 
-    const n = parseAndesMoney($, $el as Cheerio<Element>);
+    const n = parseAndesMoneyCheerio($, $el as Cheerio<Element>);
     if (n == null) return;
     const isPrev =
       $el.hasClass("andes-money-amount--previous") ||
