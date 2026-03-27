@@ -18,7 +18,9 @@ export function buildNormalizedFromTestImport(
     throw new Error("Não foi possível obter o preço principal na página do Mercado Livre.");
   }
   const original =
-    p.hasDiscount && p.originalPrice != null && p.originalPrice > current ? p.originalPrice : null;
+    p.originalPrice != null && Number.isFinite(p.originalPrice) && p.originalPrice > current
+      ? p.originalPrice
+      : null;
   const isPromo = original != null;
   const discountPercent =
     isPromo && original != null && original > 0

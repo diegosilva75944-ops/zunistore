@@ -83,19 +83,48 @@ export function mapMlNormalizedToDrafts(opts: {
   const n = opts.normalized;
   const now = new Date().toISOString();
 
-  const priceCurrent = opts.fallbackPrice?.price ?? n.price_current;
-  if (priceCurrent == null || !Number.isFinite(priceCurrent) || priceCurrent <= 0) {
-    throw new Error("Não foi possível obter um preço público válido para o anúncio.");
+  /**
+   * Semântica alinhada à API ML e ao resolvePreviewPricing (import HTML):
+   * - `price_current` = valor a pagar hoje (geralmente o menor em promoção)
+   * - `price_original` = “de / riscado” quando maior que o atual
+   * No produto interno: `price` = de vitrine (maior), `promo_price` = valor atual (menor).
+   */
+  let listPrice: number;
+  let sellPrice: number | null;
+  let isOffer: boolean;
+  let offPercent: number;
+
+  const fb = opts.fallbackPrice;
+  if (fb != null && fb.price != null && Number.isFinite(fb.price) && fb.price > 0) {
+    listPrice = fb.price;
+    const prom = fb.promo_price;
+    if (prom != null && Number.isFinite(prom) && prom > 0 && prom < listPrice) {
+      sellPrice = prom;
+      isOffer = true;
+      offPercent = clampOffPercent((1 - prom / listPrice) * 100);
+    } else {
+      sellPrice = null;
+      isOffer = false;
+      offPercent = 0;
+    }
+  } else {
+    const sell = n.price_current;
+    if (sell == null || !Number.isFinite(sell) || sell <= 0) {
+      throw new Error("Não foi possível obter um preço público válido para o anúncio.");
+    }
+    const list = n.price_original;
+    if (list != null && Number.isFinite(list) && list > sell) {
+      listPrice = list;
+      sellPrice = sell;
+      isOffer = true;
+      offPercent = clampOffPercent((1 - sell / list) * 100);
+    } else {
+      listPrice = sell;
+      sellPrice = null;
+      isOffer = false;
+      offPercent = 0;
+    }
   }
-
-  const promoCandidate = opts.fallbackPrice?.promo_price ?? null;
-  const promo =
-    promoCandidate != null && Number.isFinite(promoCandidate) && promoCandidate > 0 && promoCandidate < priceCurrent
-      ? promoCandidate
-      : null;
-
-  const isOffer = promo != null;
-  const offPercent = isOffer ? clampOffPercent((1 - promo! / priceCurrent) * 100) : 0;
 
   const categoryName = opts.externalCategoryName ?? null;
   const shortDesc =
@@ -112,8 +141,8 @@ export function mapMlNormalizedToDrafts(opts: {
     description: shortDesc,
     description_detail: descriptionDetail,
     images: Array.isArray(n.images) && n.images.length ? n.images : (n.thumbnail ? [n.thumbnail] : []),
-    price: priceCurrent,
-    promo_price: promo,
+    price: listPrice,
+    promo_price: sellPrice,
     is_offer: isOffer,
     off_percent: offPercent,
     rating: n.rating ?? null,
