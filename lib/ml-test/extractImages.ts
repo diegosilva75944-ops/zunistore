@@ -1,4 +1,5 @@
 import type { CheerioAPI } from "cheerio";
+import type { Element } from "domhandler";
 
 function normalizeImgUrl(u: string): string {
   let s = String(u || "").trim();
@@ -93,7 +94,7 @@ export function extractGalleryImages($: CheerioAPI): string[] {
     }
   };
 
-  const figureCandidates = (fig: Parameters<CheerioAPI["fn"]>[0]) => {
+  const figureCandidates = (fig: Element) => {
     const $fig = $(fig);
     const candidates: string[] = [];
     const dz = $fig.attr("data-zoom") || $fig.attr("data-src") || $fig.attr("data-url");
