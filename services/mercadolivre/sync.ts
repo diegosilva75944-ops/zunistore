@@ -2,9 +2,9 @@ import "server-only";
 
 import { runTestMlImport } from "@/lib/ml-test/pipeline";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
-import { normalizeMercadoLivreProductUrl, resolveMercadoLivreFetchUrl } from "@/lib/ml-price";
+import { normalizeMercadoLivreProductUrl } from "@/lib/ml-price";
 import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
-import { extractMlItemIdFromUrlWithRedirects } from "@/services/mercadolivre/ml-url-resolve";
+import { extractMlItemIdFromFirstWorkingCandidate } from "@/services/mercadolivre/ml-url-resolve";
 import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
 import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
 import { mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
@@ -30,19 +30,9 @@ export async function ensureMercadoLivreListingRowForProduct(
   });
   if (Array.isArray(existing) && existing[0]) return { ok: true };
 
-  const resolved = resolveMercadoLivreFetchUrl(sourceUrl, affiliateUrl);
-  if (!String(resolved || "").trim()) {
-    return { ok: false, reason: "Sem URL do Mercado Livre." };
-  }
-
-  const fetchUrl = normalizeMlFetchUrl(String(resolved), { keepSearch: true });
-  if (!isMercadoLivreProductUrl(fetchUrl)) {
-    return { ok: false, reason: "URL não é do Mercado Livre." };
-  }
-
   let externalId: string;
   try {
-    externalId = await extractMlItemIdFromUrlWithRedirects(fetchUrl);
+    externalId = await extractMlItemIdFromFirstWorkingCandidate(sourceUrl, affiliateUrl);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false, reason: msg || "Não foi possível obter o ID do anúncio (MLB…) na URL." };

@@ -1,6 +1,65 @@
 import "server-only";
 
+import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
+import { normalizeMercadoLivreProductUrl, resolveMercadoLivreFetchUrl } from "@/lib/ml-price";
 import { extractMlItemIdFromUrl, tryExtractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
+
+/**
+ * URLs candidatas para extrair MLB… — **source_url antes de affiliate_url** quando ambos existem,
+ * porque `resolveMercadoLivreFetchUrl` prioriza afiliado e links poly/categoria podem não ter MLB no path.
+ */
+export function listMercadoLivreUrlsForItemExtraction(
+  sourceUrl: string | null | undefined,
+  affiliateUrl: string | null | undefined,
+): string[] {
+  const out: string[] = [];
+
+  const addNormalized = (raw: string | null | undefined) => {
+    const s = String(raw ?? "").trim();
+    if (!s.startsWith("http")) return;
+    try {
+      const n = normalizeMercadoLivreProductUrl(s, { keepSearch: true });
+      const f = normalizeMlFetchUrl(n, { keepSearch: true });
+      if (isMercadoLivreProductUrl(f) && !out.includes(f)) out.push(f);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const src = String(sourceUrl ?? "").trim();
+  if (src.includes("pdp_filters=")) {
+    addNormalized(sourceUrl);
+  }
+
+  addNormalized(sourceUrl);
+
+  const aff = String(affiliateUrl ?? "").trim();
+  if (aff.startsWith("http")) {
+    try {
+      const h = new URL(aff).hostname.toLowerCase();
+      if (h === "meli.la" || h.endsWith(".meli.la")) {
+        const f = normalizeMlFetchUrl(aff, { keepSearch: true });
+        if (isMercadoLivreProductUrl(f) && !out.includes(f)) out.push(f);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  addNormalized(affiliateUrl);
+
+  const resolved = resolveMercadoLivreFetchUrl(sourceUrl, affiliateUrl);
+  if (resolved) {
+    try {
+      const f = normalizeMlFetchUrl(String(resolved), { keepSearch: true });
+      if (isMercadoLivreProductUrl(f) && !out.includes(f)) out.push(f);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return out;
+}
 
 const FETCH_HEADERS: Record<string, string> = {
   "User-Agent":
@@ -59,4 +118,22 @@ export async function extractMlItemIdFromUrlWithRedirects(input: string): Promis
   const after = tryExtractMlItemIdFromUrl(finalUrl);
   if (after) return after;
   return extractMlItemIdFromUrl(finalUrl);
+}
+
+/** Tenta extrair MLB em sequência (source antes de affiliate). */
+export async function extractMlItemIdFromFirstWorkingCandidate(
+  sourceUrl: string | null | undefined,
+  affiliateUrl: string | null | undefined,
+): Promise<string> {
+  const candidates = listMercadoLivreUrlsForItemExtraction(sourceUrl, affiliateUrl);
+  let lastErr: Error | null = null;
+  for (const url of candidates) {
+    try {
+      return await extractMlItemIdFromUrlWithRedirects(url);
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  if (lastErr) throw lastErr;
+  throw new Error("Sem URL do Mercado Livre para extrair o anúncio.");
 }

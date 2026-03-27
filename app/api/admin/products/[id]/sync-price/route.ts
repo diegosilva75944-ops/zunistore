@@ -5,8 +5,8 @@ import {
   moveProductToDeletedHistoryAndDelete,
   recordProductPriceChange,
 } from "@/lib/admin/db";
-import { fetchPricesFromUrl, resolveMercadoLivreFetchUrl } from "@/lib/ml-price";
-import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
+import { fetchPricesFromUrl } from "@/lib/ml-price";
+import { listMercadoLivreUrlsForItemExtraction } from "@/services/mercadolivre/ml-url-resolve";
 import { fetchMlPricesLikeImport } from "@/services/mercadolivre/sync-prices-like-import";
 import { ensureMercadoLivreListingRowForProduct, mlSyncImportedProduct } from "@/services/mercadolivre/sync";
 
@@ -67,9 +67,8 @@ export async function POST(
       if (ensured.ok) {
         hasMercadoLivreListing = true;
       } else {
-        const raw = resolveMercadoLivreFetchUrl(sourceUrl, affiliateUrl);
-        const probe = raw ? normalizeMlFetchUrl(raw, { keepSearch: true }) : "";
-        if (probe && isMercadoLivreProductUrl(probe)) {
+        const mlCandidates = listMercadoLivreUrlsForItemExtraction(sourceUrl, affiliateUrl);
+        if (mlCandidates.length > 0) {
           return NextResponse.json(
             {
               ok: false,
