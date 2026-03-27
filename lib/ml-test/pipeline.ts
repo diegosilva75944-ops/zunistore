@@ -4,6 +4,7 @@ import type { ImportMode, TestMlImportResult } from "./types";
 import { extractFromHtml } from "./extractFromHtml";
 import { fetchMlHtml } from "./fetchHtml";
 import { fetchHtmlWithPlaywright } from "./extractWithBrowser";
+import { makeShortDescription, preferLongerText } from "./extractDescriptions";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
 import { isWeakResolved, mergeResolvedDisplay, resolvePreviewPricing } from "./resolvePreviewPricing";
 
@@ -68,12 +69,14 @@ export async function runTestMlImport(
       const fetchLen = candidates.length;
       resolved = mergeResolvedDisplay(resolved, headlessResolved, fetchLen);
       candidates = [...candidates, ...headlessExtract.candidates];
+      const mergedFull = preferLongerText(extracted.fullDescription, headlessExtract.fullDescription);
+      const mergedTitle = headlessExtract.title || extracted.title;
       extracted = {
         ...extracted,
-        title: headlessExtract.title || extracted.title,
+        title: mergedTitle,
         images: extracted.images.length ? extracted.images : headlessExtract.images,
-        fullDescription: extracted.fullDescription || headlessExtract.fullDescription,
-        shortDescription: extracted.shortDescription || headlessExtract.shortDescription,
+        fullDescription: mergedFull,
+        shortDescription: makeShortDescription(mergedFull, mergedTitle),
       };
       globalSteps.push(...headlessExtract.extractionSteps);
       htmlSource = resolved.pricing.source;

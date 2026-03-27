@@ -2,7 +2,7 @@ import { load, type Cheerio, type CheerioAPI } from "cheerio";
 import type { Element } from "domhandler";
 import type { ExtractFromHtmlOutput, PriceCandidate } from "./types";
 import { extractGalleryImages } from "./extractImages";
-import { extractFullDescription, makeShortDescription } from "./extractDescriptions";
+import { extractFullDescription, makeShortDescription, preferLongerText } from "./extractDescriptions";
 import { detectSecondaryPriceLineText, parseBRLFromSnippet, roundMoney } from "./normalize";
 
 function stripScriptsStyles(html: string): string {
@@ -208,7 +208,8 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
   rawSignals.jsonLd = jsonLd;
 
   const fullDescDom = extractFullDescription($);
-  const fullDesc = jsonLd?.description?.trim() || fullDescDom;
+  /** JSON-LD costuma trazer só o resumo; o bloco #description no DOM tem o texto completo. */
+  const fullDesc = preferLongerText(fullDescDom, jsonLd?.description?.trim() ?? "");
   const shortDescription = makeShortDescription(fullDesc, title);
   const images = extractGalleryImages($);
 

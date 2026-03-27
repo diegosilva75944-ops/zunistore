@@ -10,28 +10,61 @@ function normalizeBlock(s: string): string {
     .trim();
 }
 
+/** Entre duas fontes (DOM vs JSON-LD), usa a mais longa para maximizar texto útil na PDP. */
+export function preferLongerText(a: string, b: string): string {
+  const x = (a || "").trim();
+  const y = (b || "").trim();
+  if (!x) return y;
+  if (!y) return x;
+  return x.length >= y.length ? x : y;
+}
+
+function pickDescriptionRoot($: CheerioAPI) {
+  const ordered = [
+    ".ui-pdp-collapsable__container #description.ui-pdp-description",
+    ".ui-pdp-collapsable__container #description",
+    ".ui-pdp-collapsable__container .ui-pdp-description",
+    "div#description.ui-pdp-description",
+    "#description.ui-pdp-description",
+    "#description",
+    ".ui-pdp-description",
+  ];
+  for (const sel of ordered) {
+    const el = $(sel).first();
+    if (el.length) return el;
+  }
+  const parent = $('p[data-testid="content"].ui-pdp-description__content').parent().first();
+  return parent.length ? parent : $("");
+}
+
 export function extractFullDescription($: CheerioAPI): string {
-  const root =
-    $(".ui-pdp-collapsable__container #description").first().length ?
-      $(".ui-pdp-collapsable__container #description").first()
-    : $("#description.ui-pdp-description").first().length ?
-      $("#description.ui-pdp-description").first()
-    : $('p[data-testid="content"].ui-pdp-description__content').parent().first().length ?
-      $('p[data-testid="content"].ui-pdp-description__content').parent().first()
-    : $(".ui-pdp-description").first();
+  const root = pickDescriptionRoot($);
 
   if (!root.length) {
     const p = $('p[data-testid="content"].ui-pdp-description__content').first();
     if (p.length) return normalizeBlock(p.text());
+    const any = $('[data-testid="content"].ui-pdp-description__content').first();
+    if (any.length) return normalizeBlock(any.text());
     return "";
   }
 
   const parts: string[] = [];
-  root.find('p[data-testid="content"], p.ui-pdp-description__content').each((_, el) => {
+  const leafSel =
+    'p.ui-pdp-description__content, p[data-testid="content"].ui-pdp-description__content, p[data-testid="content"], [data-testid="content"].ui-pdp-description__content';
+  root.find(leafSel).each((_, el) => {
     const t = $(el).text().trim();
     if (t) parts.push(t);
   });
   if (parts.length) return normalizeBlock(parts.join("\n\n"));
+
+  const single =
+    root.find(".ui-pdp-description__content").first().length ?
+      root.find(".ui-pdp-description__content").first()
+    : root.find('[data-testid="content"]').first();
+  if (single.length) {
+    const t = single.text().trim();
+    if (t.length >= 20) return normalizeBlock(t.replace(/^\s*Descrição\s*/i, ""));
+  }
 
   const t = root.text().trim();
   return normalizeBlock(t.replace(/^\s*Descrição\s*/i, ""));
