@@ -70,6 +70,22 @@ export function extractFullDescription($: CheerioAPI): string {
   return normalizeBlock(t.replace(/^\s*Descrição\s*/i, ""));
 }
 
+/**
+ * Resumo em destaque na PDP (lista de specs: voltagem, potência, etc.).
+ * ML usa `ui-pdp-highlighted-specs__features-list`; em algumas páginas aparece `ui-vpp-…`.
+ */
+export function extractShortDescriptionFromHighlightedSpecs($: CheerioAPI): string {
+  const el = $(".ui-vpp-highlighted-specs__features-list, .ui-pdp-highlighted-specs__features-list").first();
+  if (!el.length) return "";
+  const parts: string[] = [];
+  el.find("li").each((_, li) => {
+    const t = $(li).text().replace(/\s+/g, " ").trim();
+    if (t) parts.push(t);
+  });
+  if (parts.length) return normalizeBlock(parts.join("\n"));
+  return normalizeBlock(el.text());
+}
+
 export function makeShortDescription(full: string, title: string | null, maxLen = 320): string {
   const base = full.trim() || (title || "").trim();
   if (!base) return "";

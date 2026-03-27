@@ -71,12 +71,13 @@ export async function runTestMlImport(
       candidates = [...candidates, ...headlessExtract.candidates];
       const mergedFull = preferLongerText(extracted.fullDescription, headlessExtract.fullDescription);
       const mergedTitle = headlessExtract.title || extracted.title;
+      const mergedShort = preferLongerText(extracted.shortDescription, headlessExtract.shortDescription);
       extracted = {
         ...extracted,
         title: mergedTitle,
         images: extracted.images.length ? extracted.images : headlessExtract.images,
         fullDescription: mergedFull,
-        shortDescription: makeShortDescription(mergedFull, mergedTitle),
+        shortDescription: mergedShort.trim() || makeShortDescription(mergedFull, mergedTitle),
       };
       globalSteps.push(...headlessExtract.extractionSteps);
       htmlSource = resolved.pricing.source;

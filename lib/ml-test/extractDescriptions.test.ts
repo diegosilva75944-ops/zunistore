@@ -1,6 +1,10 @@
 import { load } from "cheerio";
 import { describe, expect, it } from "vitest";
-import { extractFullDescription, preferLongerText } from "./extractDescriptions";
+import {
+  extractFullDescription,
+  extractShortDescriptionFromHighlightedSpecs,
+  preferLongerText,
+} from "./extractDescriptions";
 
 describe("extractDescriptions", () => {
   it("preferLongerText escolhe o texto mais longo", () => {
@@ -25,5 +29,19 @@ describe("extractDescriptions", () => {
     expect(out).toContain("Primeiro parágrafo");
     expect(out).toContain("Segundo parágrafo");
     expect(out.split(/\n\n/).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("extractShortDescriptionFromHighlightedSpecs lê a lista de destaques", () => {
+    const html = `
+<!DOCTYPE html><html><body>
+<ul class="ui-vpp-highlighted-specs__features-list">
+  <li><span>Voltagem: 127V</span></li>
+  <li><span>Potência: 1900 W</span></li>
+</ul>
+</body></html>`;
+    const $ = load(html);
+    const out = extractShortDescriptionFromHighlightedSpecs($);
+    expect(out).toContain("127V");
+    expect(out).toContain("1900");
   });
 });
