@@ -1,10 +1,26 @@
 import { NextResponse } from "next/server";
 import { postgrestGet, postgrestPatch, PostgrestError } from "@/lib/postgrest/server";
+import {
+  adminValidateProductAffiliateLink,
+  moveProductToDeletedHistoryAndDelete,
+  recordProductPriceChange,
+} from "@/lib/admin/db";
+import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { fetchMlPricesLikeImport } from "@/services/mercadolivre/sync-prices-like-import";
-import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
+import { mlSyncImportedProduct } from "@/services/mercadolivre/sync";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+/** Reimportação ML (Teste ML + persist) pode acionar Playwright. */
+export const maxDuration = 300;
+
+/** Atualiza `affiliate_valid` / `affiliate_valid_checked_at` quando há `affiliate_url` (ignora sem link). */
+async function maybeValidateAffiliate(productId: string) {
+  try {
+    await adminValidateProductAffiliateLink(productId);
+  } catch (e) {
+    console.error("sync-price: adminValidateProductAffiliateLink", e);
+  }
+}
 
 export async function POST(
   _req: Request,
@@ -27,14 +43,117 @@ export async function POST(
       );
     }
 
-    const sourceUrl = (row as any).source_url as string | null;
-    const affiliateUrl = (row as any).affiliate_url as string | null;
+    const sourceUrl = row.source_url as string | null;
+    const affiliateUrl = row.affiliate_url as string | null;
 
     if (!String(sourceUrl || "").trim() && !String(affiliateUrl || "").trim()) {
       return NextResponse.json(
         { ok: false, error: "Produto sem URL de origem (source_url ou affiliate_url)." },
         { status: 400 },
       );
+    }
+
+    const listingRows = await postgrestGet<any[]>("product_external_listings", {
+      select: "id",
+      origin: "eq.mercadolivre",
+      product_id: `eq.${id}`,
+      limit: "1",
+    });
+    const hasMercadoLivreListing = Array.isArray(listingRows) && Boolean(listingRows[0]);
+
+    if (hasMercadoLivreListing) {
+      const priceUrl =
+        typeof affiliateUrl === "string" && affiliateUrl.trim().startsWith("http") ?
+          { sourceUrl, affiliateUrl }
+        : typeof sourceUrl === "string" && sourceUrl.trim().startsWith("http") ?
+          { sourceUrl, affiliateUrl }
+        : null;
+
+      if (!priceUrl) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Produto sem source_url/affiliate_url válidos para sincronizar o anúncio do Mercado Livre.",
+          },
+          { status: 400 },
+        );
+      }
+
+      const quick = await fetchPricesFromUrl(priceUrl);
+      if (quick.kind === "listing_gone") {
+        try {
+          await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
+        } catch (e) {
+          console.error("sync-price: moveProductToDeletedHistoryAndDelete", e);
+          return NextResponse.json(
+            {
+              ok: false,
+              error:
+                "O anúncio parece não existir mais, mas não foi possível salvar no histórico de deletados.",
+              details: e instanceof PostgrestError ? e.details : undefined,
+            },
+            { status: 500 },
+          );
+        }
+        return NextResponse.json({
+          ok: true,
+          mode: "ml_full_reimport",
+          deleted: true,
+          message:
+            "Produto não encontrado na URL. Removido da listagem e do site e salvo no histórico de deletados.",
+        });
+      }
+
+      const oldPrice = Number(row.price) || 0;
+      const oldPromo = row.promo_price != null ? Number(row.promo_price) : null;
+
+      try {
+        await mlSyncImportedProduct(id);
+      } catch (e) {
+        const message =
+          e instanceof Error ? e.message : "Falha ao reimportar o anúncio do Mercado Livre.";
+        return NextResponse.json({ ok: false, error: message, mode: "ml_full_reimport" }, { status: 503 });
+      }
+
+      const afterRows = await postgrestGet<any[]>("products", {
+        select: "price,promo_price,is_offer,off_percent",
+        id: `eq.${id}`,
+        limit: "1",
+      });
+      const after = Array.isArray(afterRows) ? afterRows[0] : null;
+
+      if (after) {
+        try {
+          await recordProductPriceChange({
+            productId: id,
+            oldPrice,
+            newPrice: Number(after.price) || 0,
+            oldPromoPrice: oldPromo,
+            newPromoPrice: after.promo_price != null ? Number(after.promo_price) : null,
+            source: "sync_single",
+          });
+        } catch (e) {
+          console.error("sync-price: recordProductPriceChange", e);
+        }
+      }
+
+      await maybeValidateAffiliate(id);
+
+      if (!after) {
+        return NextResponse.json(
+          { ok: false, error: "Não foi possível ler o produto após a sincronização." },
+          { status: 500 },
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        mode: "ml_full_reimport",
+        price: Number(after.price) || 0,
+        promo_price: after.promo_price != null ? Number(after.promo_price) : null,
+        is_offer: Boolean(after.is_offer),
+        off_percent: Number(after.off_percent) || 0,
+      });
     }
 
     let ml: Awaited<ReturnType<typeof fetchMlPricesLikeImport>>;
@@ -95,6 +214,7 @@ export async function POST(
       }
       return NextResponse.json({
         ok: true,
+        mode: "price_only",
         deleted: true,
         message:
           "Produto não encontrado na URL. Removido da listagem e do site e salvo no histórico de deletados.",
@@ -103,9 +223,8 @@ export async function POST(
 
     const { price, promo_price: promo, is_offer, off_percent } = ml;
 
-    const oldPrice = Number((row as any).price) || 0;
-    const oldPromo =
-      (row as any).promo_price != null ? Number((row as any).promo_price) : null;
+    const oldPrice = Number(row.price) || 0;
+    const oldPromo = row.promo_price != null ? Number(row.promo_price) : null;
 
     try {
       await recordProductPriceChange({
@@ -124,7 +243,7 @@ export async function POST(
       "products",
       {
         price,
-        promo_price: promo ?? null,
+        promo_price: promo,
         is_offer,
         off_percent,
         last_seen_at: new Date().toISOString(),
@@ -132,8 +251,11 @@ export async function POST(
       { id: `eq.${id}` },
     );
 
+    await maybeValidateAffiliate(id);
+
     return NextResponse.json({
       ok: true,
+      mode: "price_only",
       price,
       promo_price: promo,
       is_offer,
