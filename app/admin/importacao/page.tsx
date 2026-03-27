@@ -12,7 +12,8 @@ export default function AdminImportacaoPage() {
       <div>
         <h1 className="text-xl font-semibold">Importação (somente extensão)</h1>
         <p className="text-sm text-zinc-600">
-          A importação de produtos é exclusiva via Extensão Chrome (Manifest V3).
+          A extensão envia a URL do produto e o link de afiliado; o servidor importa com o mesmo pipeline do
+          teste admin (HTML + preço do buy box, descrição, galeria, avaliações).
         </p>
       </div>
 
@@ -29,7 +30,8 @@ export default function AdminImportacaoPage() {
           </span>
         </div>
         <div className="text-xs text-zinc-600">
-          Você precisa criar um Token em <span className="font-semibold">Tokens</span> e colar na extensão.
+          Crie um Token em <span className="font-semibold">Tokens</span> e coloque na extensão. Body da API:{" "}
+          <span className="font-mono">sourceUrl</span>, <span className="font-mono">affiliateUrl</span>.
         </div>
       </div>
     </div>

@@ -11,4 +11,4 @@ export type {
   TestMlImportResult,
   UsedCandidateEntry,
 } from "./types";
-export { runTestMlImport } from "./pipeline";
+export { runTestMlImport, runTestMlImport as runMlPdpImport } from "./pipeline";

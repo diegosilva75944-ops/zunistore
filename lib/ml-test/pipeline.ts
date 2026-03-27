@@ -35,6 +35,8 @@ export async function runTestMlImport(
       images: extracted.images,
       rating: extracted.rating,
       reviewsCount: extracted.reviewsCount,
+      categoryPath: extracted.categoryPath,
+      categoryName: extracted.categoryName,
       pricing: resolved.pricing,
       debug: {
         candidates: extracted.candidates,
@@ -75,6 +77,11 @@ export async function runTestMlImport(
       const mergedFull = preferLongerText(extracted.fullDescription, headlessExtract.fullDescription);
       const mergedTitle = headlessExtract.title || extracted.title;
       const mergedShort = preferLongerText(extracted.shortDescription, headlessExtract.shortDescription);
+      const mergedCategoryPath =
+        headlessExtract.categoryPath.length >= extracted.categoryPath.length ?
+          headlessExtract.categoryPath
+        : extracted.categoryPath;
+      const mergedCategoryName = headlessExtract.categoryName || extracted.categoryName;
       extracted = {
         ...extracted,
         title: mergedTitle,
@@ -83,6 +90,8 @@ export async function runTestMlImport(
         shortDescription: mergedShort.trim() || makeShortDescription(mergedFull, mergedTitle),
         rating: headlessExtract.rating ?? extracted.rating,
         reviewsCount: preferMaxNullable(extracted.reviewsCount, headlessExtract.reviewsCount),
+        categoryPath: mergedCategoryPath,
+        categoryName: mergedCategoryName,
       };
       globalSteps.push(...headlessExtract.extractionSteps);
       htmlSource = resolved.pricing.source;
@@ -98,6 +107,8 @@ export async function runTestMlImport(
     images: extracted.images,
     rating: extracted.rating,
     reviewsCount: extracted.reviewsCount,
+    categoryPath: extracted.categoryPath,
+    categoryName: extracted.categoryName,
     pricing: {
       ...resolved.pricing,
       source: mode === "html" ? "html" : htmlSource,

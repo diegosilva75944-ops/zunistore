@@ -1,6 +1,7 @@
 import { load, type Cheerio, type CheerioAPI } from "cheerio";
 import type { Element } from "domhandler";
 import type { ExtractFromHtmlOutput, PriceCandidate } from "./types";
+import { extractMlCategoryBreadcrumb } from "./extractBreadcrumb";
 import { extractGalleryImages } from "./extractImages";
 import {
   extractFullDescription,
@@ -251,6 +252,10 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
   rawSignals.rating = rating;
   rawSignals.reviewsCount = reviewsCount;
 
+  const { categoryPath, categoryName } = extractMlCategoryBreadcrumb($);
+  rawSignals.categoryPath = categoryPath;
+  rawSignals.categoryName = categoryName;
+
   const candidates: PriceCandidate[] = [];
 
   if (jsonLd) {
@@ -457,6 +462,8 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     images: imagesOut,
     rating,
     reviewsCount,
+    categoryPath,
+    categoryName,
     candidates,
     extractionSteps: steps,
     rawSignals,

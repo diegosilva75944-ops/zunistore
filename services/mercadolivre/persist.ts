@@ -43,6 +43,14 @@ export async function mlImportOrUpdateProduct(opts: {
   normalized: NormalizedMlListing;
   /** Se true, atualiza dados caso já exista. Se false, apenas reporta existente (não cria duplicata). */
   updateIfExists: boolean;
+  /** Importação por HTML (PDP): breadcrumb lido na página */
+  htmlCategoryPath?: string[];
+  htmlCategoryName?: string | null;
+  affiliateUrl?: string;
+  sourceUrl?: string;
+  affiliateCode?: string;
+  descriptionShort?: string;
+  descriptionDetail?: string;
 }) : Promise<MlImportResult> {
   const n = opts.normalized;
   const permalink = n.external_permalink || `https://www.mercadolivre.com.br/p/${n.external_id}`;
@@ -57,7 +65,10 @@ export async function mlImportOrUpdateProduct(opts: {
   // Categoria externa (nome + breadcrumb) para mapear em categories internas
   let externalCategoryName: string | null = null;
   let externalCategoryPath: string[] = [];
-  if (n.external_category_id) {
+  if (opts.htmlCategoryPath?.length || (opts.htmlCategoryName && opts.htmlCategoryName.trim())) {
+    externalCategoryPath = opts.htmlCategoryPath ?? [];
+    externalCategoryName = opts.htmlCategoryName?.trim() || null;
+  } else if (n.external_category_id) {
     try {
       const cat = await mlGetCategoryAuth(n.external_category_id);
       externalCategoryName = (cat.name ?? null) ? String(cat.name) : null;
@@ -87,6 +98,11 @@ export async function mlImportOrUpdateProduct(opts: {
     externalCategoryName,
     externalCategoryPath,
     fallbackPrice,
+    affiliateUrlOverride: opts.affiliateUrl,
+    sourceUrlOverride: opts.sourceUrl,
+    affiliateCodeOverride: opts.affiliateCode,
+    descriptionShortOverride: opts.descriptionShort,
+    descriptionDetailOverride: opts.descriptionDetail,
   });
 
   const internalCategoryId = await adminUpsertCategoryFromBreadcrumb(
@@ -131,6 +147,8 @@ export async function mlImportOrUpdateProduct(opts: {
         promo_price: productDraft.promo_price,
         is_offer: productDraft.is_offer,
         off_percent: productDraft.off_percent,
+        rating: productDraft.rating,
+        reviews_count: productDraft.reviews_count,
         affiliate_url: productDraft.affiliate_url,
         source_url: productDraft.source_url,
         last_seen_at: productDraft.last_seen_at,
@@ -187,10 +205,10 @@ export async function mlImportOrUpdateProduct(opts: {
       price: productDraft.price,
       promo_price: productDraft.promo_price,
       is_offer: productDraft.is_offer,
-      off_percent: productDraft.off_percent,
-      rating: null,
-      reviews_count: null,
-      affiliate_code: productDraft.affiliate_code,
+        off_percent: productDraft.off_percent,
+        rating: productDraft.rating,
+        reviews_count: productDraft.reviews_count,
+        affiliate_code: productDraft.affiliate_code,
       affiliate_url: productDraft.affiliate_url,
       source_url: productDraft.source_url,
       last_seen_at: productDraft.last_seen_at,

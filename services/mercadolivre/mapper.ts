@@ -12,6 +12,8 @@ export type MlToInternalProductDraft = {
   promo_price: number | null;
   is_offer: boolean;
   off_percent: number;
+  rating: number | null;
+  reviews_count: number | null;
   affiliate_code: string;
   affiliate_url: string;
   source_url: string;
@@ -70,6 +72,13 @@ export function mapMlNormalizedToDrafts(opts: {
   externalCategoryPath?: string[];
   /** Preço “corrigido” por fallback (se a API não trouxe). */
   fallbackPrice?: { price: number; promo_price: number | null } | null;
+  /** Import PDP + link de afiliado (substitui permalink ML no botão Comprar). */
+  affiliateUrlOverride?: string;
+  sourceUrlOverride?: string;
+  affiliateCodeOverride?: string;
+  /** Texto curto e longo vindos da PDP (substituem heurística marca/modelo). */
+  descriptionShortOverride?: string;
+  descriptionDetailOverride?: string;
 }) {
   const n = opts.normalized;
   const now = new Date().toISOString();
@@ -89,10 +98,14 @@ export function mapMlNormalizedToDrafts(opts: {
   const offPercent = isOffer ? clampOffPercent((1 - promo! / priceCurrent) * 100) : 0;
 
   const categoryName = opts.externalCategoryName ?? null;
-  const shortDesc = buildShortDescription(n, categoryName);
-  const descriptionDetail = n.description_plain || "";
+  const shortDesc =
+    opts.descriptionShortOverride?.trim() || buildShortDescription(n, categoryName);
+  const descriptionDetail =
+    opts.descriptionDetailOverride?.trim() ?? n.description_plain ?? "";
 
-  const affiliateUrl = n.external_permalink || `https://www.mercadolivre.com.br/p/${n.external_id}`;
+  const defaultPermalink = n.external_permalink || `https://www.mercadolivre.com.br/p/${n.external_id}`;
+  const affiliateUrl = opts.affiliateUrlOverride?.trim() || defaultPermalink;
+  const sourceUrl = opts.sourceUrlOverride?.trim() || defaultPermalink;
 
   const productDraft: MlToInternalProductDraft = {
     title: n.title,
@@ -103,9 +116,11 @@ export function mapMlNormalizedToDrafts(opts: {
     promo_price: promo,
     is_offer: isOffer,
     off_percent: offPercent,
-    affiliate_code: "ml_public",
+    rating: n.rating ?? null,
+    reviews_count: n.reviews_count ?? null,
+    affiliate_code: opts.affiliateCodeOverride?.trim() || "ml_public",
     affiliate_url: affiliateUrl,
-    source_url: affiliateUrl,
+    source_url: sourceUrl,
     last_seen_at: now,
     is_active: n.external_active,
   };
@@ -114,7 +129,8 @@ export function mapMlNormalizedToDrafts(opts: {
     origin: "mercadolivre",
     origin_tipo: "public_listing",
     external_id: n.external_id,
-    external_permalink: affiliateUrl,
+    /** URL canônica do anúncio; o link de afiliado fica em products.affiliate_url */
+    external_permalink: defaultPermalink,
     seller_id: n.seller_id,
     seller_nickname: n.seller_nickname,
     external_category_id: n.external_category_id,

@@ -83,6 +83,9 @@ export type TestMlImportResult = {
   rating: number | null;
   /** Quantidade de avaliações */
   reviewsCount: number | null;
+  /** Breadcrumb de categoria na PDP (para mapear categories internas) */
+  categoryPath: string[];
+  categoryName: string;
   pricing: PricingPreview;
   debug: {
     candidates: PriceCandidate[];
@@ -104,6 +107,8 @@ export type ExtractFromHtmlOutput = {
   images: string[];
   rating: number | null;
   reviewsCount: number | null;
+  categoryPath: string[];
+  categoryName: string;
   candidates: PriceCandidate[];
   extractionSteps: string[];
   rawSignals: Record<string, unknown>;

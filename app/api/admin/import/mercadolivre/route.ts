@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { postgrestGet, postgrestPost, postgrestPatch, postgrestRpc } from "@/lib/postgrest/server";
+import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
 import { sha256Hex } from "@/lib/crypto";
-import { slugify } from "@/lib/slug";
-import { adminUpsertCategoryFromBreadcrumb } from "@/lib/admin/categories";
+import { normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
+import { runTestMlImport } from "@/lib/ml-test/pipeline";
+import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
+import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
+import { mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
 
 export const runtime = "nodejs";
 
@@ -23,19 +26,11 @@ export async function OPTIONS() {
 }
 
 const schema = z.object({
-  title: z.string().min(3),
-  description: z.string().optional().default(""),
-  descriptionDetail: z.string().optional().default(""),
-  images: z.array(z.string().url()).optional().default([]),
-  price: z.coerce.number().positive(),
-  promoPrice: z.coerce.number().positive().optional().nullable(),
-  rating: z.coerce.number().optional().nullable(),
-  reviewsCount: z.coerce.number().int().optional().nullable(),
-  categoryPath: z.array(z.string()).optional().default([]),
-  categoryName: z.string().optional().default(""),
-  affiliateCode: z.string().min(1).optional().default("manual"),
-  affiliateUrl: z.string().url(),
+  /** URL da página do produto no Mercado Livre */
   sourceUrl: z.string().url(),
+  /** Link de afiliado (botão Comprar) */
+  affiliateUrl: z.string().url(),
+  affiliateCode: z.string().min(1).optional().default("ml_ext"),
 });
 
 export async function POST(req: Request) {
@@ -72,56 +67,49 @@ export async function POST(req: Request) {
     const json = await req.json().catch(() => null);
     const parsed = schema.safeParse(json);
     if (!parsed.success) {
-      return withCors(NextResponse.json({ ok: false, error: "Payload inválido." }, { status: 400 }));
+      return withCors(NextResponse.json({ ok: false, error: "Payload inválido: informe sourceUrl e affiliateUrl." }, { status: 400 }));
     }
 
     const p = parsed.data;
+    const fetchUrl = normalizeMlFetchUrl(p.sourceUrl, { keepSearch: true });
 
-    const code6 = await postgrestRpc<string>("next_product_code6", {});
-    if (typeof code6 !== "string" || code6.length !== 6) {
-      return withCors(NextResponse.json({ ok: false, error: "Falha ao gerar code6." }, { status: 500 }));
+    const result = await runTestMlImport(fetchUrl, "auto");
+    let externalId: string;
+    try {
+      externalId = extractMlItemIdFromUrl(fetchUrl);
+    } catch (e) {
+      return withCors(
+        NextResponse.json(
+          { ok: false, error: e instanceof Error ? e.message : "Não foi possível identificar o produto na URL." },
+          { status: 400 },
+        ),
+      );
     }
 
-    const slug = `${slugify(p.title)}-${code6}`;
+    const normalized = buildNormalizedFromTestImport(result, externalId, fetchUrl);
 
-    const promo = p.promoPrice != null ? Number(p.promoPrice) : null;
-    const is_offer = promo != null && promo < p.price;
-    const off_percent = is_offer ? Math.round((1 - promo / p.price) * 100) : 0;
+    const importResult = await mlImportOrUpdateProduct({
+      normalized,
+      updateIfExists: true,
+      htmlCategoryPath: result.categoryPath,
+      htmlCategoryName: result.categoryName,
+      affiliateUrl: p.affiliateUrl,
+      sourceUrl: fetchUrl,
+      affiliateCode: p.affiliateCode,
+      descriptionShort: result.shortDescription,
+      descriptionDetail: result.fullDescription,
+    });
 
-    const categoryId = await adminUpsertCategoryFromBreadcrumb(p.categoryPath, p.categoryName);
-
-    const inserted = await postgrestPost<any[]>(
-      "products",
-      {
-        code6,
-        slug,
-        title: p.title,
-        description: p.description ?? "",
-        description_detail: p.descriptionDetail ?? "",
-        images: p.images ?? [],
-        category_id: categoryId,
-        price: p.price,
-        promo_price: promo,
-        is_offer,
-        off_percent,
-        rating: p.rating ?? null,
-        reviews_count: p.reviewsCount ?? null,
-        affiliate_code: p.affiliateCode,
-        affiliate_url: p.affiliateUrl,
-        source_url: p.sourceUrl,
-        last_seen_at: new Date().toISOString(),
-      },
-      "service",
-      { select: "code6,slug", returning: true },
+    const productUrl = `/produto/${importResult.code6}/${importResult.slug}`;
+    return withCors(
+      NextResponse.json({
+        ok: true,
+        code6: importResult.code6,
+        slug: importResult.slug,
+        productUrl,
+        action: importResult.action,
+      }),
     );
-
-    const row = Array.isArray(inserted) ? inserted[0] : null;
-    if (!row) {
-      return withCors(NextResponse.json({ ok: false, error: "Falha ao salvar produto." }, { status: 500 }));
-    }
-
-    const productUrl = `/produto/${row.code6}/${row.slug}`;
-    return withCors(NextResponse.json({ ok: true, code6: row.code6, productUrl }));
   } catch (e) {
     console.error("[import/mercadolivre]", e);
     return withCors(
@@ -132,4 +120,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

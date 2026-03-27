@@ -52,6 +52,10 @@ export type NormalizedMlListing = {
   model: string | null;
   gtin: string | null;
 
+  /** Preenchidos no import por HTML (PDP); API pública deixa null */
+  rating: number | null;
+  reviews_count: number | null;
+
   raw_item: unknown;
   raw_description: unknown;
 };
@@ -156,6 +160,9 @@ export function normalizeMlPublicListing(input: {
     brand,
     model,
     gtin,
+
+    rating: null,
+    reviews_count: null,
 
     raw_item: item,
     raw_description: desc,
