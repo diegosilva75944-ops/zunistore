@@ -17,7 +17,7 @@ export function SearchBox() {
   const abortRef = useRef<AbortController | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  const debounced = useDebounce(term, 120);
+  const debounced = useDebounce(term, 50);
 
   useEffect(() => {
     const q = debounced.trim();

@@ -13,6 +13,8 @@ type SlideProduct = {
   promo_price: number | null;
   off_percent: number;
   affiliate_url: string;
+  rating: number | null;
+  reviews_count: number | null;
 };
 
 type SlideItem = {
@@ -22,6 +24,12 @@ type SlideItem = {
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+function formatRating(value: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `★ ${n.toFixed(1).replace(".", ",")}`;
 }
 
 function SlideContent({ item }: { item: SlideItem }) {
@@ -69,6 +77,21 @@ function SlideContent({ item }: { item: SlideItem }) {
             {slide.product.title}
           </h2>
         </Link>
+        {slide.product.rating != null ||
+        (slide.product.reviews_count != null && slide.product.reviews_count > 0) ? (
+          <div className="mt-2 text-sm text-zinc-600">
+            {slide.product.rating != null ? (
+              <span className="font-medium text-zinc-800">{formatRating(slide.product.rating)}</span>
+            ) : null}
+            {slide.product.reviews_count != null && slide.product.reviews_count > 0 ? (
+              <span>
+                {slide.product.rating != null ? " · " : null}
+                {slide.product.reviews_count}{" "}
+                {slide.product.reviews_count === 1 ? "avaliação" : "avaliações"}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <div className="mt-4 space-y-1">
           {hasPromo && (
             <div className="text-sm text-zinc-500 line-through">

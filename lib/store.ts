@@ -314,7 +314,7 @@ export async function getProductByCode6(code6: string): Promise<Product | null> 
 export async function listCarouselProducts() {
   try {
     const data = await getWithPublicFallback<any[]>("carousel_items", {
-      select: "id,product_id,sort_order,size,products:product_id(code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url)",
+      select: "id,product_id,sort_order,size,products:product_id(code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url,rating,reviews_count)",
       "products.is_active": "eq.true",
       order: "sort_order.asc",
     });
@@ -335,6 +335,8 @@ export async function listCarouselProducts() {
           is_offer: Boolean(x.products.is_offer),
           off_percent: Number(x.products.off_percent ?? 0),
           affiliate_url: x.products.affiliate_url as string,
+          rating: x.products.rating == null ? null : Number(x.products.rating),
+          reviews_count: x.products.reviews_count == null ? null : Number(x.products.reviews_count),
         },
       }));
   } catch {
