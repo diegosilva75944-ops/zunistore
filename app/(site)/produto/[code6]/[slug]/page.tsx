@@ -138,7 +138,11 @@ export default async function ProdutoPage(props: {
               </div>
             ) : null}
 
-            <div className="pt-3 flex flex-col gap-3">
+            <p className="text-xs text-amber-950/90 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 leading-relaxed">
+              Os preços exibidos aqui são informativos e podem ser alterados pelo vendedor no site original. Confira sempre o valor final na loja antes de concluir a compra.
+            </p>
+
+            <div className="pt-1 flex flex-col gap-3">
               <a
                 href={product.affiliate_url}
                 target="_blank"
