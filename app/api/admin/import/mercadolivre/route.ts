@@ -4,7 +4,7 @@ import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
 import { sha256Hex } from "@/lib/crypto";
 import { normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
 import { runTestMlImport } from "@/lib/ml-test/pipeline";
-import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
+import { extractMlItemIdFromUrlWithRedirects } from "@/services/mercadolivre/ml-url-resolve";
 import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
 import { mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
 
@@ -76,7 +76,8 @@ export async function POST(req: Request) {
     const result = await runTestMlImport(fetchUrl, "auto");
     let externalId: string;
     try {
-      externalId = extractMlItemIdFromUrl(fetchUrl);
+      /** URL bruta: `normalizeMlFetchUrl` remove o `#…wid=MLB…` necessário em links /up/ de recomendação. */
+      externalId = await extractMlItemIdFromUrlWithRedirects(p.sourceUrl.trim());
     } catch (e) {
       return withCors(
         NextResponse.json(
