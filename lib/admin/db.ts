@@ -18,6 +18,7 @@ function isMissingShowInHeaderColumn(err: unknown): boolean {
 }
 import { randomToken, sha256Hex } from "@/lib/crypto";
 import { slugify } from "@/lib/slug";
+import { ilikeContainsPattern } from "@/lib/postgrest/ilike";
 import { checkAffiliatePageContainsProduct } from "@/lib/affiliate-validate";
 
 function enc(v: string | number | boolean): string {
@@ -161,11 +162,11 @@ function buildProductsParams(opts: {
   if (needsUpdate === true) params.needs_update = "eq.true";
   if (needsUpdate === false) params.needs_update = "eq.false";
   if (categoryId) params.category_id = `eq.${categoryId}`;
-  if (code6?.trim()) params.code6 = `ilike.${encodeURIComponent("%" + code6.trim() + "%")}`;
+  if (code6?.trim()) params.code6 = `ilike.${ilikeContainsPattern(code6.trim())}`;
   const searchTerm = q?.trim() ?? "";
   if (searchTerm) {
-    const pat = encodeURIComponent("%" + searchTerm + "%");
-    params.or = `(title.ilike.${pat},description.ilike.${pat})`;
+    const pat = ilikeContainsPattern(searchTerm);
+    params.or = `(title.ilike.${pat},description.ilike.${pat},description_detail.ilike.${pat})`;
   }
   if (includeAffiliateExpired && affiliateExpired === true) params.affiliate_valid = "eq.false";
   return params;

@@ -34,7 +34,10 @@ export function SearchBox() {
     setLoading(true);
 
     fetch(`/api/search?term=${encodeURIComponent(q)}`, { signal: ctrl.signal })
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) return { items: [] };
+        return r.json();
+      })
       .then((data) => {
         if (ctrl.signal.aborted) return;
         setItems(Array.isArray(data?.items) ? data.items : []);

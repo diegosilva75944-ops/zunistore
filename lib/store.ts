@@ -1,6 +1,7 @@
 import "server-only";
 
 import { postgrestGet, postgrestGetWithCount } from "@/lib/postgrest/server";
+import { ilikeContainsPattern } from "@/lib/postgrest/ilike";
 
 export type Category = {
   id: string;
@@ -295,8 +296,8 @@ export async function listProducts(opts: {
       params.effective_price = `lte.${max}`;
     }
     if (q?.trim()) {
-      const pat = encodeURIComponent("%" + q.trim() + "%");
-      params.or = `(title.ilike.${pat},description.ilike.${pat})`;
+      const pat = ilikeContainsPattern(q.trim());
+      params.or = `(title.ilike.${pat},description.ilike.${pat},description_detail.ilike.${pat})`;
     }
 
     const { data, count } = await getWithCountPublicFallback<any[]>("products", params);
