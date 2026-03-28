@@ -99,3 +99,20 @@ export function detectCardPaymentKeywords(text: string): boolean {
 export function detectSecondaryPriceLineText(text: string): boolean {
   return detectInstallmentKeywords(text) || detectCardPaymentKeywords(text);
 }
+
+/**
+ * ML costuma mostrar Pix à vista e, em subtitles, “ou R$150 em outros meios”.
+ * Esse valor é o preço “corrente” fora do Pix — não confundir com parcela/cartão na mesma linha.
+ */
+export function parsePriceEmOutrosMeiosLine(text: string): number | null {
+  const t = String(text || "").replace(/\s+/g, " ").trim();
+  if (!/em\s+outros\s+meios/i.test(t)) return null;
+  if (detectInstallmentKeywords(t)) return null;
+  if (detectCardPaymentKeywords(t)) return null;
+  const m = t.match(/R\$\s*([\d.]+)(?:\s*,\s*(\d{1,2}))?\s+em\s+outros\s+meios/i);
+  if (!m) return null;
+  const intPart = m[1].replace(/\./g, "");
+  const dec = (m[2] ?? "00").padEnd(2, "0").slice(0, 2);
+  const v = Number(`${intPart}.${dec}`);
+  return Number.isFinite(v) && v > 0 ? roundMoney(v) : null;
+}

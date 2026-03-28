@@ -10,7 +10,12 @@ import type {
   ResolvePreviewPricingResult,
   UsedCandidateEntry,
 } from "./types";
-import { detectSecondaryPriceLineText, discountPercentFromPair, roundMoney } from "./normalize";
+import {
+  detectSecondaryPriceLineText,
+  discountPercentFromPair,
+  parsePriceEmOutrosMeiosLine,
+  roundMoney,
+} from "./normalize";
 import { parseAndesMoneyCheerio } from "./parseAndesMoney";
 import { resolveMainVisualBlock } from "./resolveMainVisualBlock";
 
@@ -50,6 +55,20 @@ function stripNoiseFromPriceBlock($: CheerioAPI, $root: Cheerio<Element>): Cheer
     if (c.includes("reco") || c.includes("carousel")) $(e).remove();
   });
   return $b as Cheerio<Element>;
+}
+
+/** Subtitles/second-line: preço explícito antes de “em outros meios” (fora do Pix). */
+function extractOutrosMeiosPriceFromBlock($: CheerioAPI, $rawBlock: Cheerio<Element>): number | null {
+  let best: number | null = null;
+  const tryText = (raw: string) => {
+    const n = parsePriceEmOutrosMeiosLine(raw);
+    if (n != null && (best == null || n > best)) best = n;
+  };
+  $rawBlock.find(".ui-pdp-price__subtitles, .ui-pdp-price__second-line").each((_, el) => {
+    tryText($(el as unknown as Element).text());
+  });
+  tryText($rawBlock.text());
+  return best;
 }
 
 function isPreviousMoneyNode($: CheerioAPI, $el: Cheerio<Element>): boolean {
@@ -357,6 +376,21 @@ export function resolvePreviewPricing(
   currentPrice = domResolved.current;
   originalPrice = domResolved.original;
   displayMode = domResolved.displayMode;
+
+  const outrosMeios = extractOutrosMeiosPriceFromBlock($, $rawBlock);
+  if (
+    outrosMeios != null &&
+    currentPrice != null &&
+    outrosMeios > currentPrice + 0.005 &&
+    (originalPrice == null || outrosMeios < originalPrice - 0.005)
+  ) {
+    notes.push(
+      "Linha ‘em outros meios’: valor adotado como preço atual (não é parcela nem linha típica de cartão).",
+    );
+    currentPrice = outrosMeios;
+    displayMode = originalPrice != null ? "discounted_price" : "single_price";
+    chosenSignals.outrosMeiosPrice = outrosMeios;
+  }
 
   if (currentPrice == null) {
     notes.push(

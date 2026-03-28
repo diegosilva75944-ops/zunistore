@@ -193,6 +193,36 @@ describe("resolvePreviewPricing", () => {
     expect(r.pricing.hasDiscount).toBe(true);
   });
 
+  it("Pix no bloco + ‘ou R$150 em outros meios’ em subtitles → atual = 150 (não o Pix)", () => {
+    const html = `
+<!DOCTYPE html><html><body>
+<div class="ui-pdp-main">
+  <div class="ui-pdp-container__row--price">
+    <div class="ui-pdp-price__main-container">
+      <s class="andes-money-amount andes-money-amount--previous" aria-label="Antes: 249 reais com 90 centavos">
+        <span class="andes-money-amount__fraction">249</span>
+        <span class="andes-money-amount__cents">90</span>
+      </s>
+      <div class="ui-pdp-price__second-line">
+        <span class="andes-money-amount">
+          <span class="andes-money-amount__fraction">135</span>
+          <span class="andes-money-amount__cents">00</span>
+        </span>
+        <span>45% OFF no Pix</span>
+      </div>
+      <div class="ui-pdp-price__subtitles">
+        <p>ou R$150 em outros meios</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>`;
+    const r = resolvePreviewPricing(html, [], "html");
+    expect(r.pricing.currentPrice).toBe(150);
+    expect(r.pricing.originalPrice).toBe(249.9);
+    expect(r.pricing.hasDiscount).toBe(true);
+  });
+
   it("CASO 2 sem classe previous: dois andes distintos → menor=atual, maior=original", () => {
     const html = `
 <!DOCTYPE html><html><body>
