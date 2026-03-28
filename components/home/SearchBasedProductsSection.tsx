@@ -7,7 +7,6 @@ export function SearchBasedProductsSection({ products }: { products: Product[] }
       title="Baseado nas suas buscas"
       subtitle="Produtos alinhados aos termos que você mais pesquisou."
       products={products}
-      empty="Quando você buscar por produtos, montamos esta lista automaticamente."
     />
   );
 }

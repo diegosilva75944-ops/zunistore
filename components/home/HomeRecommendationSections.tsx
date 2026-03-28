@@ -118,24 +118,34 @@ export function HomeRecommendationSections() {
   }
 
   if (!allowPersonal) {
+    const hasAny = recent.length > 0 || popular.length > 0;
+    if (!hasAny) return null;
     return (
       <div className="space-y-10">
-        <RecentProductsSection products={recent} />
-        <PopularProductsSection
-          products={popular}
-          subtitle="Ranking geral da loja. Ative a personalização no aviso de cookies para recomendações sob medida."
-          emptyMessage="Ainda não há dados de popularidade suficientes. Confira ofertas e novidades."
-        />
+        {recent.length > 0 ? <RecentProductsSection products={recent} /> : null}
+        {popular.length > 0 ? (
+          <PopularProductsSection
+            products={popular}
+            subtitle="Ranking geral da loja. Ative a personalização no aviso de cookies para recomendações sob medida."
+          />
+        ) : null}
       </div>
     );
   }
 
+  const hasAnyPersonalized =
+    personalized.length > 0 ||
+    searchBased.length > 0 ||
+    recent.length > 0 ||
+    popular.length > 0;
+  if (!hasAnyPersonalized) return null;
+
   return (
     <div className="space-y-10">
-      <PersonalizedProductsSection products={personalized} />
-      <SearchBasedProductsSection products={searchBased} />
-      <RecentProductsSection products={recent} />
-      <PopularProductsSection products={popular} />
+      {personalized.length > 0 ? <PersonalizedProductsSection products={personalized} /> : null}
+      {searchBased.length > 0 ? <SearchBasedProductsSection products={searchBased} /> : null}
+      {recent.length > 0 ? <RecentProductsSection products={recent} /> : null}
+      {popular.length > 0 ? <PopularProductsSection products={popular} /> : null}
     </div>
   );
 }

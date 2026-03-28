@@ -7,7 +7,6 @@ export function PersonalizedProductsSection({ products }: { products: Product[] 
       title="Mais procurados para você"
       subtitle="Combinamos buscas, categorias visitadas, cliques e visualizações."
       products={products}
-      empty="Use a busca ou navegue em categorias — suas sugestões aparecem aqui."
     />
   );
 }

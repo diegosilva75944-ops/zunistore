@@ -7,7 +7,6 @@ export function RecentProductsSection({ products }: { products: Product[] }) {
       title="Você viu recentemente"
       subtitle="Até 12 itens neste dispositivo, sem repetição."
       products={products}
-      empty="Abra páginas de produto para montar seu histórico recente."
     />
   );
 }
