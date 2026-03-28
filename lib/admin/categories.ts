@@ -64,7 +64,6 @@ export async function adminUpsertCategoryFromBreadcrumb(
         slug,
         parent_id: parentId,
         is_seed: false,
-        show_in_header: false,
       },
       "service",
       { select: "id,slug", returning: true },

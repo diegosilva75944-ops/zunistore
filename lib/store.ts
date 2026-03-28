@@ -211,7 +211,17 @@ export async function listHeaderCategories(): Promise<Category[]> {
     });
     return Array.isArray(data) ? data : [];
   } catch {
-    return [];
+    try {
+      // Sem coluna show_in_header (migração não aplicada): só categorias raiz.
+      const data = await getWithPublicFallback<any[]>("categories", {
+        select: "id,name,slug,parent_id",
+        parent_id: "is.null",
+        order: "name.asc",
+      });
+      return Array.isArray(data) ? data : [];
+    } catch {
+      return [];
+    }
   }
 }
 

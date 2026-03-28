@@ -10,6 +10,12 @@ import {
   PostgrestError,
   inVal,
 } from "@/lib/postgrest/server";
+
+/** Banco sem migração `show_in_header` — PostgREST PGRST204. */
+function isMissingShowInHeaderColumn(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("PGRST204") && msg.includes("show_in_header");
+}
 import { randomToken, sha256Hex } from "@/lib/crypto";
 import { slugify } from "@/lib/slug";
 import { checkAffiliatePageContainsProduct } from "@/lib/affiliate-validate";
@@ -19,11 +25,21 @@ function enc(v: string | number | boolean): string {
 }
 
 export async function adminListCategories() {
-  const data = await postgrestGet<any[]>("categories", {
-    select: "id,name,slug,parent_id,is_seed,show_in_header,created_at",
-    order: "name.asc",
-  });
-  return Array.isArray(data) ? data : [];
+  try {
+    const data = await postgrestGet<any[]>("categories", {
+      select: "id,name,slug,parent_id,is_seed,show_in_header,created_at",
+      order: "name.asc",
+    });
+    return Array.isArray(data) ? data : [];
+  } catch (err) {
+    if (!isMissingShowInHeaderColumn(err)) throw err;
+    const data = await postgrestGet<any[]>("categories", {
+      select: "id,name,slug,parent_id,is_seed,created_at",
+      order: "name.asc",
+    });
+    const rows = Array.isArray(data) ? data : [];
+    return rows.map((r: any) => ({ ...r, show_in_header: false }));
+  }
 }
 
 export async function adminCreateCategory(input: {
@@ -48,14 +64,23 @@ export async function adminCreateCategory(input: {
       slug,
       parent_id: input.parent_id ?? null,
       is_seed: false,
-      show_in_header: input.show_in_header ?? false,
     },
     "service",
-    { select: "id,name,slug,parent_id,is_seed,show_in_header", returning: true },
+    { select: "id,name,slug,parent_id,is_seed", returning: true },
   );
   const arr = Array.isArray(inserted) ? inserted : [];
   if (!arr[0]) throw new Error("Falha ao criar categoria.");
-  return arr[0];
+  const row = arr[0] as any;
+
+  if (input.show_in_header) {
+    try {
+      await postgrestPatch("categories", { show_in_header: true }, { id: `eq.${row.id}` });
+      return { ...row, show_in_header: true };
+    } catch (err) {
+      if (!isMissingShowInHeaderColumn(err)) throw err;
+    }
+  }
+  return { ...row, show_in_header: false };
 }
 
 export async function adminUpdateCategory(
@@ -71,7 +96,14 @@ export async function adminUpdateCategory(
   }
   if (input.show_in_header !== undefined) updates.show_in_header = input.show_in_header;
   if (Object.keys(updates).length === 0) return;
-  await postgrestPatch("categories", updates, { id: `eq.${id}` });
+  try {
+    await postgrestPatch("categories", updates, { id: `eq.${id}` });
+  } catch (err) {
+    if (!isMissingShowInHeaderColumn(err)) throw err;
+    const { show_in_header: _drop, ...rest } = updates as Record<string, unknown>;
+    if (Object.keys(rest).length === 0) return;
+    await postgrestPatch("categories", rest, { id: `eq.${id}` });
+  }
 }
 
 export async function adminDeleteCategory(id: string) {
