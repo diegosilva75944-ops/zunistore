@@ -1,11 +1,13 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { jsonRecommendations, RECOMMENDATIONS_CACHE_HEADERS } from "@/lib/personalization/recommendation-http";
+import { attachNewVisitSessionIfNeeded, resolveVisitSession } from "@/lib/personalization/visit-session-server";
 import { recommendPersonalizedForSession } from "@/services/personalization/recommend";
 
 export const runtime = "nodejs";
 
 const querySchema = z.object({
-  sessionId: z.string().uuid(),
   limit: z.coerce.number().int().min(1).max(24).optional(),
   excludeIds: z
     .string()
@@ -18,25 +20,30 @@ const querySchema = z.object({
     .pipe(z.array(z.string().uuid())),
 });
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const parsed = querySchema.safeParse({
-      sessionId: url.searchParams.get("sessionId") ?? "",
       limit: url.searchParams.get("limit") ?? undefined,
       excludeIds: url.searchParams.get("excludeIds") ?? undefined,
     });
     if (!parsed.success) {
-      return NextResponse.json({ ok: false, error: "Parâmetros inválidos." }, { status: 400 });
+      return jsonRecommendations(req, { ok: false, error: "Parâmetros inválidos." }, 400);
     }
-    const { sessionId, limit, excludeIds } = parsed.data;
+    const { sessionId, wasNew } = resolveVisitSession(req);
+    const { limit, excludeIds } = parsed.data;
     const items = await recommendPersonalizedForSession(sessionId, {
       excludeIds,
       limit: limit ?? 12,
     });
-    return NextResponse.json({ ok: true, items });
+    const res = NextResponse.json(
+      { ok: true, items },
+      { status: 200, headers: RECOMMENDATIONS_CACHE_HEADERS },
+    );
+    attachNewVisitSessionIfNeeded(res, sessionId, wasNew);
+    return res;
   } catch (e) {
     console.error("[recommendations/personalized]", e);
-    return NextResponse.json({ ok: false, error: "Falha ao carregar." }, { status: 500 });
+    return jsonRecommendations(req, { ok: false, error: "Falha ao carregar." }, 500);
   }
 }

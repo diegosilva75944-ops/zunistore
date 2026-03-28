@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { z } from "zod";
+import { jsonRecommendations } from "@/lib/personalization/recommendation-http";
 import { recommendPopularGlobal } from "@/services/personalization/recommend";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ const querySchema = z.object({
     .pipe(z.array(z.string().uuid())),
 });
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const parsed = querySchema.safeParse({
@@ -25,16 +26,16 @@ export async function GET(req: Request) {
       excludeIds: url.searchParams.get("excludeIds") ?? undefined,
     });
     if (!parsed.success) {
-      return NextResponse.json({ ok: false, error: "Parâmetros inválidos." }, { status: 400 });
+      return jsonRecommendations(req, { ok: false, error: "Parâmetros inválidos." }, 400);
     }
     const { limit, excludeIds } = parsed.data;
     const items = await recommendPopularGlobal({
       excludeIds,
       limit: limit ?? 12,
     });
-    return NextResponse.json({ ok: true, items });
+    return jsonRecommendations(req, { ok: true, items });
   } catch (e) {
     console.error("[recommendations/popular]", e);
-    return NextResponse.json({ ok: false, error: "Falha ao carregar." }, { status: 500 });
+    return jsonRecommendations(req, { ok: false, error: "Falha ao carregar." }, 500);
   }
 }

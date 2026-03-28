@@ -1,7 +1,6 @@
 "use client";
 
 import { personalizationAllowed } from "@/lib/consent";
-import { getSessionId } from "@/lib/session";
 import type { RecentProductSnapshot } from "@/lib/personalization/types";
 import {
   localAppendCategory,
@@ -17,13 +16,12 @@ let lastSearchPosted = { term: "", at: 0 };
 const SEARCH_DEDUP_MS = 5000;
 
 async function postJson(path: string, body: Record<string, unknown>) {
-  const sessionId = getSessionId();
-  if (!sessionId) return;
   try {
     await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...body, sessionId }),
+      body: JSON.stringify(body),
+      credentials: "include",
       keepalive: true,
     });
   } catch {

@@ -11,8 +11,8 @@ type Props = {
 };
 
 /**
- * Uma visualização por aba/sessão de navegador (sessionStorage) para evitar loop em re-renders.
- * Só grava histórico com consentimento de personalização aceito.
+ * Uma visualização por aba (sessionStorage) para evitar loop em re-renders.
+ * Histórico recente é sempre local; envio ao servidor só com personalização aceita.
  */
 export function ProductPageTracker({ product }: Props) {
   useEffect(() => {
@@ -24,9 +24,9 @@ export function ProductPageTracker({ product }: Props) {
     } catch {
       return;
     }
+    registrarProdutoRecente(product);
     if (!personalizationAllowed()) return;
     registrarVisualizacaoProduto(product.id, product.category_id ?? null);
-    registrarProdutoRecente(product);
   }, [product]);
 
   return null;

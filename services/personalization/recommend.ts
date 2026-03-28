@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getProductsByIds, listProducts, type Product } from "@/lib/store";
-import { loadSessionProfile } from "@/services/personalization/load-session-profile";
+import { loadSessionProfile, sessionProfileHasServerSignals } from "@/services/personalization/load-session-profile";
 import { getPopularProductIds } from "@/services/personalization/popular-products";
 
 function validAffiliate(p: Product) {
@@ -74,6 +74,11 @@ async function fallbackRecent(exclude: Set<string>, limit: number): Promise<Prod
   return items.filter((p) => !exclude.has(p.id) && validAffiliate(p)).slice(0, limit);
 }
 
+async function fallbackTopRated(exclude: Set<string>, limit: number): Promise<Product[]> {
+  const { items } = await listProducts({ perPage: 50, page: 1, sort: "mais-avaliados" });
+  return items.filter((p) => !exclude.has(p.id) && validAffiliate(p)).slice(0, limit);
+}
+
 /** “Mais procurados por você” — sinais combinados. */
 export async function recommendPersonalizedForSession(
   sessionId: string,
@@ -82,6 +87,9 @@ export async function recommendPersonalizedForSession(
   const limit = opts?.limit ?? 12;
   const exclude = new Set(opts?.excludeIds ?? []);
   const profile = await loadSessionProfile(sessionId);
+  if (!sessionProfileHasServerSignals(profile)) {
+    return [];
+  }
   const topTerms = profile.searchTerms.slice(0, 6).map((x) => x.term);
   const catMerged = mergeCategoryWeights(profile);
   const favoriteCats = new Set(
@@ -94,13 +102,13 @@ export async function recommendPersonalizedForSession(
   const popular = new Set(popularList);
 
   const candidateIds = await collectCandidateIds(profile);
-  if (!candidateIds.length && !topTerms.length) {
-    return fallbackRecent(exclude, limit);
+  if (!candidateIds.length) {
+    return [];
   }
   let products = await getProductsByIds(candidateIds.filter((id) => !exclude.has(id)));
   products = products.filter(validAffiliate);
   if (!products.length) {
-    return fallbackRecent(exclude, limit);
+    return [];
   }
   const scored = products
     .map((p) => ({
@@ -124,7 +132,7 @@ export async function recommendSearchBasedForSession(
   const profile = await loadSessionProfile(sessionId);
   const topTerms = profile.searchTerms.slice(0, 5).map((x) => x.term);
   if (!topTerms.length) {
-    return fallbackRecent(exclude, limit);
+    return [];
   }
   const popularList = await getPopularProductIds(40);
   const popular = new Set(popularList);
@@ -135,12 +143,12 @@ export async function recommendSearchBasedForSession(
   }
   let products = await getProductsByIds([...ids].filter((id) => !exclude.has(id)));
   products = products.filter(validAffiliate);
-  if (!products.length) return fallbackRecent(exclude, limit);
+  if (!products.length) return [];
   const scored = products
     .map((p) => ({ p, s: scoreSearchOnly(p, topTerms, popular) }))
     .filter((x) => x.s > 0)
     .sort((a, b) => b.s - a.s);
-  if (!scored.length) return fallbackRecent(exclude, limit);
+  if (!scored.length) return [];
   return scored.map((x) => x.p).slice(0, limit);
 }
 
@@ -148,15 +156,23 @@ export async function recommendPopularGlobal(opts?: { excludeIds?: string[]; lim
   const limit = opts?.limit ?? 12;
   const exclude = new Set(opts?.excludeIds ?? []);
   const ids = (await getPopularProductIds(limit + exclude.size + 8)).filter((id) => !exclude.has(id));
-  const products = (await getProductsByIds(ids)).filter(validAffiliate);
+  let products = (await getProductsByIds(ids)).filter(validAffiliate);
   if (products.length >= limit) return products.slice(0, limit);
-  const fb = await fallbackRecent(exclude, limit);
   const seen = new Set(products.map((p) => p.id));
-  for (const p of fb) {
+  for (const p of await fallbackRecent(exclude, limit)) {
     if (products.length >= limit) break;
     if (!seen.has(p.id)) {
       products.push(p);
       seen.add(p.id);
+    }
+  }
+  if (products.length < limit) {
+    for (const p of await fallbackTopRated(exclude, limit)) {
+      if (products.length >= limit) break;
+      if (!seen.has(p.id)) {
+        products.push(p);
+        seen.add(p.id);
+      }
     }
   }
   return products.slice(0, limit);

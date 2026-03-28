@@ -1,25 +1,22 @@
+import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { attachNewVisitSessionIfNeeded, resolveVisitSession } from "@/lib/personalization/visit-session-server";
 import { clearPersonalizationSession } from "@/services/personalization/clear-session";
 
 export const runtime = "nodejs";
 
-const schema = z.object({
-  sessionId: z.string().uuid(),
-});
-
-/** Limpa histórico da sessão no servidor (localStorage é limpo no cliente). */
-export async function POST(req: Request) {
+/** Limpa histórico no servidor para o cookie de visita atual (localStorage no cliente). */
+export async function POST(req: NextRequest) {
+  const { sessionId, wasNew } = resolveVisitSession(req);
   try {
-    const json = await req.json().catch(() => ({}));
-    const parsed = schema.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json({ ok: false, error: "sessionId inválido." }, { status: 400 });
-    }
-    await clearPersonalizationSession(parsed.data.sessionId);
-    return NextResponse.json({ ok: true });
+    await clearPersonalizationSession(sessionId);
+    const res = NextResponse.json({ ok: true });
+    attachNewVisitSessionIfNeeded(res, sessionId, wasNew);
+    return res;
   } catch (e) {
     console.error("[personalization/clear]", e);
-    return NextResponse.json({ ok: false, error: "Falha ao limpar." }, { status: 500 });
+    const res = NextResponse.json({ ok: false, error: "Falha ao limpar." }, { status: 500 });
+    attachNewVisitSessionIfNeeded(res, sessionId, wasNew);
+    return res;
   }
 }

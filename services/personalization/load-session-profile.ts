@@ -89,3 +89,14 @@ export async function loadSessionProfile(sessionId: string, days = 90): Promise<
     viewedProducts,
   };
 }
+
+/** Sem histórico nesta sessão no servidor → não devemos mostrar “para você” genérico igual para todos. */
+export function sessionProfileHasServerSignals(p: SessionProfile): boolean {
+  if (p.searchTerms.length > 0) return true;
+  if (p.clickedProducts.length > 0) return true;
+  if (p.viewedProducts.length > 0) return true;
+  if (p.visitedCategories.size > 0) return true;
+  if (p.clickCategories.size > 0) return true;
+  if (p.viewCategories.size > 0) return true;
+  return false;
+}

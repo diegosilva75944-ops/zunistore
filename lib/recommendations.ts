@@ -1,6 +1,5 @@
 /**
- * APIs de recomendação são consumidas via fetch nas rotas `/api/recommendations/*`.
- * Este arquivo centraliza paths para evitar strings soltas no cliente.
+ * APIs de recomendação (`/api/recommendations/*`): sessão via cookie `zuni_visit_sid` + `credentials: "include"`.
  */
 export const recommendationApi = {
   personalized: "/api/recommendations/personalized",

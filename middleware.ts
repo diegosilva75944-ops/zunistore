@@ -1,5 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import {
+  UUID_RE,
+  visitSessionCookieOpts,
+  ZUNI_VISIT_SESSION_COOKIE,
+} from "@/lib/personalization/visit-session";
 
 const cookieName = process.env.ADMIN_JWT_COOKIE_NAME || "zuni_admin";
 const secret = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET || "");
@@ -21,6 +26,16 @@ const importMlCors = {
   "Access-Control-Max-Age": "86400",
 } as const;
 
+function ensureVisitorSessionCookie(req: NextRequest, res: NextResponse) {
+  const v = req.cookies.get(ZUNI_VISIT_SESSION_COOKIE)?.value;
+  if (v && UUID_RE.test(v)) return;
+  res.cookies.set(
+    ZUNI_VISIT_SESSION_COOKIE,
+    crypto.randomUUID(),
+    visitSessionCookieOpts(process.env.NODE_ENV === "production"),
+  );
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -38,6 +53,7 @@ export async function middleware(req: NextRequest) {
     }
     const res = NextResponse.next();
     Object.entries(importMlCors).forEach(([k, v]) => res.headers.set(k, v));
+    ensureVisitorSessionCookie(req, res);
     return res;
   }
 
@@ -58,10 +74,15 @@ export async function middleware(req: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  const res = NextResponse.next();
+  ensureVisitorSessionCookie(req, res);
+  return res;
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*"],
+  matcher: [
+    "/admin/:path*",
+    "/api/admin/:path*",
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+  ],
 };
-
