@@ -110,9 +110,19 @@ function resolvePricesFromBlockDom(
 
   if (uniqPrev.length && uniqCur.length) {
     const original = roundMoney(Math.max(...uniqPrev));
-    const current = roundMoney(Math.min(...uniqCur));
+    /**
+     * Com riscado explícito, o “atual” correto costuma ser o **maior** entre os valores não-riscados
+     * que ainda ficam abaixo do original — não o min(). Um segundo .andes-money menor (parcela mal
+     * classificada, cupom, linha auxiliar) não pode vencer sobre o preço principal (ex.: 135 vs 150).
+     */
+    const belowOriginal = uniqCur.filter((c) => c < original - 0.005);
+    const currentRaw =
+      belowOriginal.length > 0 ? Math.max(...belowOriginal) : Math.min(...uniqCur);
+    const current = roundMoney(currentRaw);
     if (original > current) {
-      notes.push("Par anterior (riscado) + atual no bloco: min(atual)=promo, max(anterior)=original.");
+      notes.push(
+        "Par anterior (riscado) + atual no bloco: entre valores não-riscados abaixo do original, usa-se o maior (preço principal); original = max(riscados).",
+      );
       return { current: current, original: original, displayMode: "discounted_price" };
     }
     notes.push("Valores de anterior não são maiores que o atual no bloco — tratando como preço único.");

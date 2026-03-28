@@ -117,6 +117,33 @@ describe("resolvePreviewPricing", () => {
     expect(r.pricing.hasDiscount).toBe(true);
   });
 
+  it("com riscado: vários andes ‘atuais’ no bloco — usa o maior abaixo do original (evita valor menor espúrio)", () => {
+    const html = `
+<!DOCTYPE html><html><body>
+<div class="ui-pdp-main">
+  <div class="ui-pdp-container__row--price">
+    <span class="andes-money-amount andes-money-amount--previous">
+      <span class="andes-money-amount__fraction">200</span>
+      <span class="andes-money-amount__cents">00</span>
+    </span>
+    <span class="andes-money-amount">
+      <span class="andes-money-amount__fraction">135</span>
+      <span class="andes-money-amount__cents">00</span>
+    </span>
+    <span class="andes-money-amount">
+      <span class="andes-money-amount__fraction">150</span>
+      <span class="andes-money-amount__cents">00</span>
+    </span>
+  </div>
+  <button>Comprar agora</button>
+</div>
+</body></html>`;
+    const r = resolvePreviewPricing(html, [], "html");
+    expect(r.pricing.currentPrice).toBe(150);
+    expect(r.pricing.originalPrice).toBe(200);
+    expect(r.pricing.hasDiscount).toBe(true);
+  });
+
   it("CASO 2 sem classe previous: dois andes distintos → menor=atual, maior=original", () => {
     const html = `
 <!DOCTYPE html><html><body>
