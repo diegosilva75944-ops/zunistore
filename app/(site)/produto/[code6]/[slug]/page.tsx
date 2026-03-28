@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { getBaseUrl } from "@/lib/site-url";
 import { getCategoryById, getProductByCode6, listRelatedProducts } from "@/lib/store";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
+import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { ProductPageTracker } from "@/components/tracking/ProductPageTracker";
 import { ProductGallery } from "@/components/ProductGallery";
 import { RatingStars } from "@/components/RatingStars";
@@ -255,7 +256,7 @@ export default async function ProdutoPage(props: {
               </Link>
             ) : null}
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className={PRODUCT_CARD_GRID_CLASS}>
             {related.map((p) => (
               <TrackedProductCard key={p.id} product={p} />
             ))}

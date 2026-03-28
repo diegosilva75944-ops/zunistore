@@ -9,6 +9,7 @@ import { PersonalizedProductsSection } from "@/components/home/PersonalizedProdu
 import { SearchBasedProductsSection } from "@/components/home/SearchBasedProductsSection";
 import { RecentProductsSection } from "@/components/home/RecentProductsSection";
 import { PopularProductsSection } from "@/components/home/PopularProductsSection";
+import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 
 const noStoreFetch: RequestInit = { cache: "no-store", credentials: "include" };
 
@@ -27,7 +28,7 @@ function SkeletonBlock() {
   return (
     <section className="space-y-4" aria-busy="true" aria-label="Carregando vitrine personalizada">
       <div className="h-7 w-64 max-w-full animate-pulse rounded-lg bg-zinc-200" />
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className={PRODUCT_CARD_GRID_CLASS}>
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="h-64 animate-pulse rounded-2xl bg-zinc-200" />
         ))}

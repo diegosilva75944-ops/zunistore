@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { getSiteSettings, listCarouselProducts, listProducts, listSiteCategoriesFlat } from "@/lib/store";
 import { HomeAllProductsScroll } from "@/components/home/HomeAllProductsScroll";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
+import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { HeroSlider } from "@/components/HeroSlider";
 import { HomeRecommendationSections } from "@/components/home/HomeRecommendationSections";
 import { OffersMarqueeRow } from "@/components/home/OffersMarqueeRow";
@@ -167,7 +168,7 @@ export default async function Home(props: {
         </form>
 
         {all.items.length ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className={PRODUCT_CARD_GRID_CLASS}>
             {all.items.map((p) => (
               <TrackedProductCard key={p.id} product={p} />
             ))}

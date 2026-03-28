@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { listProducts } from "@/lib/store";
 import { robotsForListing } from "@/lib/seo";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
+import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 
 export const revalidate = 300;
 
@@ -34,7 +35,7 @@ export default async function NovidadesPage(props: {
         <p className="text-sm text-zinc-600">Total: {total}</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className={PRODUCT_CARD_GRID_CLASS}>
         {items.map((p) => (
           <TrackedProductCard key={p.id} product={p} />
         ))}

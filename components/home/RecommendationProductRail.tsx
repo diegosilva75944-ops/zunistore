@@ -1,4 +1,5 @@
 import type { Product } from "@/lib/store";
+import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 
 export function RecommendationProductRail({
@@ -18,7 +19,7 @@ export function RecommendationProductRail({
         <h2 className="text-xl font-semibold">{title}</h2>
         {subtitle ? <p className="text-sm text-zinc-600 mt-1">{subtitle}</p> : null}
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className={PRODUCT_CARD_GRID_CLASS}>
         {products.map((p) => (
           <TrackedProductCard key={p.id} product={p} />
         ))}
