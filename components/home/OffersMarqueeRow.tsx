@@ -7,13 +7,15 @@ const MAX_OFFERS = 10;
 
 type Props = {
   products: Product[];
+  /** Classes extra no wrapper do carrossel (ex.: fundo na home). */
+  className?: string;
 };
 
 /**
  * Uma única linha de ofertas com rolagem horizontal contínua para a esquerda.
  * Lista duplicada para loop sem salto; pausa no hover para permitir cliques.
  */
-export function OffersMarqueeRow({ products }: Props) {
+export function OffersMarqueeRow({ products, className }: Props) {
   const list = products.slice(0, MAX_OFFERS);
   if (!list.length) return null;
 
@@ -22,7 +24,7 @@ export function OffersMarqueeRow({ products }: Props) {
 
   return (
     <div
-      className="offers-marquee-outer relative overflow-hidden rounded-2xl py-1 -mx-1"
+      className={`offers-marquee-outer relative overflow-hidden rounded-2xl py-1 -mx-1 ${className ?? ""}`.trim()}
       aria-label="Carrossel de produtos em oferta"
     >
       <div

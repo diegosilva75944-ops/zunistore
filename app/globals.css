@@ -76,6 +76,116 @@ body {
   animation-play-state: paused;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Home — “Produtos em Oferta”: fundo diferenciado (gradiente + glow), só CSS  */
+/* -------------------------------------------------------------------------- */
+.home-offers-section {
+  position: relative;
+  isolation: isolate;
+  border-radius: 1.5rem;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--zuni-primary) 12%, transparent);
+  background: linear-gradient(
+    145deg,
+    #eff6ff 0%,
+    #fffef7 42%,
+    #f5f3ff 100%
+  );
+  box-shadow:
+    0 8px 32px -8px color-mix(in srgb, var(--zuni-purple-dark) 22%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.home-offers-section::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 85% 70% at 0% 45%, rgba(250, 204, 21, 0.14), transparent 58%),
+    radial-gradient(ellipse 75% 55% at 100% 0%, rgba(109, 40, 217, 0.1), transparent 52%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, rgba(59, 130, 246, 0.06), transparent 45%);
+}
+
+.home-offers-section::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.45;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.35) 0%,
+    transparent 35%,
+    transparent 65%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+}
+
+.home-offers-section__inner {
+  position: relative;
+  z-index: 1;
+}
+
+.home-offers-section__badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 9999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--zuni-black) 88%, transparent);
+  background: linear-gradient(90deg, rgba(254, 243, 199, 0.95), rgba(254, 249, 195, 0.88));
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  box-shadow: 0 1px 2px rgba(109, 40, 217, 0.06);
+}
+
+/* Faixa do carrossel: leve painel sobre o gradiente (cards continuam em destaque) */
+.home-offers-section__marquee {
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+}
+
+@media (prefers-color-scheme: dark) {
+  .home-offers-section {
+    border-color: color-mix(in srgb, var(--zuni-primary) 28%, transparent);
+    background: linear-gradient(145deg, #12121f 0%, #18182c 45%, #14142a 100%);
+    box-shadow:
+      0 8px 36px -10px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .home-offers-section::before {
+    background:
+      radial-gradient(ellipse 85% 70% at 0% 45%, rgba(250, 204, 21, 0.08), transparent 58%),
+      radial-gradient(ellipse 75% 55% at 100% 0%, rgba(109, 40, 217, 0.18), transparent 52%);
+  }
+
+  .home-offers-section::after {
+    opacity: 0.35;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 40%);
+  }
+
+  .home-offers-section__badge {
+    color: rgba(254, 243, 199, 0.95);
+    background: linear-gradient(90deg, rgba(109, 40, 217, 0.45), rgba(76, 29, 149, 0.35));
+    border-color: rgba(250, 204, 21, 0.25);
+  }
+
+  .home-offers-section__marquee {
+    background: rgba(15, 15, 28, 0.45);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .offers-marquee-track {
     animation: none !important;

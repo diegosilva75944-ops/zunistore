@@ -6,7 +6,8 @@ import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { HeroSlider } from "@/components/HeroSlider";
 import { HomeRecommendationSections } from "@/components/home/HomeRecommendationSections";
-import { OffersMarqueeRow } from "@/components/home/OffersMarqueeRow";
+import { HomeOffersSection } from "@/components/home/HomeOffersSection";
+import { parseHomePerPage } from "@/lib/ui/home-listing";
 
 export const revalidate = 60;
 
@@ -19,7 +20,7 @@ export default async function Home(props: {
   const min = asNumber(searchParams.min);
   const max = asNumber(searchParams.max);
   const sort = (asString(searchParams.ord) ?? "recentes") as any;
-  const perPage = (asNumber(searchParams.pp) ?? 20) as 10 | 20 | 50;
+  const perPage = parseHomePerPage(searchParams.pp);
   const page = asNumber(searchParams.p) ?? 1;
 
   const [carousel, categories, offers, siteSettings] = await Promise.all([
@@ -58,17 +59,7 @@ export default async function Home(props: {
     </section>
   );
 
-  const offersSection = (
-    <section className="space-y-4">
-      <div className="flex items-end justify-between">
-        <h2 className="text-xl font-semibold">Produtos em Oferta</h2>
-        <Link href="/ofertas" className="text-sm text-zuni-primary hover:underline">
-          Ver mais
-        </Link>
-      </div>
-      <OffersMarqueeRow products={offers.items} />
-    </section>
-  );
+  const offersSection = <HomeOffersSection products={offers.items} />;
 
   return (
     <div className="space-y-10">
@@ -156,9 +147,9 @@ export default async function Home(props: {
                 defaultValue={String(perPage)}
                 className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
               >
-                <option value="10">10</option>
-                <option value="20">20</option>
-                <option value="50">50</option>
+                <option value="12">12</option>
+                <option value="24">24</option>
+                <option value="36">36</option>
               </select>
             </div>
             <button className="rounded-full bg-zuni-primary px-5 py-2 text-sm font-semibold text-white hover:opacity-95">
