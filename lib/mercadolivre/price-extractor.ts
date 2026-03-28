@@ -165,10 +165,14 @@ function fromMainDom(html: string): MercadoLivreExtractedPrices | null {
   let currentPrice: number | null = promoFromMetaNorm ?? promoFromAria ?? null;
   let originalPrice: number | null = originalPriceFromAria ?? null;
 
-  // 3) Se faltou algo, cai para o fallback por "candidates" (texto + classes).
+  // 3) No row/container de preço: varrer sempre (meta pode ser 130 com 150 visível no DOM).
+  //    Sem bloco PDP (só body): varrer só se faltar meta/aria (evita misturar preços da página).
   const candidates: PriceCandidate[] = [];
-  if (currentPrice == null || originalPrice == null) {
-    root.find("*").each((_, el) => {
+  const priceScoped = block.length > 0 && !block.is("body");
+  const needWideScan = currentPrice == null || originalPrice == null;
+  const scanEl = priceScoped ? block : needWideScan ? root : null;
+  if (scanEl && scanEl.length) {
+    scanEl.find("*").each((_, el) => {
       const text = $(el).text().replace(/\s+/g, " ").trim();
       if (!text || !/R\$/i.test(text)) return;
       if (isInstallmentText(text) || isSecondaryPriceText(text)) return;
@@ -181,12 +185,52 @@ function fromMainDom(html: string): MercadoLivreExtractedPrices | null {
     });
   }
 
-  const original = candidates.filter((c) => c.source === "dom-original").map((c) => c.value);
-  const current = candidates.filter((c) => c.source === "dom-current").map((c) => c.value);
+  const origVals = [...new Set(candidates.filter((c) => c.source === "dom-original").map((c) => c.value))];
+  const curVals = [...new Set(candidates.filter((c) => c.source === "dom-current").map((c) => c.value))];
 
-  if (originalPrice == null && original.length) originalPrice = Math.max(...original);
-  if (currentPrice == null && current.length) currentPrice = current[0];
-  if (currentPrice == null && candidates.length) currentPrice = candidates[0].value;
+  if (originalPrice == null && origVals.length) originalPrice = Math.max(...origVals);
+
+  if (priceScoped && candidates.length) {
+    let domPickCurrent: number | null = null;
+    if (origVals.length && curVals.length) {
+      const o = Math.max(...origVals);
+      const below = curVals.filter((c) => c < o - 0.005);
+      domPickCurrent = below.length > 0 ? Math.max(...below) : Math.max(...curVals);
+    } else if (curVals.length >= 2) {
+      const low = Math.min(...curVals);
+      const high = Math.max(...curVals);
+      if (high > low && high / low < 1.25) domPickCurrent = high;
+      else if (high > low) domPickCurrent = low;
+    } else if (curVals.length === 1) {
+      domPickCurrent = curVals[0];
+    }
+
+    if (currentPrice == null && domPickCurrent != null) currentPrice = domPickCurrent;
+    if (currentPrice == null && candidates.length) currentPrice = candidates[0].value;
+
+    const origForCap = originalPrice ?? (origVals.length ? Math.max(...origVals) : null);
+    if (
+      domPickCurrent != null &&
+      origForCap != null &&
+      domPickCurrent < origForCap - 0.005 &&
+      domPickCurrent > (currentPrice ?? 0) + 0.01
+    ) {
+      currentPrice = domPickCurrent;
+    } else if (
+      domPickCurrent != null &&
+      origForCap == null &&
+      curVals.length >= 2 &&
+      domPickCurrent > (currentPrice ?? 0) + 0.01
+    ) {
+      currentPrice = domPickCurrent;
+    }
+  } else if (needWideScan && candidates.length) {
+    const original = candidates.filter((c) => c.source === "dom-original").map((c) => c.value);
+    const current = candidates.filter((c) => c.source === "dom-current").map((c) => c.value);
+    if (originalPrice == null && original.length) originalPrice = Math.max(...original);
+    if (currentPrice == null && current.length) currentPrice = current[0];
+    if (currentPrice == null) currentPrice = candidates[0].value;
+  }
 
   if (originalPrice != null && currentPrice != null && originalPrice <= currentPrice) {
     originalPrice = null;

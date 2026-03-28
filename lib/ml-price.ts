@@ -7,6 +7,7 @@
  * 5) regex R$. O sync combina isso com JSON-LD como no popup.
  */
 import { parseAndesFractionCentsToNumber } from "@/lib/ml-test/parseAndesMoney";
+import { resolvePreviewPricing } from "@/lib/ml-test/resolvePreviewPricing";
 import { extractMercadoLivrePrices } from "@/lib/mercadolivre/price-extractor";
 
 function parseBRL(text: string): number | null {
@@ -559,6 +560,38 @@ function computeDomPricesLikeExtension(htmlSan: string): {
 }
 
 /**
+ * Vários `.andes-money` no mesmo trecho do poly: mesma ideia do buy box (max abaixo do “de”;
+ * dois valores muito próximos → o maior como preço único).
+ */
+function resolvePolyMoneyAmountsOrdered(amounts: number[]): {
+  price: number;
+  promoPrice: number | null;
+} | null {
+  const u = [...new Set(amounts.filter((n) => Number.isFinite(n) && n > 0))].sort((a, b) => a - b);
+  if (u.length === 0) return null;
+  if (u.length === 1) return { price: u[0], promoPrice: null };
+  if (u.length >= 3) {
+    const original = Math.max(...u);
+    const below = u.filter((c) => c < original - 0.005);
+    if (below.length) {
+      const current = Math.max(...below);
+      if (original > current) return { price: original, promoPrice: current };
+    }
+  }
+  const low = u[0];
+  const high = u[u.length - 1];
+  if (high > low && high / low < 1.25) return { price: high, promoPrice: null };
+  return { price: high, promoPrice: low };
+}
+
+function pickPolyCurrentBelowPrevious(prev: number, curAmounts: number[]): number | null {
+  if (!curAmounts.length) return null;
+  const below = curAmounts.filter((c) => c < prev - 0.005);
+  if (below.length) return Math.max(...below);
+  return Math.max(...curAmounts);
+}
+
+/**
  * Bloco de preço em páginas com link de afiliado (poly-component), inclusive perfil social (meli.la).
  * Só o primeiro card: até o próximo `poly-component__price` — evita “Quem viu também comprou”.
  * Regra de sync (como aparece na tela):
@@ -591,13 +624,13 @@ function extractPricesFromPolyComponent(html: string): {
   if (prevIdx !== -1) {
     const prevSlice = block.slice(prevIdx, Math.min(block.length, prevIdx + 2200));
     const prevAmounts = extractOrderedPolyMoneyAmounts(prevSlice);
-    const prev = prevAmounts[0] ?? null;
+    const prev = prevAmounts.length ? Math.max(...prevAmounts) : null;
 
-    // current pode vir antes ou depois; se existir, pegamos o primeiro valor dentro dele
     if (curIdx !== -1) {
       const curSlice = block.slice(curIdx, Math.min(block.length, curIdx + 2600));
       const curAmounts = extractOrderedPolyMoneyAmounts(curSlice);
-      const cur = curAmounts[0] ?? null;
+      const cur =
+        prev != null ? pickPolyCurrentBelowPrevious(prev, curAmounts) : curAmounts[0] ?? null;
       if (prev != null && cur != null && cur !== prev) {
         return { price: prev, promoPrice: cur };
       }
@@ -610,16 +643,13 @@ function extractPricesFromPolyComponent(html: string): {
   if (curIdx !== -1) {
     const curSlice = block.slice(curIdx, Math.min(block.length, curIdx + 2600));
     const curAmounts = extractOrderedPolyMoneyAmounts(curSlice);
-    const cur = curAmounts[0] ?? null;
-    if (cur != null) return { price: cur, promoPrice: null };
+    const resolved = resolvePolyMoneyAmountsOrdered(curAmounts);
+    if (resolved) return resolved;
   }
 
-  // 2) Fallback: 1º/2º valores monetários no bloco (já sem parcelas)
   const amounts = extractOrderedPolyMoneyAmounts(block);
-  if (amounts.length >= 1) {
-    const promo = amounts.length >= 2 && amounts[1] !== amounts[0] ? amounts[1] : null;
-    return { price: amounts[0], promoPrice: promo };
-  }
+  const fromAmounts = resolvePolyMoneyAmountsOrdered(amounts);
+  if (fromAmounts) return fromAmounts;
 
   // 3) Último fallback: texto visível
   const vis = htmlToVisibleText(block);
@@ -698,8 +728,22 @@ export function extractPricesFromHtml(html: string): {
   price: number | null;
   promoPrice: number | null;
 } {
-  // Nova estratégia robusta por camadas:
-  // 1) JSON estruturado 2) bloco principal DOM 3) fallback textual.
+  /** Mesma resolução visual da aba Test ML (bloco vencedor + regras 130/150). */
+  const preview = resolvePreviewPricing(html, [], "html");
+  if (preview.pricing.currentPrice != null) {
+    const cur = preview.pricing.currentPrice;
+    const orig = preview.pricing.originalPrice;
+    if (
+      preview.pricing.hasDiscount &&
+      orig != null &&
+      orig > cur
+    ) {
+      return { price: orig, promoPrice: cur };
+    }
+    return { price: cur, promoPrice: null };
+  }
+
+  // Fallback: JSON-LD + DOM legado + texto (HTML sem bloco PDP reconhecível).
   const layered = extractMercadoLivrePrices(html);
   if (layered.currentPrice != null) {
     if (layered.originalPrice != null && layered.originalPrice > layered.currentPrice) {
