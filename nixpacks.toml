@@ -1,0 +1,3 @@
+# Coolify/Nixpacks: Node 22.11 não satisfaz engines do Next 16 / Vite (avisos EBADENGINE).
+[variables]
+NIXPACKS_NODE_VERSION = "24"

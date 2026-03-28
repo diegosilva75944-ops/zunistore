@@ -2,6 +2,9 @@
   "name": "zunistore",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build",
@@ -9,7 +12,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "replace": "node scripts/replace-all.js",
-    "postinstall": "npx playwright install chromium --with-deps",
+    "postinstall": "node scripts/postinstall-playwright.js",
     "test:playwright": "node scripts/test-playwright.js"
   },
   "dependencies": {
