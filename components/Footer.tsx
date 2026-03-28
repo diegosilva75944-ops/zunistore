@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getContactSettings, getSocialLinks } from "@/lib/store";
+import { ContactBlock } from "@/components/ContactBlock";
 
 export async function Footer() {
   const [contact, socials] = await Promise.all([getContactSettings(), getSocialLinks()]);
@@ -39,16 +40,7 @@ export async function Footer() {
 
         <div className="space-y-2">
           <div className="text-sm font-semibold">Contato</div>
-          <div className="text-sm text-zinc-700 space-y-1">
-            {contact?.address ? <div>{contact.address}</div> : null}
-            {contact?.city || contact?.state ? (
-              <div>
-                {[contact.city, contact.state].filter(Boolean).join(" - ")}
-              </div>
-            ) : null}
-            {contact?.phone ? <div>Telefone: {contact.phone}</div> : null}
-            {contact?.email ? <div>E-mail: {contact.email}</div> : null}
-          </div>
+          <ContactBlock contact={contact} />
 
           {socials.length ? (
             <div className="flex items-center gap-2 pt-2 flex-wrap">

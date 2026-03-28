@@ -5,6 +5,9 @@ import { CookieBanner } from "@/components/CookieBanner";
 
 const GA_MEASUREMENT_ID = "G-CCG95MP9NH";
 
+/** Alinha revalidação do rodapé (contato) com a página /contato. */
+export const revalidate = 300;
+
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
