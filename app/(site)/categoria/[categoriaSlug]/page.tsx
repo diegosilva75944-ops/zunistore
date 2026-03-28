@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCategoryBySlug, listProducts } from "@/lib/store";
 import { robotsForListing } from "@/lib/seo";
-import { ProductCard } from "@/components/ProductCard";
+import { TrackedProductCard } from "@/components/TrackedProductCard";
+import { CategoryVisitTracker } from "@/components/tracking/CategoryVisitTracker";
 import { PRICE_RANGES } from "@/lib/priceRanges";
 
 export const revalidate = 300;
@@ -47,6 +48,7 @@ export default async function CategoriaPage(props: {
 
   return (
     <div className="space-y-6">
+      <CategoryVisitTracker categoryId={category.id} />
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold">{category.name}</h1>
@@ -75,7 +77,7 @@ export default async function CategoriaPage(props: {
       {items.length ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {items.map((p) => (
-            <ProductCard key={p.id} product={p} />
+            <TrackedProductCard key={p.id} product={p} />
           ))}
         </div>
       ) : (

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getContactSettings, getSocialLinks } from "@/lib/store";
 import { ContactBlock } from "@/components/ContactBlock";
+import { ClearPersonalizationButton } from "@/components/common/ClearPersonalizationButton";
 
 export async function Footer() {
   const [contact, socials] = await Promise.all([getContactSettings(), getSocialLinks()]);
@@ -34,6 +35,9 @@ export async function Footer() {
               <Link href="/aviso-de-cookies" className="hover:underline">
                 Aviso de Cookies
               </Link>
+            </li>
+            <li className="pt-1">
+              <ClearPersonalizationButton />
             </li>
           </ul>
         </div>

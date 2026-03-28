@@ -45,12 +45,18 @@ export function CarouselClient({
   initialCarousel: any[];
   products: Product[];
 }) {
-  const initial: CarouselRow[] = (initialCarousel ?? [])
-    .map((c) => ({
-      product_id: c.product_id as string,
-      product: c.products as Product,
-    }))
-    .filter((x) => x.product);
+  const initial: CarouselRow[] = (() => {
+    const seen = new Set<string>();
+    const rows: CarouselRow[] = [];
+    for (const c of initialCarousel ?? []) {
+      const product_id = c.product_id as string;
+      const product = c.products as Product;
+      if (!product || !product_id || seen.has(product_id)) continue;
+      seen.add(product_id);
+      rows.push({ product_id, product });
+    }
+    return rows;
+  })();
 
   const [items, setItems] = useState<CarouselRow[]>(initial);
   const [query, setQuery] = useState("");
@@ -70,7 +76,10 @@ export function CarouselClient({
   function addSelected() {
     const prod = products.find((p) => p.id === pickId);
     if (!prod) return;
-    if (items.some((x) => x.product_id === prod.id)) return;
+    if (items.some((x) => x.product_id === prod.id)) {
+      alert("Este produto já está no carrossel. Cada item só pode aparecer uma vez.");
+      return;
+    }
     setItems((s) => [...s, { product_id: prod.id, product: prod }]);
   }
 

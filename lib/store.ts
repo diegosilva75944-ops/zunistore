@@ -325,6 +325,26 @@ export async function listProducts(opts: {
   }
 }
 
+/** Produtos ativos por IDs (recomendações / vitrine personalizada). */
+export async function getProductsByIds(ids: string[]): Promise<Product[]> {
+  const uniq = [...new Set(ids.filter(Boolean))];
+  if (!uniq.length) return [];
+  try {
+    const rows = await getWithPublicFallback<any[]>("products", {
+      select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
+      id: inVal(uniq),
+      is_active: "eq.true",
+      limit: String(uniq.length),
+    });
+    const list = (Array.isArray(rows) ? rows : []).map(normalizeProduct);
+    const order = new Map(uniq.map((id, i) => [id, i]));
+    list.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+    return list;
+  } catch {
+    return [];
+  }
+}
+
 export async function getProductByCode6(code6: string): Promise<Product | null> {
   try {
     const rows = await getWithPublicFallback<any[]>("products", {
@@ -414,7 +434,7 @@ export async function listRelatedProducts(opts: {
   }
 }
 
-function normalizeProduct(row: any): Product {
+export function normalizeProduct(row: any): Product {
   return {
     id: row.id,
     code6: row.code6,

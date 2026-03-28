@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { listProducts, type ProductSort } from "@/lib/store";
-import { ProductCard } from "@/components/ProductCard";
+import { TrackedProductCard } from "@/components/TrackedProductCard";
+import { BuscarQueryTracker } from "@/components/tracking/BuscarQueryTracker";
 
 export const revalidate = 60;
 
@@ -60,6 +62,9 @@ export default async function BuscarResultadosPage(props: {
 
   return (
     <div className="space-y-6">
+      <Suspense fallback={null}>
+        <BuscarQueryTracker />
+      </Suspense>
       <div>
         <h1 className="text-2xl font-semibold">Resultados da busca</h1>
         <p className="text-sm text-zinc-600 mt-1">
@@ -105,7 +110,7 @@ export default async function BuscarResultadosPage(props: {
       {items.length ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {items.map((p) => (
-            <ProductCard key={p.id} product={p} />
+            <TrackedProductCard key={p.id} product={p} />
           ))}
         </div>
       ) : (

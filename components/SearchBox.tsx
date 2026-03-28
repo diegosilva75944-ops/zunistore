@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { registrarBusca } from "@/lib/tracking";
 
 type SearchItem = {
   code6: string;
@@ -24,6 +25,7 @@ export function SearchBox() {
   function goToResultsPage() {
     const q = term.trim();
     if (!q) return;
+    registrarBusca(q);
     setOpen(false);
     router.push(`/buscar?q=${encodeURIComponent(q)}`);
   }
@@ -57,6 +59,13 @@ export function SearchBox() {
       .finally(() => {
         if (!ctrl.signal.aborted) setLoading(false);
       });
+  }, [debounced]);
+
+  useEffect(() => {
+    const q = debounced.trim();
+    if (q.length < 2) return;
+    const t = window.setTimeout(() => registrarBusca(q), 700);
+    return () => window.clearTimeout(t);
   }, [debounced]);
 
   useEffect(() => {

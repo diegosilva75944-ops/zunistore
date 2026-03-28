@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getSiteSettings, listCarouselProducts, listProducts, listSiteCategoriesFlat } from "@/lib/store";
-import { ProductCard } from "@/components/ProductCard";
+import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { HeroSlider } from "@/components/HeroSlider";
+import { HomeRecommendationSections } from "@/components/home/HomeRecommendationSections";
 
 export const revalidate = 60;
 
@@ -63,7 +64,7 @@ export default async function Home(props: {
       </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {offers.items.map((p) => (
-          <ProductCard key={p.id} product={p} />
+          <TrackedProductCard key={p.id} product={p} />
         ))}
       </div>
     </section>
@@ -74,6 +75,8 @@ export default async function Home(props: {
       {offersBeforeHero ? offersSection : null}
       {heroSection}
       {!offersBeforeHero ? offersSection : null}
+
+      <HomeRecommendationSections />
 
       <section className="space-y-4">
         <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -157,7 +160,7 @@ export default async function Home(props: {
         {all.items.length ? (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {all.items.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <TrackedProductCard key={p.id} product={p} />
             ))}
           </div>
         ) : (

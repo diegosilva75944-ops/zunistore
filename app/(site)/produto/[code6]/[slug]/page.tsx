@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getBaseUrl } from "@/lib/site-url";
 import { getCategoryById, getProductByCode6, listRelatedProducts } from "@/lib/store";
-import { ProductCard } from "@/components/ProductCard";
+import { TrackedProductCard } from "@/components/TrackedProductCard";
+import { ProductPageTracker } from "@/components/tracking/ProductPageTracker";
 import { ProductGallery } from "@/components/ProductGallery";
 import { RatingStars } from "@/components/RatingStars";
 
@@ -88,6 +89,23 @@ export default async function ProdutoPage(props: {
 
   return (
     <div className="space-y-8">
+      <ProductPageTracker
+        product={{
+          id: product.id,
+          code6: product.code6,
+          slug: product.slug,
+          title: product.title,
+          images: product.images ?? [],
+          category_id: product.category_id,
+          price: product.price,
+          promo_price: product.promo_price,
+          is_offer: product.is_offer,
+          off_percent: product.off_percent,
+          affiliate_url: product.affiliate_url,
+          rating: product.rating,
+          reviews_count: product.reviews_count,
+        }}
+      />
       <nav className="text-xs text-zinc-600">
         <Link href="/" className="hover:underline">
           Início
@@ -239,7 +257,7 @@ export default async function ProdutoPage(props: {
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {related.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <TrackedProductCard key={p.id} product={p} />
             ))}
           </div>
         </section>

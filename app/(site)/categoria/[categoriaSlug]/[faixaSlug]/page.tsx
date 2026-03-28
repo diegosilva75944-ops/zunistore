@@ -4,7 +4,8 @@ import Link from "next/link";
 import { getCategoryBySlug, listProducts } from "@/lib/store";
 import { getPriceRangeBySlug } from "@/lib/priceRanges";
 import { robotsForListing } from "@/lib/seo";
-import { ProductCard } from "@/components/ProductCard";
+import { TrackedProductCard } from "@/components/TrackedProductCard";
+import { CategoryVisitTracker } from "@/components/tracking/CategoryVisitTracker";
 
 export const revalidate = 300;
 
@@ -55,6 +56,7 @@ export default async function FaixaCategoriaPage(props: {
 
   return (
     <div className="space-y-6">
+      <CategoryVisitTracker categoryId={category.id} />
       <nav className="text-xs text-zinc-600">
         <Link href="/" className="hover:underline">
           Início
@@ -76,7 +78,7 @@ export default async function FaixaCategoriaPage(props: {
       {items.length ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {items.map((p) => (
-            <ProductCard key={p.id} product={p} />
+            <TrackedProductCard key={p.id} product={p} />
           ))}
         </div>
       ) : (

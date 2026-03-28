@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { listProducts, listHeaderCategories } from "@/lib/store";
 import { robotsForListing } from "@/lib/seo";
-import { ProductCard } from "@/components/ProductCard";
+import { TrackedProductCard } from "@/components/TrackedProductCard";
 
 export const revalidate = 300;
 
@@ -43,7 +43,7 @@ export default async function MaisAvaliadosPage() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {list.items.map((p) => (
-          <ProductCard key={p.id} product={p} />
+          <TrackedProductCard key={p.id} product={p} />
         ))}
       </div>
     </div>

@@ -667,9 +667,19 @@ export async function adminListCarousel() {
 }
 
 export async function adminSetCarousel(items: { product_id: string; sort_order: number; size: "S" | "M" | "G" }[]) {
+  const seen = new Set<string>();
+  const deduped: { product_id: string; sort_order: number; size: "S" | "M" | "G" }[] = [];
+  for (const row of items) {
+    if (!row.product_id || seen.has(row.product_id)) continue;
+    seen.add(row.product_id);
+    deduped.push(row);
+  }
+  for (let i = 0; i < deduped.length; i++) {
+    deduped[i] = { ...deduped[i], sort_order: i };
+  }
   await postgrestDelete("carousel_items", { id: `neq.00000000-0000-0000-0000-000000000000` });
-  if (!items.length) return;
-  await postgrestPost("carousel_items", items);
+  if (!deduped.length) return;
+  await postgrestPost("carousel_items", deduped);
 }
 
 export async function buildProductSlug(title: string, code6: string) {

@@ -167,6 +167,7 @@ create table if not exists public.carousel_items (
 );
 
 create index if not exists carousel_sort_idx on public.carousel_items(sort_order asc);
+create unique index if not exists carousel_items_product_id_unique on public.carousel_items(product_id);
 
 -- site settings (1 linha)
 create table if not exists public.site_settings (
