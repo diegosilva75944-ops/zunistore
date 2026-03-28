@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { getSiteSettings, listCarouselProducts, listProducts, listSiteCategoriesFlat } from "@/lib/store";
+import { HomeAllProductsScroll } from "@/components/home/HomeAllProductsScroll";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { HeroSlider } from "@/components/HeroSlider";
 import { HomeRecommendationSections } from "@/components/home/HomeRecommendationSections";
@@ -69,15 +71,25 @@ export default async function Home(props: {
 
   return (
     <div className="space-y-10">
+      <Suspense fallback={null}>
+        <HomeAllProductsScroll />
+      </Suspense>
       {offersBeforeHero ? offersSection : null}
       {heroSection}
       {!offersBeforeHero ? offersSection : null}
 
       <HomeRecommendationSections />
 
-      <section className="space-y-4">
+      <section
+        id="todos-produtos"
+        className="space-y-4 scroll-mt-28 md:scroll-mt-32"
+        tabIndex={-1}
+        aria-labelledby="todos-produtos-heading"
+      >
         <div className="flex items-end justify-between gap-4 flex-wrap">
-          <h2 className="text-xl font-semibold">Todos os Produtos</h2>
+          <h2 id="todos-produtos-heading" className="text-xl font-semibold">
+            Todos os Produtos
+          </h2>
           <div className="text-sm text-zinc-600">
             Total: <span className="font-semibold text-zinc-900">{all.total}</span>
           </div>
@@ -168,8 +180,9 @@ export default async function Home(props: {
 
         <div className="flex items-center justify-between">
           <Link
-            href={withParam(searchParams, { p: String(Math.max(1, page - 1)) })}
+            href={`${withParam(searchParams, { p: String(Math.max(1, page - 1)) })}#todos-produtos`}
             aria-disabled={page <= 1}
+            scroll={false}
             className={`text-sm font-semibold ${page <= 1 ? "text-zinc-400 pointer-events-none" : "text-zuni-primary hover:underline"}`}
           >
             ← Anterior
@@ -178,7 +191,8 @@ export default async function Home(props: {
             Página <span className="font-semibold text-zinc-900">{page}</span>
           </div>
           <Link
-            href={withParam(searchParams, { p: String(page + 1) })}
+            href={`${withParam(searchParams, { p: String(page + 1) })}#todos-produtos`}
+            scroll={false}
             className="text-sm font-semibold text-zuni-primary hover:underline"
           >
             Próxima →
