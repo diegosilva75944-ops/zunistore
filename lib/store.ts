@@ -1,6 +1,6 @@
 import "server-only";
 
-import { postgrestGet, postgrestGetWithCount } from "@/lib/postgrest/server";
+import { postgrestGet, postgrestGetWithCount, inVal } from "@/lib/postgrest/server";
 import { ilikeContainsPattern } from "@/lib/postgrest/ilike";
 
 export type Category = {
@@ -297,7 +297,25 @@ export async function listProducts(opts: {
     }
     if (q?.trim()) {
       const pat = ilikeContainsPattern(q.trim());
-      params.or = `(title.ilike.${pat},description.ilike.${pat},description_detail.ilike.${pat})`;
+      const orParts = [
+        `title.ilike.${pat}`,
+        `description.ilike.${pat}`,
+        `description_detail.ilike.${pat}`,
+      ];
+      try {
+        const catRows = await getWithPublicFallback<any[]>("categories", {
+          select: "id",
+          or: `(name.ilike.${pat},slug.ilike.${pat})`,
+          limit: "50",
+        });
+        const catIds = (Array.isArray(catRows) ? catRows : []).map((c) => c.id);
+        if (catIds.length > 0) {
+          orParts.push(`category_id.${inVal(catIds)}`);
+        }
+      } catch {
+        /* categorias indisponíveis: segue só texto */
+      }
+      params.or = `(${orParts.join(",")})`;
     }
 
     const { data, count } = await getWithCountPublicFallback<any[]>("products", params);
