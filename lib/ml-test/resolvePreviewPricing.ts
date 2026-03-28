@@ -96,7 +96,9 @@ function collectVisibleCurrentAndesInBlock($: CheerioAPI, $scope: Cheerio<Elemen
 
 /**
  * Somente dentro do bloco vencedor (DOM clonado e limpo).
- * Dois preços distintos: menor = atual, maior = original (regra do buy box).
+ * Com riscado: original = max(previous), atual = max(current abaixo do original).
+ * Sem riscado: dois valores muito próximos (&lt;25%) → preço único = maior; senão desconto menor/maior;
+ * três+ valores → max=original e max(abaixo do max)=atual.
  */
 function resolvePricesFromBlockDom(
   $: CheerioAPI,
@@ -130,11 +132,33 @@ function resolvePricesFromBlockDom(
   }
 
   const allDistinct = [...new Set([...uniqPrev, ...uniqCur])].sort((a, b) => a - b);
+  if (allDistinct.length >= 3) {
+    const originalRaw = Math.max(...allDistinct);
+    const below = allDistinct.filter((c) => c < originalRaw - 0.005);
+    if (below.length) {
+      const currentRaw = Math.max(...below);
+      const original = roundMoney(originalRaw);
+      const current = roundMoney(currentRaw);
+      if (original > current) {
+        notes.push(
+          "Três+ valores no bloco sem riscado explícito: max=original, max(abaixo do max)=atual.",
+        );
+        return { current, original, displayMode: "discounted_price" };
+      }
+    }
+  }
   if (allDistinct.length >= 2) {
     const low = allDistinct[0];
     const high = allDistinct[allDistinct.length - 1];
     if (high > low) {
-      notes.push("Dois+ preços distintos no bloco (sem riscado explícito): menor=atual, maior=original.");
+      const ratio = high / low;
+      if (ratio < 1.25) {
+        notes.push(
+          "Dois preços próximos sem riscado explícito: maior como preço único (evita valor menor espúrio).",
+        );
+        return { current: roundMoney(high), original: null, displayMode: "single_price" };
+      }
+      notes.push("Dois preços distintos no bloco (sem riscado explícito): menor=atual, maior=original.");
       return {
         current: roundMoney(low),
         original: roundMoney(high),
@@ -151,6 +175,11 @@ function resolvePricesFromBlockDom(
     const low = Math.min(...uniqCur);
     const high = Math.max(...uniqCur);
     if (high > low) {
+      const ratio = high / low;
+      if (ratio < 1.25) {
+        notes.push("Múltiplos andes próximos no bloco: maior como preço único.");
+        return { current: roundMoney(high), original: null, displayMode: "single_price" };
+      }
       notes.push("Múltiplos andes no bloco: menor=atual, maior=original.");
       return {
         current: roundMoney(low),

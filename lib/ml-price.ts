@@ -369,7 +369,8 @@ function findPromoAndPrice(html: string): { price: number | null; promoPrice: nu
   const news = found.filter((x) => !x.isOld).map((x) => x.n);
   if (olds.length && news.length) {
     const price = Math.max(...olds);
-    const promoPrice = Math.min(...news);
+    const below = news.filter((n) => n < price - 0.005);
+    const promoPrice = below.length > 0 ? Math.max(...below) : Math.min(...news);
     if (promoPrice < price) return { price, promoPrice };
   }
   const nums = found.map((x) => x.n);
@@ -478,8 +479,8 @@ function extractOrderedPolyMoneyAmounts(block: string): number[] {
 /**
  * Mesma regra do primeiro `poly-component__price` em `content_script.js`: para cada `.andes-money-amount`
  * em ordem de aparição, classifica como "previous" se o trecho antes da `fraction` ainda está na seção
- * riscada (antes de `poly-price__current`). Depois: max(previous) + min(current) se ambos existirem e
- * promo &lt; price; senão 1º e 2º valores na ordem (promo se 2º &lt; 1º). Ignora parcelas.
+ * riscada (antes de `poly-price__current`). Depois: max(previous) + max(current abaixo do original)
+ * se ambos existirem e promo &lt; price; senão 1º e 2º valores na ordem (promo se 2º &lt; 1º). Ignora parcelas.
  */
 function isPolyFractionInPreviousSection(html: string, pos: number): boolean {
   const before = html.slice(Math.max(0, pos - 4000), pos);
@@ -531,7 +532,8 @@ function extractPolyPricesLikeExtensionFromHtml(html: string): {
   const current = amounts.filter((x) => !x.isPrevious).map((x) => x.n);
   if (previous.length && current.length) {
     const price = Math.max(...previous);
-    const promo = Math.min(...current);
+    const below = current.filter((c) => c < price - 0.005);
+    const promo = below.length > 0 ? Math.max(...below) : Math.min(...current);
     if (promo < price) {
       return { price, promoPrice: promo };
     }
