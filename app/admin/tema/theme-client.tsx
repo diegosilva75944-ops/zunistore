@@ -19,9 +19,12 @@ const DEFAULT_KEYS = [
   "--muted",
 ];
 
+type OffersSectionPosition = "after_hero" | "before_hero";
+
 export function ThemeClient() {
   const [logoUrl, setLogoUrl] = useState<string>("");
   const [colors, setColors] = useState<Record<string, string>>({});
+  const [offersSectionPosition, setOffersSectionPosition] = useState<OffersSectionPosition>("after_hero");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -37,6 +40,9 @@ export function ThemeClient() {
         const s = data?.settings;
         setLogoUrl(s?.logo_url ?? "");
         setColors(typeof s?.colors === "object" && s?.colors ? s.colors : {});
+        setOffersSectionPosition(
+          s?.offers_section_position === "before_hero" ? "before_hero" : "after_hero",
+        );
       })
       .catch(() => {});
   }, []);
@@ -70,6 +76,33 @@ export function ThemeClient() {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-3">
+        <div className="text-sm font-semibold">Seção «Produtos em oferta» (página inicial)</div>
+        <p className="text-xs text-zinc-600">
+          Escolha se os cards de ofertas aparecem antes ou depois do carrossel principal.
+        </p>
+        <div className="flex flex-wrap gap-4 text-sm">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="offers_pos"
+              checked={offersSectionPosition === "after_hero"}
+              onChange={() => setOffersSectionPosition("after_hero")}
+            />
+            Depois do carrossel
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="offers_pos"
+              checked={offersSectionPosition === "before_hero"}
+              onChange={() => setOffersSectionPosition("before_hero")}
+            />
+            Antes do carrossel
+          </label>
+        </div>
+      </div>
+
       <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-2">
         <div className="text-sm font-semibold">Logo (URL PNG)</div>
         <input

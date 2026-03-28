@@ -20,7 +20,7 @@ function enc(v: string | number | boolean): string {
 
 export async function adminListCategories() {
   const data = await postgrestGet<any[]>("categories", {
-    select: "id,name,slug,parent_id,is_seed,created_at",
+    select: "id,name,slug,parent_id,is_seed,show_in_header,created_at",
     order: "name.asc",
   });
   return Array.isArray(data) ? data : [];
@@ -30,6 +30,7 @@ export async function adminCreateCategory(input: {
   name: string;
   slug?: string | null;
   parent_id?: string | null;
+  show_in_header?: boolean;
 }) {
   const slug = (input.slug?.trim() ? slugify(input.slug) : slugify(input.name)) || "categoria";
   const existing = await postgrestGet<any[]>("categories", {
@@ -47,9 +48,10 @@ export async function adminCreateCategory(input: {
       slug,
       parent_id: input.parent_id ?? null,
       is_seed: false,
+      show_in_header: input.show_in_header ?? false,
     },
     "service",
-    { select: "id,name,slug,parent_id,is_seed", returning: true },
+    { select: "id,name,slug,parent_id,is_seed,show_in_header", returning: true },
   );
   const arr = Array.isArray(inserted) ? inserted : [];
   if (!arr[0]) throw new Error("Falha ao criar categoria.");
@@ -58,14 +60,16 @@ export async function adminCreateCategory(input: {
 
 export async function adminUpdateCategory(
   id: string,
-  input: { name?: string; slug?: string },
+  input: { name?: string; slug?: string; show_in_header?: boolean },
 ) {
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name.trim();
   if (input.slug !== undefined) {
-    const slug = input.slug.trim() || slugify((input.name as string) || "");
+    const raw = input.slug.trim();
+    const slug = raw ? slugify(raw) : slugify((input.name as string) || "");
     if (slug) updates.slug = slug;
   }
+  if (input.show_in_header !== undefined) updates.show_in_header = input.show_in_header;
   if (Object.keys(updates).length === 0) return;
   await postgrestPatch("categories", updates, { id: `eq.${id}` });
 }
@@ -512,9 +516,19 @@ export async function adminUpdateLogoUrl(logoUrl: string | null) {
   await postgrestPatch("site_settings", { logo_url: logoUrl }, { id: `eq.${data.id}` });
 }
 
+export async function adminUpdateOffersSectionPosition(position: "after_hero" | "before_hero") {
+  const rows = await postgrestGet<any[]>("site_settings", { select: "id", limit: "1" });
+  const data = Array.isArray(rows) ? rows[0] : null;
+  if (!data) {
+    await postgrestPost("site_settings", { offers_section_position: position });
+    return;
+  }
+  await postgrestPatch("site_settings", { offers_section_position: position }, { id: `eq.${data.id}` });
+}
+
 export async function adminGetSiteSettings() {
   const rows = await postgrestGet<any[]>("site_settings", {
-    select: "id,logo_url,colors",
+    select: "id,logo_url,colors,offers_section_position",
     limit: "1",
   });
   const row = Array.isArray(rows) && rows[0] ? rows[0] : null;

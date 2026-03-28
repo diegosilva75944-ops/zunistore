@@ -46,8 +46,8 @@ with seed(name, slug) as (
     ('Acessórios para Veículos', 'acessorios-para-veiculos'),
     ('Saúde e Suplementos', 'saude-e-suplementos')
 )
-insert into public.categories (name, slug, parent_id, is_seed)
-select s.name, s.slug, null, true
+insert into public.categories (name, slug, parent_id, is_seed, show_in_header)
+select s.name, s.slug, null, true, true
 from seed s
 on conflict (slug) do nothing;
 

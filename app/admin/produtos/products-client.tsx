@@ -282,7 +282,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   async function syncAllPrices() {
     if (
       !confirm(
-        "Serão reimportados TODOS os produtos com vínculo Mercado Livre, um por um, em ordem decrescente do código (mesmo fluxo da aba Teste ML). Pode levar muitos minutos. Continuar?",
+        "Serão reimportados TODOS os produtos com vínculo Mercado Livre, um por um, em ordem decrescente do código. Pode levar muitos minutos. Continuar?",
       )
     )
       return;
@@ -831,7 +831,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         )}
         
         <span className="text-xs text-zinc-600 ml-auto">
-          Atualização automática: diariamente às 3h
+          Atualização automática: a cada 30 minutos
         </span>
       </div>
 

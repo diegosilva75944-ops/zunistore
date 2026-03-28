@@ -20,6 +20,7 @@ create table if not exists public.categories (
   slug text not null unique,
   parent_id uuid null references public.categories(id) on delete set null,
   is_seed boolean not null default false,
+  show_in_header boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -172,6 +173,7 @@ create table if not exists public.site_settings (
   id uuid primary key default gen_random_uuid(),
   logo_url text null,
   colors jsonb null,
+  offers_section_position text not null default 'after_hero',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -8,6 +8,7 @@ const createSchema = z.object({
   name: z.string().min(1, "Nome é obrigatório").max(200),
   slug: z.string().max(200).optional().nullable(),
   parent_id: z.string().uuid().optional().nullable(),
+  show_in_header: z.boolean().optional(),
 });
 
 export async function GET() {

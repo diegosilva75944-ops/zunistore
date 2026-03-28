@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { listProducts, listSeedCategories } from "@/lib/store";
+import { listProducts, listHeaderCategories } from "@/lib/store";
 import { robotsForListing } from "@/lib/seo";
 import { ProductCard } from "@/components/ProductCard";
 
@@ -17,7 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function MaisAvaliadosPage() {
   const [categories, list] = await Promise.all([
-    listSeedCategories(),
+    listHeaderCategories(),
     listProducts({ sort: "mais-avaliados", perPage: 20, page: 1 }),
   ]);
 

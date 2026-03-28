@@ -43,6 +43,8 @@ export type SiteSettings = {
   id: string;
   logo_url: string | null;
   colors: Record<string, string> | null;
+  /** after_hero | before_hero */
+  offers_section_position?: string | null;
 };
 
 export type ContactSettings = {
@@ -102,7 +104,7 @@ async function getWithCountPublicFallback<T>(
 export async function getSiteSettings(): Promise<SiteSettings | null> {
   try {
     const rows = await getWithPublicFallback<any[]>("site_settings", {
-      select: "id,logo_url,colors",
+      select: "id,logo_url,colors,offers_section_position",
       limit: "1",
     });
     return Array.isArray(rows) && rows[0] ? rows[0] : null;
@@ -199,11 +201,25 @@ export async function searchProductsByTerms(opts: {
   }
 }
 
-export async function listSeedCategories(): Promise<Category[]> {
+/** Categorias com chip no cabeçalho (admin: “mostrar no cabeçalho”). */
+export async function listHeaderCategories(): Promise<Category[]> {
   try {
     const data = await getWithPublicFallback<any[]>("categories", {
       select: "id,name,slug,parent_id",
-      parent_id: "is.null",
+      show_in_header: "eq.true",
+      order: "name.asc",
+    });
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Todas as categorias (seeds + importadas) para /categorias e filtros do site. */
+export async function listSiteCategoriesFlat(): Promise<Category[]> {
+  try {
+    const data = await getWithPublicFallback<any[]>("categories", {
+      select: "id,name,slug,parent_id",
       order: "name.asc",
     });
     return Array.isArray(data) ? data : [];

@@ -15,8 +15,9 @@ export function SearchBox() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
-  const debounced = useDebounce(term, 300);
+  const debounced = useDebounce(term, 120);
 
   useEffect(() => {
     const q = debounced.trim();
@@ -46,10 +47,27 @@ export function SearchBox() {
       });
   }, [debounced]);
 
+  useEffect(() => {
+    function onPointerDown(ev: MouseEvent | TouchEvent) {
+      const el = rootRef.current;
+      if (!el || !open) return;
+      const target = ev.target as Node | null;
+      if (target && el.contains(target)) return;
+      setOpen(false);
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+    };
+  }, [open]);
+
   const hasResults = items.length > 0;
 
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       <input
         value={term}
         onChange={(e) => {
@@ -57,14 +75,17 @@ export function SearchBox() {
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setOpen(false);
+        }}
         placeholder="Busque por produto, categoria ou descrição…"
         className="w-full rounded-full bg-white/10 text-white placeholder:text-white/60 px-4 py-2 text-sm outline-none ring-1 ring-white/10 focus:ring-2 focus:ring-zuni-yellow"
       />
 
       {open ? (
-        <div className="absolute left-0 right-0 mt-2 rounded-2xl bg-white text-zuni-black shadow-xl overflow-hidden ring-1 ring-zinc-200">
+        <div className="absolute left-0 right-0 mt-2 rounded-2xl bg-white text-zuni-black shadow-xl overflow-hidden ring-1 ring-zinc-200 z-50">
           <div className="px-4 py-2 text-xs text-zinc-600 flex items-center justify-between">
-            <span>{loading ? "Buscando…" : hasResults ? "Resultados" : "Nenhum resultado"}</span>
+            <span>{loading ? "Buscando…" : hasResults ? "Resultados" : term.trim() ? "Nenhum resultado" : "Digite para buscar"}</span>
             <button
               type="button"
               onClick={() => setOpen(false)}
@@ -104,4 +125,3 @@ function useDebounce<T>(value: T, delayMs: number) {
 
   return debounced;
 }
-

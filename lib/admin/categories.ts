@@ -3,43 +3,98 @@ import "server-only";
 import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
 import { slugify } from "@/lib/slug";
 
-export async function adminUpsertCategoryFromBreadcrumb(categoryPath: string[], categoryName: string): Promise<string | undefined> {
+function enc(v: string): string {
+  return encodeURIComponent(v);
+}
+
+export async function adminUpsertCategoryFromBreadcrumb(
+  categoryPath: string[],
+  categoryName: string,
+): Promise<string | undefined> {
   const seeds = await postgrestGet<any[]>("categories", {
     select: "id,name,slug",
     is_seed: "eq.true",
     parent_id: "is.null",
   });
   const seedList = Array.isArray(seeds) ? seeds : [];
+  if (!seedList.length) return undefined;
+
   const path = (categoryPath ?? []).map((s) => String(s || "").trim()).filter(Boolean);
-  const last = String(categoryName || path[path.length - 1] || "").trim();
+  const leaf = String(categoryName || "").trim();
+  const full: string[] = [...path];
+  if (leaf && (!full.length || normalize(full[full.length - 1] ?? "") !== normalize(leaf))) {
+    full.push(leaf);
+  }
+  if (!full.length) return seedList[0].id;
 
-  const chosenSeed = pickClosestSeed(seedList, path.concat(last));
-  const seedId = chosenSeed?.id ?? seedList[0]?.id;
+  const chosenSeed = pickClosestSeed(seedList, full);
+  let parentId = chosenSeed?.id ?? seedList[0].id;
+  let parentSlug = String(chosenSeed?.slug ?? seedList[0].slug ?? "").trim() || slugify(seedList[0].name);
 
-  if (!last) return seedId;
+  let start = 0;
+  if (chosenSeed && full[0] && normalize(full[0]) === normalize(chosenSeed.name)) {
+    start = 1;
+  }
 
-  const sameAsSeed = chosenSeed && normalize(last) === normalize(chosenSeed.name);
-  if (sameAsSeed) return seedId;
+  for (let i = start; i < full.length; i++) {
+    const name = String(full[i] || "").trim();
+    if (!name) continue;
 
-  const subSlug = slugify(last);
-  const existing = await postgrestGet<any[]>("categories", {
-    select: "id",
-    slug: `eq.${encodeURIComponent(subSlug)}`,
-    limit: "1",
-  });
-  if (Array.isArray(existing) && existing[0]?.id) return existing[0].id;
+    const baseSlug = slugify(`${parentSlug}-${slugify(name)}`);
 
-  const created = await postgrestPost<any[]>(
-    "categories",
-    { name: last, slug: subSlug, parent_id: seedId, is_seed: false },
-    "service",
-    { select: "id", returning: true },
-  );
-  const createdRow = Array.isArray(created) ? created[0] : null;
-  return createdRow?.id ?? seedId;
+    const sameParent = await postgrestGet<any[]>("categories", {
+      select: "id,slug",
+      parent_id: `eq.${parentId}`,
+      slug: `eq.${enc(baseSlug)}`,
+      limit: "1",
+    });
+    const sameHit = Array.isArray(sameParent) ? sameParent[0] : null;
+    if (sameHit?.id) {
+      parentId = sameHit.id;
+      parentSlug = String(sameHit.slug || baseSlug);
+      continue;
+    }
+
+    const slug = await allocateCategorySlugUnderParent(baseSlug, parentId);
+
+    const created = await postgrestPost<any[]>(
+      "categories",
+      {
+        name,
+        slug,
+        parent_id: parentId,
+        is_seed: false,
+        show_in_header: false,
+      },
+      "service",
+      { select: "id,slug", returning: true },
+    );
+    const row = Array.isArray(created) ? created[0] : null;
+    if (!row?.id) return parentId;
+    parentId = row.id;
+    parentSlug = String(row.slug || slug);
+  }
+
+  return parentId;
 }
 
-function pickClosestSeed(seeds: { id: string; name: string }[], crumbs: string[]) {
+async function allocateCategorySlugUnderParent(baseSlug: string, parentId: string): Promise<string> {
+  let candidate = baseSlug;
+  for (let n = 0; n < 50; n++) {
+    const rows = await postgrestGet<any[]>("categories", {
+      select: "id,parent_id",
+      slug: `eq.${enc(candidate)}`,
+      limit: "1",
+    });
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return candidate;
+    if (row.parent_id === parentId) return candidate;
+    candidate = `${baseSlug}-${n + 2}`;
+  }
+  return `${baseSlug}-${Date.now()}`;
+}
+
+function pickClosestSeed(seeds: { id: string; name: string; slug: string }[], crumbs: string[]) {
   if (!seeds.length) return null;
   const hay = normalize(crumbs.join(" "));
   const hayTokens = new Set(hay.split(/\s+/).filter(Boolean));
@@ -68,4 +123,3 @@ function normalize(input: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
-

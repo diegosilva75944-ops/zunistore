@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { adminGetSiteSettings, adminUpdateLogoUrl, adminUpdateSiteColors } from "@/lib/admin/db";
+import {
+  adminGetSiteSettings,
+  adminUpdateLogoUrl,
+  adminUpdateSiteColors,
+  adminUpdateOffersSectionPosition,
+} from "@/lib/admin/db";
 
 export const runtime = "nodejs";
 
@@ -10,8 +15,9 @@ export async function GET() {
 }
 
 const schema = z.object({
-  logo_url: z.string().url().nullable().optional(),
+  logo_url: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
   colors: z.record(z.string(), z.string()).optional(),
+  offers_section_position: z.enum(["after_hero", "before_hero"]).optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -25,7 +31,11 @@ export async function PATCH(req: Request) {
     await adminUpdateSiteColors(parsed.data.colors);
   }
   if (parsed.data.logo_url !== undefined) {
-    await adminUpdateLogoUrl(parsed.data.logo_url);
+    const v = parsed.data.logo_url;
+    await adminUpdateLogoUrl(v === "" || v === null ? null : v);
+  }
+  if (parsed.data.offers_section_position) {
+    await adminUpdateOffersSectionPosition(parsed.data.offers_section_position);
   }
 
   return NextResponse.json({ ok: true });

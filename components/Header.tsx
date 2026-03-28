@@ -1,10 +1,10 @@
 import Link from "next/link";
 import Image from "next/image";
-import { listSeedCategories, getSiteSettings } from "@/lib/store";
+import { listHeaderCategories, getSiteSettings } from "@/lib/store";
 import { SearchBox } from "@/components/SearchBox";
 
 export async function Header() {
-  const [settings, categories] = await Promise.all([getSiteSettings(), listSeedCategories()]);
+  const [settings, categories] = await Promise.all([getSiteSettings(), listHeaderCategories()]);
   const logoUrl = settings?.logo_url ?? null;
 
   return (

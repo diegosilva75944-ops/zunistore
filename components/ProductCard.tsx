@@ -2,7 +2,24 @@ import Image from "next/image";
 import Link from "next/link";
 import { Product } from "@/lib/store";
 
-export function ProductCard({ product }: { product: Pick<Product, "code6" | "slug" | "title" | "images" | "price" | "promo_price" | "is_offer" | "off_percent" | "affiliate_url"> }) {
+export function ProductCard({
+  product,
+}: {
+  product: Pick<
+    Product,
+    | "code6"
+    | "slug"
+    | "title"
+    | "images"
+    | "price"
+    | "promo_price"
+    | "is_offer"
+    | "off_percent"
+    | "affiliate_url"
+    | "rating"
+    | "reviews_count"
+  >;
+}) {
   const img = product.images?.[0] ?? null;
   const listPrice = Number(product.price);
   const salePrice = product.promo_price == null ? null : Number(product.promo_price);
@@ -40,6 +57,21 @@ export function ProductCard({ product }: { product: Pick<Product, "code6" | "slu
           {product.title}
         </Link>
 
+        {product.rating != null || (product.reviews_count != null && product.reviews_count > 0) ? (
+          <div className="text-xs text-zinc-500">
+            {product.rating != null ? (
+              <span className="font-medium text-zinc-700">{formatRating(product.rating)}</span>
+            ) : null}
+            {product.reviews_count != null && product.reviews_count > 0 ? (
+              <span>
+                {product.rating != null ? " · " : null}
+                {product.reviews_count}{" "}
+                {product.reviews_count === 1 ? "avaliação" : "avaliações"}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="mt-auto space-y-1">
           {hasPromo ? (
             <div className="text-xs text-zinc-500 line-through">
@@ -66,5 +98,11 @@ export function ProductCard({ product }: { product: Pick<Product, "code6" | "slu
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+}
+
+function formatRating(value: number) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `★ ${n.toFixed(1).replace(".", ",")}`;
 }
 

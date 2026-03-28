@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { listCarouselProducts, listProducts, listSeedCategories } from "@/lib/store";
+import { getSiteSettings, listCarouselProducts, listProducts, listSiteCategoriesFlat } from "@/lib/store";
 import { ProductCard } from "@/components/ProductCard";
 import { HeroSlider } from "@/components/HeroSlider";
 
@@ -17,53 +17,63 @@ export default async function Home(props: {
   const perPage = (asNumber(searchParams.pp) ?? 20) as 10 | 20 | 50;
   const page = asNumber(searchParams.p) ?? 1;
 
-  const [carousel, categories, offers] = await Promise.all([
+  const [carousel, categories, offers, siteSettings] = await Promise.all([
     listCarouselProducts(),
-    listSeedCategories(),
+    listSiteCategoriesFlat(),
     listProducts({ onlyOffers: true, perPage: 10, page: 1, sort: "maior-desconto" }),
+    getSiteSettings(),
   ]);
+  const offersBeforeHero = siteSettings?.offers_section_position === "before_hero";
 
   const categoryId = categorySlug ? categoriesToId(categories, categorySlug) : null;
   const all = await listProducts({ categoryId, min, max, sort, perPage, page });
 
+  const heroSection = (
+    <section className="space-y-3">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+            ZuniStore
+          </h1>
+          <p className="text-sm text-zinc-600">
+            Encontre ofertas e produtos em destaque. Ao comprar, você será redirecionado para a loja original.
+          </p>
+        </div>
+        <Link
+          href="/ofertas"
+          className="text-sm font-semibold text-zuni-primary hover:underline"
+        >
+          Ver todas as ofertas
+        </Link>
+      </div>
+
+      <div className="relative left-1/2 -translate-x-1/2 w-screen max-w-none">
+        <HeroSlider items={carousel} />
+      </div>
+    </section>
+  );
+
+  const offersSection = (
+    <section className="space-y-4">
+      <div className="flex items-end justify-between">
+        <h2 className="text-xl font-semibold">Produtos em Oferta</h2>
+        <Link href="/ofertas" className="text-sm text-zuni-primary hover:underline">
+          Ver mais
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        {offers.items.map((p) => (
+          <ProductCard key={p.id} product={p} />
+        ))}
+      </div>
+    </section>
+  );
+
   return (
     <div className="space-y-10">
-      <section className="space-y-3">
-        <div className="flex items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
-              ZuniStore
-            </h1>
-            <p className="text-sm text-zinc-600">
-              Encontre ofertas e produtos em destaque. Ao comprar, você será redirecionado para a loja original.
-            </p>
-          </div>
-          <Link
-            href="/ofertas"
-            className="text-sm font-semibold text-zuni-primary hover:underline"
-          >
-            Ver todas as ofertas
-          </Link>
-        </div>
-
-        <div className="relative left-1/2 -translate-x-1/2 w-screen max-w-none">
-          <HeroSlider items={carousel} />
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <div className="flex items-end justify-between">
-          <h2 className="text-xl font-semibold">Produtos em Oferta</h2>
-          <Link href="/ofertas" className="text-sm text-zuni-primary hover:underline">
-            Ver mais
-          </Link>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          {offers.items.map((p) => (
-            <ProductCard key={p.id} product={p} />
-          ))}
-        </div>
-      </section>
+      {offersBeforeHero ? offersSection : null}
+      {heroSection}
+      {!offersBeforeHero ? offersSection : null}
 
       <section className="space-y-4">
         <div className="flex items-end justify-between gap-4 flex-wrap">
