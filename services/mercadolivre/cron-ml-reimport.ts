@@ -3,6 +3,7 @@ import "server-only";
 import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { postgrestGet } from "@/lib/postgrest/server";
+import { runDedupeProductsByDuplicateTitle } from "@/services/products/dedupe-by-title";
 import { mlSyncImportedProduct } from "@/services/mercadolivre/sync";
 
 const BATCH_PAGE = 500;
@@ -26,6 +27,8 @@ export type CronMlFullReimportBatchResult =
       failed: number;
       skipped_no_url: number;
       failures: CronMlBatchFailure[];
+      dedupe_removed?: number;
+      dedupe_errors?: string[];
     }
   | {
       ok: true;
@@ -36,6 +39,8 @@ export type CronMlFullReimportBatchResult =
       failed: number;
       skipped_no_url: number;
       failures: CronMlBatchFailure[];
+      dedupe_removed: number;
+      dedupe_errors: string[];
     }
   | {
       ok: false;
@@ -167,6 +172,8 @@ export async function runCronMlFullReimportAll(): Promise<CronMlFullReimportBatc
       failed: 0,
       skipped_no_url: 0,
       failures: [],
+      dedupe_removed: 0,
+      dedupe_errors: [],
     };
   }
 
@@ -194,6 +201,16 @@ export async function runCronMlFullReimportAll(): Promise<CronMlFullReimportBatc
     }
   }
 
+  let dedupe_removed = 0;
+  const dedupe_errors: string[] = [];
+  try {
+    const d = await runDedupeProductsByDuplicateTitle();
+    dedupe_removed = d.removed;
+    dedupe_errors.push(...d.errors);
+  } catch (e) {
+    dedupe_errors.push(e instanceof Error ? e.message : String(e));
+  }
+
   return {
     ok: true,
     skipped: false,
@@ -203,5 +220,7 @@ export async function runCronMlFullReimportAll(): Promise<CronMlFullReimportBatc
     failed,
     skipped_no_url,
     failures,
+    dedupe_removed,
+    dedupe_errors,
   };
 }

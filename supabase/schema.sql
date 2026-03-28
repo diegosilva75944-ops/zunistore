@@ -53,7 +53,8 @@ create table if not exists public.products (
   search_tsv tsvector generated always as (
     to_tsvector('portuguese', coalesce(title,'') || ' ' || coalesce(description,''))
   ) stored,
-  effective_price numeric generated always as (coalesce(promo_price, price)) stored
+  effective_price numeric generated always as (coalesce(promo_price, price)) stored,
+  title_norm text generated always as (lower(trim(regexp_replace(title, '\s+', ' ', 'g')))) stored
 );
 
 create index if not exists products_category_idx on public.products(category_id);
@@ -63,6 +64,7 @@ create index if not exists products_offer_idx on public.products(is_offer);
 create index if not exists products_off_percent_idx on public.products(off_percent desc);
 create index if not exists products_search_tsv_idx on public.products using gin(search_tsv);
 create index if not exists products_is_active_idx on public.products(is_active) where is_active = true;
+create index if not exists products_title_norm_idx on public.products(title_norm);
 
 create trigger set_products_updated_at
 before update on public.products
@@ -119,6 +121,27 @@ create index if not exists product_external_listings_seller_id_idx
 
 create index if not exists product_external_listings_seller_nickname_idx
   on public.product_external_listings(seller_nickname);
+
+create or replace function public.dedupe_product_ids_duplicate_title_norm()
+returns table (id uuid)
+language sql
+stable
+as $$
+  with ranked as (
+    select
+      p.id as pid,
+      row_number() over (
+        partition by p.title_norm
+        order by
+          (select count(*)::int from public.product_external_listings pel
+           where pel.product_id = p.id and pel.origin = 'mercadolivre') desc,
+          p.code6 asc,
+          p.created_at asc
+      ) as rn
+    from public.products p
+  )
+  select pid from ranked where rn > 1;
+$$;
 
 -- histórico de produtos removidos (ex.: não encontrado na URL na sincronização)
 create table if not exists public.deleted_products_history (

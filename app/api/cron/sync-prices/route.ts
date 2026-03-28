@@ -26,6 +26,8 @@ function jsonFromBatch(result: Awaited<ReturnType<typeof runCronMlFullReimportAl
       failed: result.failed,
       skipped_no_url: result.skipped_no_url,
       failures: result.failures.slice(0, 40),
+      dedupe_removed: result.dedupe_removed ?? 0,
+      dedupe_errors: (result.dedupe_errors ?? []).slice(0, 20),
     };
   }
   return {
@@ -40,6 +42,8 @@ function jsonFromBatch(result: Awaited<ReturnType<typeof runCronMlFullReimportAl
     failures: result.failures.slice(0, 40),
     updated: result.reimported,
     skipped_legacy: 0,
+    dedupe_removed: result.dedupe_removed,
+    dedupe_errors: result.dedupe_errors.slice(0, 20),
   };
 }
 
