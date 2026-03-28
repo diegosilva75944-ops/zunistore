@@ -3,6 +3,7 @@ import { getSiteSettings, listCarouselProducts, listProducts, listSiteCategories
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { HeroSlider } from "@/components/HeroSlider";
 import { HomeRecommendationSections } from "@/components/home/HomeRecommendationSections";
+import { OffersMarqueeRow } from "@/components/home/OffersMarqueeRow";
 
 export const revalidate = 60;
 
@@ -62,11 +63,7 @@ export default async function Home(props: {
           Ver mais
         </Link>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        {offers.items.map((p) => (
-          <TrackedProductCard key={p.id} product={p} />
-        ))}
-      </div>
+      <OffersMarqueeRow products={offers.items} />
     </section>
   );
 

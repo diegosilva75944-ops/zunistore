@@ -61,3 +61,34 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Faixa de ofertas na home: desliza suavemente para a esquerda em loop */
+@keyframes offers-marquee-x {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.offers-marquee-outer:hover .offers-marquee-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .offers-marquee-track {
+    animation: none !important;
+  }
+
+  .offers-marquee-outer {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .offers-marquee-track {
+    flex-wrap: nowrap;
+  }
+}
