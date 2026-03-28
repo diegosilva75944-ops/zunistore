@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { RatingStars } from "@/components/RatingStars";
 import { Product } from "@/lib/store";
 
 export function ProductCard({
@@ -42,11 +43,6 @@ export function ProductCard({
           </div>
         )}
 
-        {hasPromo ? (
-          <div className="absolute left-3 top-3 rounded-full bg-zuni-red text-white text-xs font-semibold px-3 py-1">
-            OFF {product.off_percent}%
-          </div>
-        ) : null}
       </Link>
 
       <div className="p-4 flex-1 flex flex-col gap-3">
@@ -58,9 +54,12 @@ export function ProductCard({
         </Link>
 
         {product.rating != null || (product.reviews_count != null && product.reviews_count > 0) ? (
-          <div className="text-xs text-zinc-500">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+            <RatingStars rating={product.rating} starClassName="text-[11px]" />
             {product.rating != null ? (
-              <span className="font-medium text-zinc-700">{formatRating(product.rating)}</span>
+              <span className="font-medium text-zinc-700 tabular-nums">
+                {product.rating.toFixed(1).replace(".", ",")}
+              </span>
             ) : null}
             {product.reviews_count != null && product.reviews_count > 0 ? (
               <span>
@@ -78,8 +77,15 @@ export function ProductCard({
               {formatBRL(listPrice)}
             </div>
           ) : null}
-          <div className={`text-base font-semibold ${hasPromo ? "text-zuni-green" : "text-zinc-900"}`}>
-            {formatBRL(hasPromo ? (salePrice as number) : listPrice)}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className={`text-base font-semibold ${hasPromo ? "text-zuni-green" : "text-zinc-900"}`}>
+              {formatBRL(hasPromo ? (salePrice as number) : listPrice)}
+            </div>
+            {hasPromo ? (
+              <span className="rounded-full bg-zuni-red text-white text-[10px] font-semibold px-2 py-0.5 shrink-0">
+                OFF {product.off_percent}%
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -98,11 +104,5 @@ export function ProductCard({
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-}
-
-function formatRating(value: number) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "—";
-  return `★ ${n.toFixed(1).replace(".", ",")}`;
 }
 

@@ -5,6 +5,7 @@ import { getBaseUrl } from "@/lib/site-url";
 import { getCategoryById, getProductByCode6, listRelatedProducts } from "@/lib/store";
 import { ProductCard } from "@/components/ProductCard";
 import { ProductGallery } from "@/components/ProductGallery";
+import { RatingStars } from "@/components/RatingStars";
 
 export const revalidate = 300;
 
@@ -172,13 +173,14 @@ export default async function ProdutoPage(props: {
             </div>
 
             {(product.rating != null || product.reviews_count != null) ? (
-              <div className="pt-3 text-sm text-zinc-700">
-                <span className="font-semibold text-zinc-900">
-                  {product.rating != null ? product.rating.toFixed(1) : "—"}
-                </span>{" "}
-                <span className="text-zuni-yellow">★★★★★</span>{" "}
+              <div className="pt-3 flex flex-wrap items-center gap-2 text-sm text-zinc-700">
+                <RatingStars rating={product.rating} starClassName="text-lg" />
+                <span className="font-semibold text-zinc-900 tabular-nums">
+                  {product.rating != null ? product.rating.toFixed(1).replace(".", ",") : "—"}
+                </span>
                 <span className="text-zinc-600">
-                  ({product.reviews_count ?? 0} avaliações)
+                  ({product.reviews_count ?? 0}{" "}
+                  {(product.reviews_count ?? 0) === 1 ? "avaliação" : "avaliações"})
                 </span>
               </div>
             ) : null}

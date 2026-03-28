@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { RatingStars } from "@/components/RatingStars";
 
 type SlideProduct = {
   code6: string;
@@ -24,12 +25,6 @@ type SlideItem = {
 
 function formatBRL(value: number) {
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-}
-
-function formatRating(value: number) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "—";
-  return `★ ${n.toFixed(1).replace(".", ",")}`;
 }
 
 function SlideContent({ item }: { item: SlideItem }) {
@@ -58,11 +53,6 @@ function SlideContent({ item }: { item: SlideItem }) {
             Sem imagem
           </div>
         )}
-        {hasPromo && slide.product.off_percent > 0 && (
-          <div className="absolute top-4 left-4 bg-zuni-red text-white text-sm font-bold px-3 py-1.5 rounded-full">
-            {slide.product.off_percent}% OFF
-          </div>
-        )}
       </Link>
 
       <div className="flex-1 p-6 md:p-8 flex flex-col justify-center">
@@ -79,13 +69,16 @@ function SlideContent({ item }: { item: SlideItem }) {
         </Link>
         {slide.product.rating != null ||
         (slide.product.reviews_count != null && slide.product.reviews_count > 0) ? (
-          <div className="mt-2 text-sm text-zinc-600">
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
+            <RatingStars rating={slide.product.rating} starClassName="text-sm md:text-base" />
             {slide.product.rating != null ? (
-              <span className="font-medium text-zinc-800">{formatRating(slide.product.rating)}</span>
+              <span className="font-medium text-zinc-800 tabular-nums">
+                {slide.product.rating.toFixed(1).replace(".", ",")}
+              </span>
             ) : null}
             {slide.product.reviews_count != null && slide.product.reviews_count > 0 ? (
               <span>
-                {slide.product.rating != null ? " · " : null}
+                {slide.product.rating != null ? "· " : null}
                 {slide.product.reviews_count}{" "}
                 {slide.product.reviews_count === 1 ? "avaliação" : "avaliações"}
               </span>
@@ -98,8 +91,17 @@ function SlideContent({ item }: { item: SlideItem }) {
               {formatBRL(slide.product.price)}
             </div>
           )}
-          <div className={`text-2xl md:text-3xl font-bold ${hasPromo ? "text-zuni-green" : "text-zinc-900"}`}>
-            {formatBRL(finalPrice)}
+          <div className="flex flex-wrap items-baseline gap-2 gap-y-1">
+            <div
+              className={`text-2xl md:text-3xl font-bold ${hasPromo ? "text-zuni-green" : "text-zinc-900"}`}
+            >
+              {formatBRL(finalPrice)}
+            </div>
+            {hasPromo && slide.product.off_percent > 0 ? (
+              <span className="rounded-full bg-zuni-red text-white text-xs md:text-sm font-bold px-3 py-1 shrink-0">
+                {slide.product.off_percent}% OFF
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="mt-6 flex flex-wrap gap-3">
