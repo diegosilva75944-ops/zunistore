@@ -25,7 +25,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
       </Script>
       <div className="min-h-dvh bg-zinc-50 text-zinc-900">
         <Header />
-        <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+        <main className="zuni-site-container py-6">{children}</main>
         <Footer />
         <CookieBanner />
       </div>

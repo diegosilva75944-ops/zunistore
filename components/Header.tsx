@@ -9,7 +9,7 @@ export async function Header() {
 
   return (
     <header className="sticky top-0 z-50 bg-zuni-header text-zuni-white border-b border-white/10">
-      <div className="w-full px-3 sm:px-4 md:px-6">
+      <div className="zuni-site-container">
         <div className="flex flex-wrap items-center gap-3 sm:gap-4 py-3">
           <Link href="/" className="flex items-center gap-2 shrink-0 min-w-0">
             <Image

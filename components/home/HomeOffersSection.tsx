@@ -15,7 +15,7 @@ export function HomeOffersSection({ products }: Props) {
 
   return (
     <section
-      className="home-offers-section"
+      className="home-offers-section zuni-site-section rounded-3xl"
       aria-labelledby="home-offers-heading"
     >
       <div className="home-offers-section__inner space-y-5">

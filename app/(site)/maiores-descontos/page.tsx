@@ -20,15 +20,19 @@ export default async function MaioresDescontosPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Maiores descontos</h1>
-        <p className="text-sm text-zinc-600">Total: {total}</p>
-      </div>
-      <div className={PRODUCT_CARD_GRID_CLASS}>
-        {items.map((p) => (
-          <TrackedProductCard key={p.id} product={p} />
-        ))}
-      </div>
+      <section className="zuni-site-section space-y-6" aria-labelledby="maiores-descontos-heading">
+        <div>
+          <h1 id="maiores-descontos-heading" className="text-2xl font-semibold">
+            Maiores descontos
+          </h1>
+          <p className="text-sm text-zinc-600">Total: {total}</p>
+        </div>
+        <div className={PRODUCT_CARD_GRID_CLASS}>
+          {items.map((p) => (
+            <TrackedProductCard key={p.id} product={p} />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

@@ -146,7 +146,7 @@ export function HeroSlider({ items }: { items: SlideItem[] }) {
 
   if (!items.length) {
     return (
-      <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-6 text-sm text-zinc-600">
+      <div className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-6 text-sm text-zinc-600">
         Sem destaques no carrossel ainda.
       </div>
     );
@@ -154,7 +154,7 @@ export function HeroSlider({ items }: { items: SlideItem[] }) {
 
   return (
     <div
-      className="relative rounded-2xl bg-linear-to-br from-zuni-purple-light to-white ring-1 ring-zinc-200 overflow-hidden"
+      className="relative rounded-xl bg-linear-to-br from-zuni-purple-light to-white ring-1 ring-zinc-200/70 dark:ring-zinc-600/50 overflow-hidden"
       onMouseEnter={() => setIsAutoPlaying(false)}
       onMouseLeave={() => setIsAutoPlaying(true)}
     >

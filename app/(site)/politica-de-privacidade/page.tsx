@@ -4,8 +4,8 @@ const ULTIMA_ATUALIZACAO = "27 de março de 2026";
 
 export default function PoliticaPage() {
   return (
-    <article className="space-y-8 max-w-3xl">
-      <header className="space-y-2">
+    <article className="space-y-6">
+      <header className="zuni-site-section space-y-2">
         <h1 className="text-2xl font-semibold">Política de Privacidade</h1>
         <p className="text-sm text-zinc-600">
           ZuniStore — transparência sobre dados pessoais e navegação, em linha com a LGPD (Lei nº 13.709/2018).
@@ -15,8 +15,8 @@ export default function PoliticaPage() {
         </p>
       </header>
 
-      <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-6 md:p-8 space-y-8 text-sm text-zinc-700 leading-relaxed">
-        <section className="space-y-3" id="intro">
+      <div className="space-y-6 text-sm text-zinc-700 leading-relaxed">
+        <section className="zuni-site-section space-y-3" id="intro">
           <h2 className="text-base font-semibold text-zinc-900">1. Introdução</h2>
           <p>
             O ZuniStore é um site de vitrine e marketplace afiliado: não realizamos a venda direta dos produtos.
@@ -26,7 +26,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="dados-coletados">
+        <section className="zuni-site-section space-y-3" id="dados-coletados">
           <h2 className="text-base font-semibold text-zinc-900">2. Quais dados são coletados</h2>
           <p>Podemos envolver, conforme o uso do site e as suas escolhas:</p>
           <ul className="list-disc pl-5 space-y-1">
@@ -51,7 +51,7 @@ export default function PoliticaPage() {
           </ul>
         </section>
 
-        <section className="space-y-3" id="navegacao">
+        <section className="zuni-site-section space-y-3" id="navegacao">
           <h2 className="text-base font-semibold text-zinc-900">3. Dados de navegação e interação</h2>
           <p>
             Se você <strong className="font-medium text-zinc-800">aceitar a personalização</strong>, registramos
@@ -66,7 +66,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="cookies">
+        <section className="zuni-site-section space-y-3" id="cookies">
           <h2 className="text-base font-semibold text-zinc-900">4. Cookies e armazenamento local</h2>
           <p>
             Utilizamos cookies e tecnologias similares (incluindo <code className="text-xs bg-zinc-100 px-1 rounded">localStorage</code>)
@@ -76,7 +76,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="finalidade">
+        <section className="zuni-site-section space-y-3" id="finalidade">
           <h2 className="text-base font-semibold text-zinc-900">5. Finalidade da coleta</h2>
           <ul className="list-disc pl-5 space-y-1">
             <li>Exibir e melhorar o catálogo, buscas e navegação.</li>
@@ -86,7 +86,7 @@ export default function PoliticaPage() {
           </ul>
         </section>
 
-        <section className="space-y-3" id="personalizacao">
+        <section className="zuni-site-section space-y-3" id="personalizacao">
           <h2 className="text-base font-semibold text-zinc-900">6. Como funciona a personalização</h2>
           <p>
             Com base nos seus eventos no site (pesos relativos a busca, clique, visita à categoria e visualização de
@@ -95,7 +95,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="recusar">
+        <section className="zuni-site-section space-y-3" id="recusar">
           <h2 className="text-base font-semibold text-zinc-900">7. Recusar a personalização</h2>
           <p>
             Você pode <strong className="font-medium text-zinc-800">recusar</strong> no banner de cookies/personalização.
@@ -105,7 +105,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="limpar">
+        <section className="zuni-site-section space-y-3" id="limpar">
           <h2 className="text-base font-semibold text-zinc-900">8. Limpar histórico neste dispositivo</h2>
           <p>
             No rodapé do site há a opção para <strong className="font-medium text-zinc-800">limpar recomendações e
@@ -114,7 +114,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="compartilhamento">
+        <section className="zuni-site-section space-y-3" id="compartilhamento">
           <h2 className="text-base font-semibold text-zinc-900">9. Compartilhamento de dados</h2>
           <p>
             Podemos compartilhar dados com provedores de hospedagem, analytics e infraestrutura estritamente necessários
@@ -123,7 +123,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="retencao">
+        <section className="zuni-site-section space-y-3" id="retencao">
           <h2 className="text-base font-semibold text-zinc-900">10. Armazenamento e retenção</h2>
           <p>
             Eventos de personalização no servidor são mantidos pelo tempo necessário às finalidades descritas e à
@@ -132,7 +132,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="seguranca">
+        <section className="zuni-site-section space-y-3" id="seguranca">
           <h2 className="text-base font-semibold text-zinc-900">11. Segurança</h2>
           <p>
             Adotamos medidas técnicas e organizacionais razoáveis para proteger dados contra acessos não autorizados,
@@ -141,7 +141,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="direitos">
+        <section className="zuni-site-section space-y-3" id="direitos">
           <h2 className="text-base font-semibold text-zinc-900">12. Direitos do titular (LGPD)</h2>
           <p>Você pode solicitar, conforme a legislação:</p>
           <ul className="list-disc pl-5 space-y-1">
@@ -157,7 +157,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="afiliados">
+        <section className="zuni-site-section space-y-3" id="afiliados">
           <h2 className="text-base font-semibold text-zinc-900">13. Links de afiliados e parceiros</h2>
           <p>
             O ZuniStore pode receber remuneração quando você compra em sites parceiros após clicar em links de afiliado.
@@ -166,7 +166,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="alteracoes">
+        <section className="zuni-site-section space-y-3" id="alteracoes">
           <h2 className="text-base font-semibold text-zinc-900">14. Alterações desta política</h2>
           <p>
             Podemos atualizar este texto para refletir mudanças no site ou na legislação. A data no topo indica a última
@@ -175,7 +175,7 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <section className="space-y-3" id="contato">
+        <section className="zuni-site-section space-y-3" id="contato">
           <h2 className="text-base font-semibold text-zinc-900">15. Contato</h2>
           <p>
             Em caso de dúvidas sobre privacidade ou para exercer seus direitos, entre em contato pelos canais indicados
@@ -184,10 +184,12 @@ export default function PoliticaPage() {
           </p>
         </section>
 
-        <p className="text-xs text-zinc-500 pt-4 border-t border-zinc-100">
-          Este texto tem caráter informativo. Recomenda-se revisão por profissional jurídico antes de publicação
-          definitiva em produção, conforme o seu caso concreto e integrações de terceiros.
-        </p>
+        <section className="zuni-site-section">
+          <p className="text-xs text-zinc-500">
+            Este texto tem caráter informativo. Recomenda-se revisão por profissional jurídico antes de publicação
+            definitiva em produção, conforme o seu caso concreto e integrações de terceiros.
+          </p>
+        </section>
       </div>
     </article>
   );

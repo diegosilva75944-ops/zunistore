@@ -26,7 +26,11 @@ async function fetchRecentRail(excludeIds: string[]): Promise<Product[]> {
 
 function SkeletonBlock() {
   return (
-    <section className="space-y-4" aria-busy="true" aria-label="Carregando vitrine personalizada">
+    <section
+      className="zuni-site-section space-y-4"
+      aria-busy="true"
+      aria-label="Carregando vitrine personalizada"
+    >
       <div className="h-7 w-64 max-w-full animate-pulse rounded-lg bg-zinc-200" />
       <div className={PRODUCT_CARD_GRID_CLASS}>
         {Array.from({ length: 4 }).map((_, i) => (

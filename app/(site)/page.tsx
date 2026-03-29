@@ -35,10 +35,10 @@ export default async function Home(props: {
   const all = await listProducts({ categoryId, min, max, sort, perPage, page });
 
   const heroSection = (
-    <section className="space-y-3">
-      <div className="flex items-end justify-between gap-4">
+    <section className="zuni-site-section space-y-4" aria-labelledby="home-hero-heading">
+      <div className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+          <h1 id="home-hero-heading" className="text-2xl md:text-3xl font-semibold tracking-tight">
             ZuniStore
           </h1>
           <p className="text-sm text-zinc-600">
@@ -47,15 +47,13 @@ export default async function Home(props: {
         </div>
         <Link
           href="/ofertas"
-          className="text-sm font-semibold text-zuni-primary hover:underline"
+          className="text-sm font-semibold text-zuni-primary hover:underline shrink-0"
         >
           Ver todas as ofertas
         </Link>
       </div>
 
-      <div className="relative left-1/2 -translate-x-1/2 w-screen max-w-none">
-        <HeroSlider items={carousel} />
-      </div>
+      <HeroSlider items={carousel} />
     </section>
   );
 
@@ -74,7 +72,7 @@ export default async function Home(props: {
 
       <section
         id="todos-produtos"
-        className="space-y-4 scroll-mt-28 md:scroll-mt-32"
+        className="zuni-site-section space-y-4 scroll-mt-28 md:scroll-mt-32"
         tabIndex={-1}
         aria-labelledby="todos-produtos-heading"
       >
@@ -87,7 +85,7 @@ export default async function Home(props: {
           </div>
         </div>
 
-        <form className="grid gap-3 md:grid-cols-5 rounded-2xl bg-white ring-1 ring-zinc-200 p-4">
+        <form className="grid gap-3 md:grid-cols-5 rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-4">
           <div className="md:col-span-2">
             <label className="text-xs font-semibold text-zinc-700">Categoria</label>
             <select
@@ -165,7 +163,7 @@ export default async function Home(props: {
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-6 text-sm text-zinc-600">
+          <div className="rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-6 text-sm text-zinc-600">
             Nenhum produto encontrado com esses filtros.
           </div>
         )}

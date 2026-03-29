@@ -42,15 +42,17 @@ export default async function BuscarResultadosPage(props: {
 
   if (!q) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-2xl font-semibold">Busca</h1>
+      <section className="zuni-site-section space-y-4" aria-labelledby="busca-vazia-heading">
+        <h1 id="busca-vazia-heading" className="text-2xl font-semibold">
+          Busca
+        </h1>
         <p className="text-sm text-zinc-600">
           Use a caixa de busca no topo do site para pesquisar por título, descrição ou categoria.
         </p>
         <Link href="/" className="text-sm font-semibold text-zuni-primary hover:underline">
           ← Voltar ao início
         </Link>
-      </div>
+      </section>
     );
   }
 
@@ -66,15 +68,18 @@ export default async function BuscarResultadosPage(props: {
       <Suspense fallback={null}>
         <BuscarQueryTracker />
       </Suspense>
-      <div>
-        <h1 className="text-2xl font-semibold">Resultados da busca</h1>
-        <p className="text-sm text-zinc-600 mt-1">
-          Termo: <span className="font-medium text-zinc-900">«{q}»</span> · {total} produto
-          {total === 1 ? "" : "s"}
-        </p>
-      </div>
+      <section className="zuni-site-section space-y-6" aria-labelledby="busca-resultados-heading">
+        <div>
+          <h1 id="busca-resultados-heading" className="text-2xl font-semibold">
+            Resultados da busca
+          </h1>
+          <p className="text-sm text-zinc-600 mt-1">
+            Termo: <span className="font-medium text-zinc-900">«{q}»</span> · {total} produto
+            {total === 1 ? "" : "s"}
+          </p>
+        </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-zinc-600">Ordenar:</span>
         {SORT_OPTIONS.map((o) => (
           <Link
@@ -106,25 +111,26 @@ export default async function BuscarResultadosPage(props: {
             {n}
           </Link>
         ))}
-      </div>
-
-      {items.length ? (
-        <div className={PRODUCT_CARD_GRID_CLASS}>
-          {items.map((p) => (
-            <TrackedProductCard key={p.id} product={p} />
-          ))}
         </div>
-      ) : (
-        <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-6 text-sm text-zinc-600">
-          Nenhum produto encontrado para «{q}». Tente outras palavras ou confira as{" "}
-          <Link href="/categorias" className="text-zuni-primary font-medium hover:underline">
-            categorias
-          </Link>
-          .
-        </div>
-      )}
 
-      {total > 0 ? <Pagination searchParams={searchParams} page={page} /> : null}
+        {items.length ? (
+          <div className={PRODUCT_CARD_GRID_CLASS}>
+            {items.map((p) => (
+              <TrackedProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-6 text-sm text-zinc-600">
+            Nenhum produto encontrado para «{q}». Tente outras palavras ou confira as{" "}
+            <Link href="/categorias" className="text-zuni-primary font-medium hover:underline">
+              categorias
+            </Link>
+            .
+          </div>
+        )}
+
+        {total > 0 ? <Pagination searchParams={searchParams} page={page} /> : null}
+      </section>
     </div>
   );
 }

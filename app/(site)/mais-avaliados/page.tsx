@@ -24,29 +24,33 @@ export default async function MaisAvaliadosPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Mais avaliados</h1>
-          <p className="text-sm text-zinc-600">Destaques por avaliação.</p>
+      <section className="zuni-site-section space-y-6" aria-labelledby="mais-avaliados-heading">
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <h1 id="mais-avaliados-heading" className="text-2xl font-semibold">
+              Mais avaliados
+            </h1>
+            <p className="text-sm text-zinc-600">Destaques por avaliação.</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {categories.slice(0, 10).map((c) => (
+              <Link
+                key={c.id}
+                href={`/mais-avaliados/${c.slug}`}
+                className="text-xs px-3 py-1 rounded-full border border-zinc-200 hover:bg-zuni-purple-light"
+              >
+                {c.name}
+              </Link>
+            ))}
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {categories.slice(0, 10).map((c) => (
-            <Link
-              key={c.id}
-              href={`/mais-avaliados/${c.slug}`}
-              className="text-xs px-3 py-1 rounded-full border border-zinc-200 hover:bg-zuni-purple-light"
-            >
-              {c.name}
-            </Link>
+
+        <div className={PRODUCT_CARD_GRID_CLASS}>
+          {list.items.map((p) => (
+            <TrackedProductCard key={p.id} product={p} />
           ))}
         </div>
-      </div>
-
-      <div className={PRODUCT_CARD_GRID_CLASS}>
-        {list.items.map((p) => (
-          <TrackedProductCard key={p.id} product={p} />
-        ))}
-      </div>
+      </section>
     </div>
   );
 }

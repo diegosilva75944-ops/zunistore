@@ -30,16 +30,20 @@ export default async function NovidadesPage(props: {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Novidades</h1>
-        <p className="text-sm text-zinc-600">Total: {total}</p>
-      </div>
+      <section className="zuni-site-section space-y-6" aria-labelledby="novidades-heading">
+        <div>
+          <h1 id="novidades-heading" className="text-2xl font-semibold">
+            Novidades
+          </h1>
+          <p className="text-sm text-zinc-600">Total: {total}</p>
+        </div>
 
-      <div className={PRODUCT_CARD_GRID_CLASS}>
-        {items.map((p) => (
-          <TrackedProductCard key={p.id} product={p} />
-        ))}
-      </div>
+        <div className={PRODUCT_CARD_GRID_CLASS}>
+          {items.map((p) => (
+            <TrackedProductCard key={p.id} product={p} />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

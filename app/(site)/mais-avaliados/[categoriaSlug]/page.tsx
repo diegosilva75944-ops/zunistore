@@ -38,23 +38,31 @@ export default async function MaisAvaliadosCategoriaPage(props: {
 
   return (
     <div className="space-y-6">
-      <nav className="text-xs text-zinc-600">
-        <Link href="/" className="hover:underline">Início</Link>{" "}
-        <span className="text-zinc-400">/</span>{" "}
-        <Link href="/mais-avaliados" className="hover:underline">Mais avaliados</Link>{" "}
-        <span className="text-zinc-400">/</span> <span>{category.name}</span>
-      </nav>
+      <section className="zuni-site-section space-y-6" aria-labelledby="mais-avaliados-cat-heading">
+        <nav className="text-xs text-zinc-600">
+          <Link href="/" className="hover:underline">
+            Início
+          </Link>{" "}
+          <span className="text-zinc-400">/</span>{" "}
+          <Link href="/mais-avaliados" className="hover:underline">
+            Mais avaliados
+          </Link>{" "}
+          <span className="text-zinc-400">/</span> <span>{category.name}</span>
+        </nav>
 
-      <div>
-        <h1 className="text-2xl font-semibold">Mais avaliados — {category.name}</h1>
-        <p className="text-sm text-zinc-600">Total: {total}</p>
-      </div>
+        <div>
+          <h1 id="mais-avaliados-cat-heading" className="text-2xl font-semibold">
+            Mais avaliados — {category.name}
+          </h1>
+          <p className="text-sm text-zinc-600">Total: {total}</p>
+        </div>
 
-      <div className={PRODUCT_CARD_GRID_CLASS}>
-        {items.map((p) => (
-          <TrackedProductCard key={p.id} product={p} />
-        ))}
-      </div>
+        <div className={PRODUCT_CARD_GRID_CLASS}>
+          {items.map((p) => (
+            <TrackedProductCard key={p.id} product={p} />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

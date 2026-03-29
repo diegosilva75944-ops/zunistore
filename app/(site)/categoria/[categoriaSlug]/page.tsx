@@ -50,48 +50,52 @@ export default async function CategoriaPage(props: {
   return (
     <div className="space-y-6">
       <CategoryVisitTracker categoryId={category.id} />
-      <div className="flex items-end justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">{category.name}</h1>
-          <p className="text-sm text-zinc-600">Total: {total}</p>
-        </div>
-        <Link
-          href={`/ofertas/${category.slug}`}
-          className="text-sm font-semibold text-zuni-primary hover:underline"
-        >
-          Ver ofertas desta categoria
-        </Link>
-      </div>
-
-      <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-4 flex flex-wrap gap-2">
-        {PRICE_RANGES.map((r) => (
+      <section className="zuni-site-section space-y-6" aria-labelledby="categoria-heading">
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <h1 id="categoria-heading" className="text-2xl font-semibold">
+              {category.name}
+            </h1>
+            <p className="text-sm text-zinc-600">Total: {total}</p>
+          </div>
           <Link
-            key={r.slug}
-            href={`/categoria/${category.slug}/${r.slug}`}
-            className="text-xs px-3 py-1 rounded-full border border-zinc-200 hover:bg-zuni-purple-light"
+            href={`/ofertas/${category.slug}`}
+            className="text-sm font-semibold text-zuni-primary hover:underline"
           >
-            {r.label}
+            Ver ofertas desta categoria
           </Link>
-        ))}
-      </div>
+        </div>
 
-      {items.length ? (
-        <div className={PRODUCT_CARD_GRID_CLASS}>
-          {items.map((p) => (
-            <TrackedProductCard key={p.id} product={p} />
+        <div className="rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-4 flex flex-wrap gap-2">
+          {PRICE_RANGES.map((r) => (
+            <Link
+              key={r.slug}
+              href={`/categoria/${category.slug}/${r.slug}`}
+              className="text-xs px-3 py-1 rounded-full border border-zinc-200 hover:bg-zuni-purple-light"
+            >
+              {r.label}
+            </Link>
           ))}
         </div>
-      ) : (
-        <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-6 text-sm text-zinc-600">
-          Nenhum produto nesta categoria ainda.
-        </div>
-      )}
 
-      <Pagination
-        basePath={`/categoria/${category.slug}`}
-        searchParams={searchParams}
-        page={page}
-      />
+        {items.length ? (
+          <div className={PRODUCT_CARD_GRID_CLASS}>
+            {items.map((p) => (
+              <TrackedProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-6 text-sm text-zinc-600">
+            Nenhum produto nesta categoria ainda.
+          </div>
+        )}
+
+        <Pagination
+          basePath={`/categoria/${category.slug}`}
+          searchParams={searchParams}
+          page={page}
+        />
+      </section>
     </div>
   );
 }

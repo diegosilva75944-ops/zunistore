@@ -31,18 +31,22 @@ export default async function OfertasPage(props: {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Ofertas</h1>
-        <p className="text-sm text-zinc-600">Total: {total}</p>
-      </div>
+      <section className="zuni-site-section space-y-6" aria-labelledby="ofertas-heading">
+        <div>
+          <h1 id="ofertas-heading" className="text-2xl font-semibold">
+            Ofertas
+          </h1>
+          <p className="text-sm text-zinc-600">Total: {total}</p>
+        </div>
 
-      <div className={PRODUCT_CARD_GRID_CLASS}>
-        {items.map((p) => (
-          <TrackedProductCard key={p.id} product={p} />
-        ))}
-      </div>
+        <div className={PRODUCT_CARD_GRID_CLASS}>
+          {items.map((p) => (
+            <TrackedProductCard key={p.id} product={p} />
+          ))}
+        </div>
 
-      <Pagination basePath="/ofertas" searchParams={searchParams} page={page} />
+        <Pagination basePath="/ofertas" searchParams={searchParams} page={page} />
+      </section>
     </div>
   );
 }

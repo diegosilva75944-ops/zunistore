@@ -122,8 +122,8 @@ export default async function ProdutoPage(props: {
         <span className="text-zinc-400">/</span> <span>{product.code6}</span>
       </nav>
 
-      <section className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl bg-white ring-1 ring-zinc-200 overflow-hidden p-2">
+      <section className="zuni-site-section grid gap-6 md:grid-cols-2 md:gap-8">
+        <div className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 overflow-hidden p-2">
           <ProductGallery
             images={product.images ?? []}
             title={product.title}
@@ -140,7 +140,7 @@ export default async function ProdutoPage(props: {
             </div>
           </div>
 
-          <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-2">
+          <div className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-5 space-y-2">
             {hasPromo ? (
               <div className="text-sm text-zinc-500 line-through">{formatBRL(listPriceMeta)}</div>
             ) : null}
@@ -206,7 +206,7 @@ export default async function ProdutoPage(props: {
           </div>
 
           {product.description?.trim() ? (
-            <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-3">
+            <div className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-5 space-y-3">
               <h2 className="text-base font-semibold text-zinc-900">Informações do Produto</h2>
               <div className="text-sm text-zinc-700 space-y-1.5">
                 {splitDescriptionIntoLines(product.description).map((line, i) => (
@@ -221,7 +221,7 @@ export default async function ProdutoPage(props: {
       </section>
 
       {product.description_detail?.trim() ? (
-        <section className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 space-y-4">
+        <section className="zuni-site-section space-y-4">
           <div>
             <h2 className="text-lg md:text-xl font-semibold text-zinc-900 mb-3">Descrição completa</h2>
             <div className="text-base md:text-lg text-zinc-800 whitespace-pre-wrap leading-relaxed">
@@ -232,10 +232,7 @@ export default async function ProdutoPage(props: {
       ) : null}
 
       {related.length ? (
-        <section
-          className="rounded-2xl bg-white ring-1 ring-zinc-200 p-5 md:p-6 space-y-4"
-          aria-labelledby="related-products-heading"
-        >
+        <section className="zuni-site-section space-y-4" aria-labelledby="related-products-heading">
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-zinc-100 pb-4">
             <div>
               <h2 id="related-products-heading" className="text-xl font-semibold text-zinc-900">

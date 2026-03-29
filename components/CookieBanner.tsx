@@ -56,7 +56,7 @@ export function CookieBanner() {
       className="fixed bottom-0 left-0 right-0 z-[100] text-white shadow-lg border-t border-white/10"
       style={{ backgroundColor: "var(--zuni-purple-dark, #4C1D95)" }}
     >
-      <div className="mx-auto w-full max-w-6xl px-4 py-4 flex flex-col gap-3">
+      <div className="zuni-site-container py-4 flex flex-col gap-3">
         <p className="text-sm text-zinc-200 leading-relaxed">
           Usamos cookies, armazenamento local e dados de interação (buscas, cliques, páginas de produto e categorias
           visitadas) para exibir uma vitrine mais relevante. Produtos recomendados podem ser exibidos com base nessas

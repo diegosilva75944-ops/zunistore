@@ -14,7 +14,7 @@ export function RecommendationProductRail({
   if (!products.length) return null;
 
   return (
-    <section className="space-y-4">
+    <section className="zuni-site-section space-y-4">
       <div>
         <h2 className="text-xl font-semibold">{title}</h2>
         {subtitle ? <p className="text-sm text-zinc-600 mt-1">{subtitle}</p> : null}

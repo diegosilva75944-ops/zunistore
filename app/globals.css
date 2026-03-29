@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
 :root {
+  /* Largura máxima do conteúdo central (desktop); mobile usa 100% + padding responsivo */
+  --zuni-site-max-width: 1368px;
+
   /* ZuniStore theme (editável no admin via CSS variables) */
   --zuni-primary: #6D28D9;
   --zuni-purple-dark: #4C1D95;
@@ -54,6 +57,50 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Conteúdo central alinhado ao site (1368px no desktop, responsivo no mobile) */
+.zuni-site-container {
+  width: 100%;
+  max-width: var(--zuni-site-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: max(1rem, min(4vw, 1.5rem));
+  padding-right: max(1rem, min(4vw, 1.5rem));
+}
+
+/**
+ * Bloco de seção com sombra: título e conteúdo ficam dentro do mesmo cartão.
+ * Use --flush quando o filho preenche o cartão até a borda (ex.: carrossel).
+ */
+.zuni-site-section {
+  position: relative;
+  border-radius: 1rem;
+  background: var(--card-bg);
+  box-shadow:
+    0 4px 6px -1px rgba(15, 23, 42, 0.06),
+    0 12px 28px -8px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(15, 23, 42, 0.05);
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.zuni-site-section--flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .zuni-site-section {
+    box-shadow:
+      0 4px 8px -2px rgba(0, 0, 0, 0.35),
+      0 16px 36px -12px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(255, 255, 255, 0.07);
+  }
+}
+
+/* Ofertas na home: mantém padding original do tema de ofertas */
+.home-offers-section.zuni-site-section {
+  padding: clamp(1.25rem, 4vw, 2rem);
+}
+
 /* utilitário simples para 2 linhas sem plugin */
 .line-clamp-2 {
   display: -webkit-box;
@@ -92,9 +139,8 @@ body {
     var(--home-offers-bg-mid, #fafbfc) 50%,
     var(--home-offers-bg-end, #fffdfb) 100%
   );
-  box-shadow:
-    0 6px 28px -10px var(--home-offers-shadow-tint, rgba(109, 40, 217, 0.08)),
-    inset 0 1px 0 var(--home-offers-inset-highlight, rgba(255, 255, 255, 1));
+  /* Sombra externa vem de .zuni-site-section; mantém apenas brilho interno */
+  box-shadow: inset 0 1px 0 var(--home-offers-inset-highlight, rgba(255, 255, 255, 1));
 }
 
 .home-offers-section::before {
@@ -177,9 +223,7 @@ body {
       var(--home-offers-dark-bg-mid, #1e1e28) 50%,
       var(--home-offers-dark-bg-end, #232026) 100%
     );
-    box-shadow:
-      0 8px 32px -12px rgba(0, 0, 0, 0.45),
-      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
   .home-offers-section::before {

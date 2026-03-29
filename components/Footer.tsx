@@ -8,7 +8,7 @@ export async function Footer() {
 
   return (
     <footer className="mt-10 border-t border-zinc-200/70 bg-white">
-      <div className="mx-auto max-w-6xl px-4 py-10 grid gap-8 md:grid-cols-3">
+      <div className="zuni-site-container py-10 grid gap-8 md:grid-cols-3">
         <div className="space-y-2">
           <div className="font-semibold text-lg">
             Zuni<span className="text-zuni-primary">Store</span>
@@ -66,7 +66,7 @@ export async function Footer() {
       </div>
 
       <div className="border-t border-zinc-200/70">
-        <div className="mx-auto max-w-6xl px-4 py-4 text-xs text-zinc-500">
+        <div className="zuni-site-container py-4 text-xs text-zinc-500">
           © {new Date().getFullYear()} ZuniStore. Todos os direitos reservados.
         </div>
       </div>

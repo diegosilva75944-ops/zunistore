@@ -6,8 +6,8 @@ const ULTIMA_ATUALIZACAO = "27 de março de 2026";
 
 export default function CookiesPage() {
   return (
-    <article className="space-y-8 max-w-3xl">
-      <header className="space-y-2">
+    <article className="space-y-6">
+      <header className="zuni-site-section space-y-2">
         <h1 className="text-2xl font-semibold">Aviso de Cookies e Personalização</h1>
         <p className="text-sm text-zinc-600">
           Como o ZuniStore usa cookies, armazenamento local e dados de interação — alinhado ao banner do site e à{" "}
@@ -21,8 +21,8 @@ export default function CookiesPage() {
         </p>
       </header>
 
-      <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-6 md:p-8 space-y-6 text-sm text-zinc-700 leading-relaxed">
-        <section className="space-y-2">
+      <div className="space-y-6 text-sm text-zinc-700 leading-relaxed">
+        <section className="zuni-site-section space-y-2">
           <h2 className="text-base font-semibold text-zinc-900">O que utilizamos</h2>
           <p>
             Utilizamos <strong className="font-medium text-zinc-800">cookies</strong>,{" "}
@@ -33,7 +33,7 @@ export default function CookiesPage() {
           </p>
         </section>
 
-        <section className="space-y-2">
+        <section className="zuni-site-section space-y-2">
           <h2 className="text-base font-semibold text-zinc-900">Personalização</h2>
           <p>
             Se você <strong className="font-medium text-zinc-800">aceitar</strong>, podemos usar esse histórico para
@@ -51,7 +51,7 @@ export default function CookiesPage() {
           </p>
         </section>
 
-        <section className="space-y-2">
+        <section className="zuni-site-section space-y-2">
           <h2 className="text-base font-semibold text-zinc-900">Analytics e terceiros</h2>
           <p>
             Podemos usar ferramentas de estatísticas (como Google Analytics) que definem os próprios cookies, conforme a
@@ -60,7 +60,7 @@ export default function CookiesPage() {
           </p>
         </section>
 
-        <section className="space-y-2">
+        <section className="zuni-site-section space-y-2">
           <h2 className="text-base font-semibold text-zinc-900">Alterar ou limpar</h2>
           <p>
             Você pode mudar de ideia quando o banner for exibido novamente (por exemplo, após limpar dados do site) ou
@@ -74,9 +74,11 @@ export default function CookiesPage() {
           </p>
         </section>
 
-        <p className="text-xs text-zinc-500 pt-4 border-t border-zinc-100">
-          Texto informativo. Recomenda-se revisão jurídica antes de publicação definitiva em produção.
-        </p>
+        <section className="zuni-site-section">
+          <p className="text-xs text-zinc-500">
+            Texto informativo. Recomenda-se revisão jurídica antes de publicação definitiva em produção.
+          </p>
+        </section>
       </div>
     </article>
   );

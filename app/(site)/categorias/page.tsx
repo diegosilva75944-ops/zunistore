@@ -9,12 +9,17 @@ export default async function CategoriasPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Categorias</h1>
-        <p className="text-sm text-zinc-600">Navegue por categoria (inclui categorias importadas do Mercado Livre).</p>
-      </div>
+      <section className="zuni-site-section space-y-6" aria-labelledby="categorias-heading">
+        <div>
+          <h1 id="categorias-heading" className="text-2xl font-semibold">
+            Categorias
+          </h1>
+          <p className="text-sm text-zinc-600">
+            Navegue por categoria (inclui categorias importadas do Mercado Livre).
+          </p>
+        </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
         {categories.map((c) => (
           <Link
             key={c.id}
@@ -28,7 +33,8 @@ export default async function CategoriasPage() {
             <div className="text-xs text-zinc-600 mt-1">Ver produtos</div>
           </Link>
         ))}
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

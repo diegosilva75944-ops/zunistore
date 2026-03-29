@@ -58,37 +58,39 @@ export default async function FaixaCategoriaPage(props: {
   return (
     <div className="space-y-6">
       <CategoryVisitTracker categoryId={category.id} />
-      <nav className="text-xs text-zinc-600">
-        <Link href="/" className="hover:underline">
-          Início
-        </Link>{" "}
-        <span className="text-zinc-400">/</span>{" "}
-        <Link href={`/categoria/${category.slug}`} className="hover:underline">
-          {category.name}
-        </Link>{" "}
-        <span className="text-zinc-400">/</span> <span>{range.label}</span>
-      </nav>
+      <section className="zuni-site-section space-y-6" aria-labelledby="faixa-heading">
+        <nav className="text-xs text-zinc-600">
+          <Link href="/" className="hover:underline">
+            Início
+          </Link>{" "}
+          <span className="text-zinc-400">/</span>{" "}
+          <Link href={`/categoria/${category.slug}`} className="hover:underline">
+            {category.name}
+          </Link>{" "}
+          <span className="text-zinc-400">/</span> <span>{range.label}</span>
+        </nav>
 
-      <div>
-        <h1 className="text-2xl font-semibold">
-          {category.name} — {range.label}
-        </h1>
-        <p className="text-sm text-zinc-600">Total: {total}</p>
-      </div>
-
-      {items.length ? (
-        <div className={PRODUCT_CARD_GRID_CLASS}>
-          {items.map((p) => (
-            <TrackedProductCard key={p.id} product={p} />
-          ))}
+        <div>
+          <h1 id="faixa-heading" className="text-2xl font-semibold">
+            {category.name} — {range.label}
+          </h1>
+          <p className="text-sm text-zinc-600">Total: {total}</p>
         </div>
-      ) : (
-        <div className="rounded-2xl bg-white ring-1 ring-zinc-200 p-6 text-sm text-zinc-600">
-          Nenhum produto nesta faixa.
-        </div>
-      )}
 
-      <Pagination basePath={`/categoria/${category.slug}/${range.slug}`} searchParams={searchParams} page={page} />
+        {items.length ? (
+          <div className={PRODUCT_CARD_GRID_CLASS}>
+            {items.map((p) => (
+              <TrackedProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-6 text-sm text-zinc-600">
+            Nenhum produto nesta faixa.
+          </div>
+        )}
+
+        <Pagination basePath={`/categoria/${category.slug}/${range.slug}`} searchParams={searchParams} page={page} />
+      </section>
     </div>
   );
 }
