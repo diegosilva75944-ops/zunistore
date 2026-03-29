@@ -66,7 +66,7 @@ export default async function CategoriaPage(props: {
           </Link>
         </div>
 
-        <div className="rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-4 flex flex-wrap gap-2">
+        <div className="zuni-nested-panel rounded-2xl p-4 flex flex-wrap gap-2">
           {PRICE_RANGES.map((r) => (
             <Link
               key={r.slug}
@@ -85,7 +85,7 @@ export default async function CategoriaPage(props: {
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-6 text-sm text-zinc-600">
+          <div className="zuni-nested-panel rounded-2xl p-6 text-sm text-zinc-600">
             Nenhum produto nesta categoria ainda.
           </div>
         )}

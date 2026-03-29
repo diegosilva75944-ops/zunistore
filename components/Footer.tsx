@@ -7,7 +7,7 @@ export async function Footer() {
   const [contact, socials] = await Promise.all([getContactSettings(), getSocialLinks()]);
 
   return (
-    <footer className="mt-10 border-t border-zinc-200/70 bg-white">
+    <footer className="mt-10 border-t border-black/[0.06] bg-[var(--card-bg)]">
       <div className="zuni-site-container py-10 grid gap-8 md:grid-cols-3">
         <div className="space-y-2">
           <div className="font-semibold text-lg">
@@ -65,7 +65,7 @@ export async function Footer() {
         </div>
       </div>
 
-      <div className="border-t border-zinc-200/70">
+      <div className="border-t border-black/[0.06]">
         <div className="zuni-site-container py-4 text-xs text-zinc-500">
           © {new Date().getFullYear()} ZuniStore. Todos os direitos reservados.
         </div>

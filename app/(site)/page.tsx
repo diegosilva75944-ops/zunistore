@@ -85,7 +85,7 @@ export default async function Home(props: {
           </div>
         </div>
 
-        <form className="grid gap-3 md:grid-cols-5 rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-4">
+        <form className="zuni-nested-panel grid gap-3 md:grid-cols-5 rounded-2xl p-4">
           <div className="md:col-span-2">
             <label className="text-xs font-semibold text-zinc-700">Categoria</label>
             <select
@@ -163,7 +163,7 @@ export default async function Home(props: {
             ))}
           </div>
         ) : (
-          <div className="rounded-2xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-6 text-sm text-zinc-600">
+          <div className="zuni-nested-panel rounded-2xl p-6 text-sm text-zinc-600">
             Nenhum produto encontrado com esses filtros.
           </div>
         )}

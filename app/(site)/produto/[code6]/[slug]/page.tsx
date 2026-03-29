@@ -123,7 +123,7 @@ export default async function ProdutoPage(props: {
       </nav>
 
       <section className="zuni-site-section grid gap-6 md:grid-cols-2 md:gap-8">
-        <div className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 overflow-hidden p-2">
+        <div className="zuni-nested-panel rounded-xl overflow-hidden p-2">
           <ProductGallery
             images={product.images ?? []}
             title={product.title}
@@ -140,7 +140,7 @@ export default async function ProdutoPage(props: {
             </div>
           </div>
 
-          <div className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-5 space-y-2">
+          <div className="zuni-nested-panel rounded-xl p-5 space-y-2">
             {hasPromo ? (
               <div className="text-sm text-zinc-500 line-through">{formatBRL(listPriceMeta)}</div>
             ) : null}
@@ -206,7 +206,7 @@ export default async function ProdutoPage(props: {
           </div>
 
           {product.description?.trim() ? (
-            <div className="rounded-xl bg-zinc-50/80 dark:bg-zinc-900/40 ring-1 ring-zinc-200/80 dark:ring-zinc-700/60 p-5 space-y-3">
+            <div className="zuni-nested-panel rounded-xl p-5 space-y-3">
               <h2 className="text-base font-semibold text-zinc-900">Informações do Produto</h2>
               <div className="text-sm text-zinc-700 space-y-1.5">
                 {splitDescriptionIntoLines(product.description).map((line, i) => (

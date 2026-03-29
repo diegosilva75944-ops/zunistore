@@ -23,7 +23,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
           gtag('config', '${GA_MEASUREMENT_ID}');
         `}
       </Script>
-      <div className="min-h-dvh bg-zinc-50 text-zinc-900">
+      <div className="min-h-dvh text-zinc-900" style={{ backgroundColor: "var(--zuni-page-bg)" }}>
         <Header />
         <main className="zuni-site-container py-6">{children}</main>
         <Footer />
