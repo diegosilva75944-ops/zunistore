@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { ThemeColorField } from "@/components/admin/ThemeColorField";
 import { HOME_OFFERS_THEME_FIELDS, HOME_OFFERS_THEME_KEYS } from "@/lib/theme/home-offers-theme";
 
+/** Exibidos em bloco próprio (fundo do site), não na grade geral de variáveis */
+const PAGE_SURFACE_KEYS = ["--zuni-page-bg", "--zuni-nested-surface"] as const;
+
 const DEFAULT_KEYS = [
+  "--zuni-page-bg",
+  "--zuni-nested-surface",
   "--zuni-primary",
   "--zuni-purple-dark",
   "--zuni-purple-light",
@@ -32,11 +37,12 @@ export function ThemeClient() {
 
   const keys = useMemo(() => {
     const offersSet = new Set(HOME_OFFERS_THEME_KEYS);
+    const pageSurfaceSet = new Set<string>(PAGE_SURFACE_KEYS);
     const set = new Set([
       ...DEFAULT_KEYS,
-      ...Object.keys(colors).filter((k) => !offersSet.has(k)),
+      ...Object.keys(colors).filter((k) => !offersSet.has(k) && !pageSurfaceSet.has(k)),
     ]);
-    return Array.from(set);
+    return Array.from(set).filter((k) => !pageSurfaceSet.has(k));
   }, [colors]);
 
   useEffect(() => {
@@ -149,6 +155,37 @@ export function ThemeClient() {
         />
         <div className="text-xs text-zinc-600">
           Dica: você pode hospedar em Supabase Storage ou em qualquer CDN/URL pública.
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-3">
+        <div className="text-sm font-semibold">Fundo da página</div>
+        <p className="text-xs text-zinc-600">
+          Cor do fundo atrás de todo o conteúdo público do site. Painéis internos (filtros, área da imagem nos
+          cards) usam a segunda variável. Vazio = padrão do arquivo de estilos (
+          <span className="font-mono">#ffffff</span> e <span className="font-mono">#f5f5f5</span>).
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-zinc-800">Fundo do site</div>
+            <div className="text-[10px] font-mono text-zinc-500 break-all">--zuni-page-bg</div>
+            <ThemeColorField
+              value={colors["--zuni-page-bg"] ?? ""}
+              onChange={(v) => setColors((s) => ({ ...s, "--zuni-page-bg": v }))}
+              placeholder="#ffffff"
+              ariaLabel="Fundo da página do site"
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs font-medium text-zinc-800">Painéis internos</div>
+            <div className="text-[10px] font-mono text-zinc-500 break-all">--zuni-nested-surface</div>
+            <ThemeColorField
+              value={colors["--zuni-nested-surface"] ?? ""}
+              onChange={(v) => setColors((s) => ({ ...s, "--zuni-nested-surface": v }))}
+              placeholder="#f5f5f5"
+              ariaLabel="Cor de painéis internos"
+            />
+          </div>
         </div>
       </div>
 

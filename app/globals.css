@@ -15,11 +15,9 @@
   --zuni-black: #0B0B0F;
   --zuni-white: #ffffff;
 
-  /* Canvas tipo varejo (referência Magazine Luiza: cinza claro + cartões brancos) */
-  --zuni-page-bg: #f2f2f2;
+  /* Fundo da página e painéis internos (editáveis em Admin → Tema: --zuni-page-bg, --zuni-nested-surface) */
+  --zuni-page-bg: #ffffff;
   --zuni-nested-surface: #f5f5f5;
-  --zuni-section-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 14px rgba(0, 0, 0, 0.04);
-  --zuni-section-outline: 0 0 0 1px rgba(0, 0, 0, 0.06);
 
   --background: var(--zuni-white);
   --foreground: var(--zuni-black);
@@ -48,20 +46,6 @@
   --color-zuni-white: var(--zuni-white);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --zuni-page-bg: #121212;
-    --zuni-nested-surface: #1c1c1e;
-    --zuni-section-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), 0 12px 28px rgba(0, 0, 0, 0.2);
-    --zuni-section-outline: 0 0 0 1px rgba(255, 255, 255, 0.08);
-
-    --background: #0b0b0f;
-    --foreground: #ffffff;
-    --card-bg: #1a1a1f;
-    --muted: #a1a1aa;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
@@ -79,21 +63,23 @@ body {
 }
 
 /**
- * Bloco de seção com sombra: título e conteúdo ficam dentro do mesmo cartão.
+ * Bloco de seção (sem sombra; borda leve opcional).
  * Use --flush quando o filho preenche o cartão até a borda (ex.: carrossel).
  */
 .zuni-site-section {
   position: relative;
   border-radius: 1rem;
   background: var(--card-bg);
-  box-shadow: var(--zuni-section-shadow), var(--zuni-section-outline);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: none;
   padding: clamp(1rem, 3vw, 1.5rem);
 }
 
-/* Áreas internas nos cartões (filtros, formulários, vazio) — contraste suave sobre branco */
+/* Áreas internas nos cartões (filtros, formulários, vazio) */
 .zuni-nested-panel {
   background: var(--zuni-nested-surface);
-  box-shadow: var(--zuni-section-outline);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: none;
 }
 
 /* Miniatura do produto no card */
@@ -101,27 +87,16 @@ body {
   background: var(--zuni-nested-surface);
 }
 
-/* Card de produto na grade — branco sobre canvas cinza (estilo marketplace) */
+/* Card de produto na grade */
 .zuni-product-card {
   background: var(--card-bg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), var(--zuni-section-outline);
-}
-
-@media (prefers-color-scheme: dark) {
-  .zuni-product-card {
-    box-shadow: var(--zuni-section-shadow), var(--zuni-section-outline);
-  }
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: none;
 }
 
 .zuni-site-section--flush {
   padding: 0;
   overflow: hidden;
-}
-
-@media (prefers-color-scheme: dark) {
-  .zuni-site-section {
-    box-shadow: var(--zuni-section-shadow), var(--zuni-section-outline);
-  }
 }
 
 /* Ofertas na home: mantém padding original do tema de ofertas */
@@ -167,8 +142,7 @@ body {
     var(--home-offers-bg-mid, #fafbfc) 50%,
     var(--home-offers-bg-end, #fffdfb) 100%
   );
-  /* Sombra externa vem de .zuni-site-section; mantém apenas brilho interno */
-  box-shadow: inset 0 1px 0 var(--home-offers-inset-highlight, rgba(255, 255, 255, 1));
+  box-shadow: none;
 }
 
 .home-offers-section::before {
@@ -226,7 +200,7 @@ body {
     var(--home-offers-badge-bg-end, rgba(254, 249, 231, 0.92))
   );
   border: 1px solid var(--home-offers-badge-border, rgba(253, 224, 171, 0.45));
-  box-shadow: 0 1px 4px rgba(109, 40, 217, 0.04);
+  box-shadow: none;
 }
 
 .home-offers-section__marquee {
@@ -236,58 +210,8 @@ body {
     var(--home-offers-marquee-bg-start, rgba(255, 255, 255, 0.92)),
     var(--home-offers-marquee-bg-end, rgba(255, 255, 255, 0.72))
   );
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 1),
-    0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: none;
   border: 1px solid var(--home-offers-marquee-border, rgba(241, 245, 249, 0.9));
-}
-
-@media (prefers-color-scheme: dark) {
-  .home-offers-section {
-    border-color: var(--home-offers-dark-border, rgba(148, 163, 184, 0.15));
-    background: linear-gradient(
-      180deg,
-      var(--home-offers-dark-bg-start, #22212c) 0%,
-      var(--home-offers-dark-bg-mid, #1e1e28) 50%,
-      var(--home-offers-dark-bg-end, #232026) 100%
-    );
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  }
-
-  .home-offers-section::before {
-    background:
-      repeating-linear-gradient(
-        118deg,
-        transparent 0 14px,
-        rgba(167, 139, 250, 0.025) 14px 15px
-      ),
-      radial-gradient(ellipse 90% 80% at 50% 45%, rgba(139, 92, 246, 0.07), transparent 72%),
-      radial-gradient(ellipse 50% 42% at 100% 100%, rgba(251, 191, 36, 0.04), transparent 62%);
-  }
-
-  .home-offers-section::after {
-    opacity: 0.35;
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.05) 0%,
-      transparent 35%,
-      transparent 75%,
-      rgba(254, 243, 199, 0.04) 100%
-    );
-  }
-
-  .home-offers-section__badge {
-    color: rgba(233, 213, 255, 0.92);
-    background: linear-gradient(90deg, rgba(91, 33, 182, 0.38), rgba(76, 29, 149, 0.28));
-    border-color: rgba(251, 191, 36, 0.2);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
-  }
-
-  .home-offers-section__marquee {
-    background: linear-gradient(180deg, rgba(38, 36, 52, 0.65), rgba(30, 28, 42, 0.48));
-    border-color: rgba(255, 255, 255, 0.06);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

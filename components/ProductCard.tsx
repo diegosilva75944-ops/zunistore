@@ -27,7 +27,7 @@ export function ProductCard({
   const hasPromo = salePrice != null && Number.isFinite(listPrice) && salePrice < listPrice;
 
   return (
-    <div className="zuni-product-card rounded-2xl transition overflow-hidden flex flex-col hover:shadow-[0_2px_12px_rgba(0,0,0,0.08)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.45)]">
+    <div className="zuni-product-card rounded-2xl transition overflow-hidden flex flex-col hover:border-zinc-300">
       <Link
         href={`/produto/${product.code6}/${product.slug}`}
         className="block relative aspect-square zuni-product-thumb-bg"

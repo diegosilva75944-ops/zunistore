@@ -154,7 +154,7 @@ export function HeroSlider({ items }: { items: SlideItem[] }) {
 
   return (
     <div
-      className="relative rounded-xl overflow-hidden bg-linear-to-br from-zuni-purple-light to-white dark:from-zinc-900/80 dark:to-zinc-950 shadow-[var(--zuni-section-shadow),var(--zuni-section-outline)]"
+      className="relative rounded-xl overflow-hidden border border-black/[0.06] bg-linear-to-br from-zuni-purple-light to-white"
       onMouseEnter={() => setIsAutoPlaying(false)}
       onMouseLeave={() => setIsAutoPlaying(true)}
     >
@@ -178,7 +178,7 @@ export function HeroSlider({ items }: { items: SlideItem[] }) {
         <>
           <button
             onClick={prev}
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-zinc-700 hover:bg-white hover:text-zuni-primary transition z-10"
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full border border-zinc-200 bg-white/95 flex items-center justify-center text-zinc-700 hover:bg-white hover:text-zuni-primary transition z-10"
             aria-label="Anterior"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -188,7 +188,7 @@ export function HeroSlider({ items }: { items: SlideItem[] }) {
 
           <button
             onClick={next}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-zinc-700 hover:bg-white hover:text-zuni-primary transition z-10"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full border border-zinc-200 bg-white/95 flex items-center justify-center text-zinc-700 hover:bg-white hover:text-zuni-primary transition z-10"
             aria-label="Próximo"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
