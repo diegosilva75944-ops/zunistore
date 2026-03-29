@@ -7,7 +7,7 @@ type Props = {
 };
 
 /**
- * Home — bloco “Produtos em Oferta”: fundo premium (CSS `.home-offers-section` em globals.css).
+ * Home — bloco “Produtos em Oferta”: fundo premium (`.home-offers-section` em globals.css; estilo atual = faixa + vinheta).
  * Carrossel e cards inalterados; apenas moldura visual e hierarquia do título.
  */
 export function HomeOffersSection({ products }: Props) {
