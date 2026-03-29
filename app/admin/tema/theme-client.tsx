@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ThemeColorField } from "@/components/admin/ThemeColorField";
 import { HOME_OFFERS_THEME_FIELDS, HOME_OFFERS_THEME_KEYS } from "@/lib/theme/home-offers-theme";
+
+const fetchAdmin: RequestInit = { credentials: "include", cache: "no-store" };
 
 /** Exibidos em bloco próprio (fundo do site), não na grade geral de variáveis */
 const PAGE_SURFACE_KEYS = ["--zuni-page-bg", "--zuni-nested-surface"] as const;
@@ -45,19 +47,23 @@ export function ThemeClient() {
     return Array.from(set).filter((k) => !pageSurfaceSet.has(k));
   }, [colors]);
 
-  useEffect(() => {
-    fetch("/api/admin/site-settings")
+  const loadSettings = useCallback(() => {
+    fetch("/api/admin/site-settings", fetchAdmin)
       .then((r) => r.json())
       .then((data) => {
         const s = data?.settings;
         setLogoUrl(s?.logo_url ?? "");
-        setColors(typeof s?.colors === "object" && s?.colors ? s.colors : {});
+        setColors(typeof s?.colors === "object" && s?.colors ? { ...s.colors } : {});
         setOffersSectionPosition(
           s?.offers_section_position === "before_hero" ? "before_hero" : "after_hero",
         );
       })
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   async function save() {
     setBusy(true);
@@ -74,6 +80,7 @@ export function ThemeClient() {
     const res = await fetch("/api/admin/site-settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
+      ...fetchAdmin,
       body: JSON.stringify({
         logo_url: logoUrl ? logoUrl.trim() : null,
         colors: filtered,
@@ -87,7 +94,8 @@ export function ThemeClient() {
       setMsg(data?.error || "Falha ao salvar.");
       return;
     }
-    setMsg("Tema salvo.");
+    setMsg("Tema salvo. Atualize a página inicial (F5) se já estiver aberta em outra aba.");
+    loadSettings();
   }
 
   return (
@@ -125,7 +133,8 @@ export function ThemeClient() {
         <p className="text-xs text-zinc-600">
           Use o quadrado colorido para abrir a paleta do sistema. O campo ao lado aceita{" "}
           <span className="font-mono">#hex</span> ou <span className="font-mono">rgba(...)</span> (útil
-          para transparência). Vazio = padrão do site.
+          para transparência). Vazio = padrão do CSS. Depois de salvar, recarregue a página inicial para ver
+          o resultado.
         </p>
         <div className="grid gap-3 md:grid-cols-1">
           {HOME_OFFERS_THEME_FIELDS.map(({ key, label, hint }) => (
@@ -143,6 +152,14 @@ export function ThemeClient() {
             </div>
           ))}
         </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void save()}
+          className="rounded-full bg-zuni-primary px-6 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {busy ? "Salvando…" : "Salvar tema (inclui ofertas)"}
+        </button>
       </div>
 
       <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-2">

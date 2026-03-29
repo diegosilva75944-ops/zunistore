@@ -142,42 +142,13 @@ body {
     var(--home-offers-bg-mid, #fafbfc) 50%,
     var(--home-offers-bg-end, #fffdfb) 100%
   );
-  box-shadow: none;
+  /* Editáveis no Admin → Tema (--home-offers-inset-highlight, --home-offers-shadow-tint) */
+  box-shadow:
+    inset 0 1px 0 var(--home-offers-inset-highlight, rgba(255, 255, 255, 1)),
+    0 6px 28px -10px var(--home-offers-shadow-tint, rgba(109, 40, 217, 0.08));
 }
 
-.home-offers-section::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  /* Textura e luzes bem subtis */
-  background:
-    repeating-linear-gradient(
-      118deg,
-      transparent 0 14px,
-      rgba(109, 40, 217, 0.009) 14px 15px
-    ),
-    radial-gradient(ellipse 95% 85% at 50% 50%, transparent 40%, rgba(196, 181, 253, 0.04) 100%),
-    radial-gradient(ellipse 60% 50% at 100% 100%, rgba(254, 243, 199, 0.22), transparent 65%),
-    radial-gradient(ellipse 55% 45% at 0% 0%, rgba(224, 231, 255, 0.35), transparent 60%);
-}
-
-.home-offers-section::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.65;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.75) 0%,
-    transparent 28%,
-    transparent 72%,
-    rgba(255, 252, 248, 0.45) 100%
-  );
-}
+/* Sem pseudo-camadas fixas: elas tapavam o gradiente e a personalização parecia “não funcionar”. */
 
 .home-offers-section__inner {
   position: relative;

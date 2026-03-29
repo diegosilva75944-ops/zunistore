@@ -13,13 +13,13 @@ export const HOME_OFFERS_THEME_FIELDS: {
   { key: "--home-offers-border", label: "Cor da borda da secção", hint: "ex: rgba(226,232,240,0.95)" },
   {
     key: "--home-offers-shadow-tint",
-    label: "Sombra externa (tom)",
-    hint: "ex: rgba(109,40,217,0.08)",
+    label: "Sombra externa suave (cor)",
+    hint: "ex: rgba(109,40,217,0.08) · use transparent para desligar",
   },
   {
     key: "--home-offers-inset-highlight",
-    label: "Brilho interno superior",
-    hint: "ex: rgba(255,255,255,1)",
+    label: "Brilho interno no topo (inset)",
+    hint: "ex: rgba(255,255,255,1) · linha clara no bordo superior",
   },
   {
     key: "--home-offers-marquee-bg-start",
@@ -52,10 +52,6 @@ export const HOME_OFFERS_THEME_FIELDS: {
     label: "Selo — borda",
     hint: "ex: rgba(253,224,171,0.45)",
   },
-  { key: "--home-offers-dark-bg-start", label: "[Escuro] Fundo — topo", hint: "opcional" },
-  { key: "--home-offers-dark-bg-mid", label: "[Escuro] Fundo — meio", hint: "opcional" },
-  { key: "--home-offers-dark-bg-end", label: "[Escuro] Fundo — base", hint: "opcional" },
-  { key: "--home-offers-dark-border", label: "[Escuro] Borda da secção", hint: "opcional" },
 ];
 
 export const HOME_OFFERS_THEME_KEYS = HOME_OFFERS_THEME_FIELDS.map((f) => f.key);
