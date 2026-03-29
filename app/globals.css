@@ -77,7 +77,7 @@ body {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Home — “Produtos em Oferta”: fundo v2 (faixa vertical + vinheta + textura)   */
+/* Home — “Produtos em Oferta”: fundo claro e suave (pastéis + pouco contraste) */
 /* -------------------------------------------------------------------------- */
 .home-offers-section {
   position: relative;
@@ -85,17 +85,17 @@ body {
   border-radius: 1.5rem;
   padding: clamp(1.25rem, 4vw, 2rem);
   overflow: hidden;
-  border: 1px solid rgba(251, 191, 36, 0.22);
-  /* Camada base: lavanda muito clara → neutro frio → creme quente (sem branco puro) */
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  /* Quase branco com lavanda e creme muito ténues */
   background: linear-gradient(
     180deg,
-    #faf5ff 0%,
-    #f1f5f9 52%,
-    #fff8f0 100%
+    #fdfcff 0%,
+    #fafbfc 50%,
+    #fffdfb 100%
   );
   box-shadow:
-    0 10px 40px -12px rgba(76, 29, 149, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+    0 6px 28px -10px rgba(109, 40, 217, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 
 .home-offers-section::before {
@@ -104,16 +104,16 @@ body {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  /* Vinheta suave no centro + calor nos cantos; textura de linhas discretíssima */
+  /* Textura e luzes bem subtis */
   background:
     repeating-linear-gradient(
       118deg,
       transparent 0 14px,
-      rgba(109, 40, 217, 0.022) 14px 15px
+      rgba(109, 40, 217, 0.009) 14px 15px
     ),
-    radial-gradient(ellipse 95% 85% at 50% 48%, transparent 35%, rgba(124, 58, 237, 0.05) 100%),
-    radial-gradient(ellipse 55% 45% at 100% 100%, rgba(251, 191, 36, 0.1), transparent 62%),
-    radial-gradient(ellipse 50% 40% at 0% 0%, rgba(239, 68, 68, 0.045), transparent 55%);
+    radial-gradient(ellipse 95% 85% at 50% 50%, transparent 40%, rgba(196, 181, 253, 0.04) 100%),
+    radial-gradient(ellipse 60% 50% at 100% 100%, rgba(254, 243, 199, 0.22), transparent 65%),
+    radial-gradient(ellipse 55% 45% at 0% 0%, rgba(224, 231, 255, 0.35), transparent 60%);
 }
 
 .home-offers-section::after {
@@ -122,14 +122,13 @@ body {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  /* Brilho superior fino + profundidade inferior */
-  opacity: 0.55;
+  opacity: 0.65;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.55) 0%,
-    transparent 22%,
-    transparent 78%,
-    rgba(255, 247, 237, 0.35) 100%
+    rgba(255, 255, 255, 0.75) 0%,
+    transparent 28%,
+    transparent 72%,
+    rgba(255, 252, 248, 0.45) 100%
   );
 }
 
@@ -147,29 +146,29 @@ body {
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #5b21b6;
-  background: linear-gradient(90deg, rgba(254, 243, 199, 0.98), rgba(253, 230, 138, 0.9));
-  border: 1px solid rgba(245, 158, 11, 0.35);
-  box-shadow: 0 2px 8px rgba(109, 40, 217, 0.08);
+  color: #7c6bb0;
+  background: linear-gradient(90deg, rgba(255, 251, 235, 0.95), rgba(254, 249, 231, 0.92));
+  border: 1px solid rgba(253, 224, 171, 0.45);
+  box-shadow: 0 1px 4px rgba(109, 40, 217, 0.04);
 }
 
-/* Painel do carrossel: vidro leve em gradiente (sem backdrop-filter) */
+/* Painel do carrossel: branco suave sobre o fundo claro */
 .home-offers-section__marquee {
   border-radius: 1rem;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.48));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.72));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    0 1px 3px rgba(76, 29, 149, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.85);
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(241, 245, 249, 0.9);
 }
 
 @media (prefers-color-scheme: dark) {
   .home-offers-section {
-    border-color: rgba(251, 191, 36, 0.18);
-    background: linear-gradient(180deg, #1a1625 0%, #151822 48%, #1c1418 100%);
+    border-color: rgba(148, 163, 184, 0.15);
+    background: linear-gradient(180deg, #22212c 0%, #1e1e28 50%, #232026 100%);
     box-shadow:
-      0 12px 44px -14px rgba(0, 0, 0, 0.65),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      0 8px 32px -12px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
   .home-offers-section::before {
@@ -177,34 +176,34 @@ body {
       repeating-linear-gradient(
         118deg,
         transparent 0 14px,
-        rgba(167, 139, 250, 0.04) 14px 15px
+        rgba(167, 139, 250, 0.025) 14px 15px
       ),
-      radial-gradient(ellipse 90% 80% at 50% 45%, rgba(109, 40, 217, 0.12), transparent 70%),
-      radial-gradient(ellipse 50% 42% at 100% 100%, rgba(251, 191, 36, 0.07), transparent 60%);
+      radial-gradient(ellipse 90% 80% at 50% 45%, rgba(139, 92, 246, 0.07), transparent 72%),
+      radial-gradient(ellipse 50% 42% at 100% 100%, rgba(251, 191, 36, 0.04), transparent 62%);
   }
 
   .home-offers-section::after {
-    opacity: 0.4;
+    opacity: 0.35;
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.07) 0%,
-      transparent 30%,
-      transparent 70%,
-      rgba(127, 29, 29, 0.08) 100%
+      rgba(255, 255, 255, 0.05) 0%,
+      transparent 35%,
+      transparent 75%,
+      rgba(254, 243, 199, 0.04) 100%
     );
   }
 
   .home-offers-section__badge {
-    color: rgba(253, 230, 138, 0.95);
-    background: linear-gradient(90deg, rgba(91, 33, 182, 0.55), rgba(76, 29, 149, 0.4));
-    border-color: rgba(251, 191, 36, 0.3);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    color: rgba(233, 213, 255, 0.92);
+    background: linear-gradient(90deg, rgba(91, 33, 182, 0.38), rgba(76, 29, 149, 0.28));
+    border-color: rgba(251, 191, 36, 0.2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
   }
 
   .home-offers-section__marquee {
-    background: linear-gradient(180deg, rgba(30, 27, 45, 0.75), rgba(22, 20, 35, 0.55));
-    border-color: rgba(255, 255, 255, 0.07);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    background: linear-gradient(180deg, rgba(38, 36, 52, 0.65), rgba(30, 28, 42, 0.48));
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 }
 
