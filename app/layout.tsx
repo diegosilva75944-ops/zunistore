@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { getSiteSettings } from "@/lib/store";
 import { getOptionalEnv } from "@/lib/env";
+import { normalizeThemeColors, themeColorsToHtmlStyle } from "@/lib/theme/normalize-theme-colors";
 
 /**
  * PostgREST usa `fetch(..., { cache: "no-store" })`. Sem isto, o `next build` tenta pré-renderizar
@@ -42,20 +43,15 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const settings = await getSiteSettings();
-  const colors = settings?.colors ?? null;
-  const cssVars = colors
-    ? Object.entries(colors)
-        .filter(([k, v]) => k.startsWith("--") && typeof v === "string" && v.trim())
-        .map(([k, v]) => `${k}:${v};`)
-        .join("")
-    : "";
+  const htmlThemeStyle = themeColorsToHtmlStyle(
+    normalizeThemeColors(settings?.colors ?? null),
+  );
 
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" style={htmlThemeStyle}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {cssVars ? <style>{`:root{${cssVars}}`}</style> : null}
         {children}
       </body>
     </html>

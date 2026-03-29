@@ -14,8 +14,18 @@ export async function GET() {
   return NextResponse.json({ ok: true, settings });
 }
 
+/** Evita 400 quando o logo não é URL absoluta (ex.: caminho relativo ou storage). */
+const optionalLogoUrl = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((s) => {
+    if (s === undefined) return undefined;
+    if (s === null || String(s).trim() === "") return null;
+    return String(s).trim();
+  });
+
 const schema = z.object({
-  logo_url: z.union([z.string().url(), z.literal(""), z.null()]).optional(),
+  logo_url: optionalLogoUrl,
   colors: z.record(z.string(), z.string()).optional(),
   offers_section_position: z.enum(["after_hero", "before_hero"]).optional(),
 });
