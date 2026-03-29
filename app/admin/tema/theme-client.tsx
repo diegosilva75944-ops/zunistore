@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ThemeColorField } from "@/components/admin/ThemeColorField";
 import { HOME_OFFERS_THEME_FIELDS, HOME_OFFERS_THEME_KEYS } from "@/lib/theme/home-offers-theme";
 
 const DEFAULT_KEYS = [
@@ -116,23 +117,22 @@ export function ThemeClient() {
       <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-3">
         <div className="text-sm font-semibold">Aparência — Produtos em oferta (home)</div>
         <p className="text-xs text-zinc-600">
-          Variáveis CSS injetadas no site (junto com o restante do tema). Deixe em branco para usar o padrão
-          do código. Aceita <span className="font-mono">#hex</span> ou{" "}
-          <span className="font-mono">rgba(...)</span>.
+          Use o quadrado colorido para abrir a paleta do sistema. O campo ao lado aceita{" "}
+          <span className="font-mono">#hex</span> ou <span className="font-mono">rgba(...)</span> (útil
+          para transparência). Vazio = padrão do site.
         </p>
         <div className="grid gap-3 md:grid-cols-1">
           {HOME_OFFERS_THEME_FIELDS.map(({ key, label, hint }) => (
-            <div key={key} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-              <div className="min-w-0 sm:w-[min(42%,280px)]">
+            <div key={key} className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-3">
+              <div className="min-w-0 sm:w-[min(42%,280px)] sm:pt-2">
                 <div className="text-xs font-medium text-zinc-800">{label}</div>
                 <div className="text-[10px] font-mono text-zinc-500 break-all">{key}</div>
               </div>
-              <input
+              <ThemeColorField
                 value={colors[key] ?? ""}
-                onChange={(e) => setColors((s) => ({ ...s, [key]: e.target.value }))}
-                className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-mono"
+                onChange={(v) => setColors((s) => ({ ...s, [key]: v }))}
                 placeholder={hint ?? ""}
-                aria-label={label}
+                ariaLabel={label}
               />
             </div>
           ))}
@@ -155,15 +155,19 @@ export function ThemeClient() {
       <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-3">
         <div className="text-sm font-semibold">Cores (CSS variables)</div>
 
-        <div className="grid gap-2 md:grid-cols-2">
+        <p className="text-xs text-zinc-600">
+          Clique no seletor para abrir a paleta; valores em <span className="font-mono">rgba</span> podem
+          ser digitados quando precisar de transparência.
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
           {keys.map((k) => (
-            <div key={k} className="flex items-center gap-2">
-              <div className="w-44 text-xs font-mono text-zinc-700">{k}</div>
-              <input
+            <div key={k} className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-2">
+              <div className="w-full shrink-0 pt-2 text-xs font-mono text-zinc-700 sm:w-44">{k}</div>
+              <ThemeColorField
                 value={colors[k] ?? ""}
-                onChange={(e) => setColors((s) => ({ ...s, [k]: e.target.value }))}
-                className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-mono"
+                onChange={(v) => setColors((s) => ({ ...s, [k]: v }))}
                 placeholder="#RRGGBB"
+                ariaLabel={k}
               />
             </div>
           ))}
