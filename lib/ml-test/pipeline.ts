@@ -52,19 +52,42 @@ export async function runTestMlImport(
   }
 
   const fetched = await fetchMlHtml(fetchUrl);
-  if (!fetched.ok) {
-    throw new Error(fetched.error || `Falha ao baixar a página (${fetched.status ?? "?"})`);
-  }
-  globalSteps.push(
-    `Fetch HTTP: ${fetched.html.length} chars${fetched.usedMobileFallback ? " (UA mobile)" : ""}`,
-  );
 
-  let extracted = extractFromHtml(fetched.html, "fetch-http");
-  let resolved = resolvePreviewPricing(fetched.html, extracted.candidates, "html");
+  let initialHtml: string;
+  let initialLayer: "fetch-http" | "headless" = "fetch-http";
+  let usedPlaywrightFirst = false;
+
+  if (!fetched.ok) {
+    if (mode === "auto") {
+      globalSteps.push(`HTTP indisponível ou bloqueado: ${fetched.error}. Tentando Playwright…`);
+      const pw = await fetchHtmlWithPlaywright(fetchUrl);
+      if (!pw.ok) {
+        throw new Error(pw.error || fetched.error || "Falha ao abrir a página.");
+      }
+      initialHtml = pw.html;
+      initialLayer = "headless";
+      usedPlaywrightFirst = true;
+      globalSteps.push(`Playwright (fallback): ${initialHtml.length} chars (final: ${pw.finalUrl})`);
+    } else {
+      throw new Error(fetched.error || `Falha ao baixar a página (${fetched.status ?? "?"})`);
+    }
+  } else {
+    initialHtml = fetched.html;
+    globalSteps.push(
+      `Fetch HTTP: ${initialHtml.length} chars${fetched.usedMobileFallback ? " (UA mobile)" : ""}`,
+    );
+  }
+
+  let extracted = extractFromHtml(initialHtml, initialLayer);
+  let resolved = resolvePreviewPricing(
+    initialHtml,
+    extracted.candidates,
+    initialLayer === "headless" ? "headless" : "html",
+  );
   let candidates = [...extracted.candidates];
   let htmlSource = resolved.pricing.source;
 
-  if (mode === "auto" && isWeakResolved(resolved.pricing)) {
+  if (mode === "auto" && isWeakResolved(resolved.pricing) && !usedPlaywrightFirst) {
     globalSteps.push("Heurística fraca ou sem preço → tentando Playwright…");
     const pw = await fetchHtmlWithPlaywright(fetchUrl);
     if (pw.ok) {

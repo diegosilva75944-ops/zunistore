@@ -58,6 +58,19 @@ export function resolveMlCatalogUrlForServerFetch(raw: string): string {
     if (/\/p\/MLB\d+/i.test(u.pathname)) {
       return s;
     }
+    /** Já é permalink clássico do anúncio (BR). */
+    if (/produto\.mercadolivre\.com\.br/i.test(host) && /\/MLB-\d+/i.test(u.pathname)) {
+      return s;
+    }
+
+    /**
+     * No www, `/p/MLB…` costuma 404 para vários anúncios; o ML serve a PDP em produto.mercadolivre.com.br/MLB-{id}.
+     * @see https://produto.mercadolivre.com.br/MLB-6100526080
+     */
+    if (host.includes("mercadolivre.com.br") && /^MLB\d{6,}$/i.test(mlb)) {
+      const digits = mlb.replace(/^MLB/i, "");
+      return `https://produto.mercadolivre.com.br/MLB-${digits}`;
+    }
 
     return `${u.origin}/p/${mlb}`;
   } catch {
