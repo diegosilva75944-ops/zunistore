@@ -1,6 +1,6 @@
 import "server-only";
 
-import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
+import { postgrestGet, postgrestPost, PostgrestError } from "@/lib/postgrest/server";
 import { slugify } from "@/lib/slug";
 
 function enc(v: string): string {
@@ -57,17 +57,37 @@ export async function adminUpsertCategoryFromBreadcrumb(
 
     const slug = await allocateCategorySlugUnderParent(baseSlug, parentId);
 
-    const created = await postgrestPost<any[]>(
-      "categories",
-      {
-        name,
-        slug,
-        parent_id: parentId,
-        is_seed: false,
-      },
-      "service",
-      { select: "id,slug", returning: true },
-    );
+    const existingBeforeInsert = await findCategoryByParentAndSlug(parentId, slug);
+    if (existingBeforeInsert?.id) {
+      parentId = existingBeforeInsert.id;
+      parentSlug = String(existingBeforeInsert.slug || slug);
+      continue;
+    }
+
+    let created: any[] | undefined;
+    try {
+      created = await postgrestPost<any[]>(
+        "categories",
+        {
+          name,
+          slug,
+          parent_id: parentId,
+          is_seed: false,
+        },
+        "service",
+        { select: "id,slug", returning: true },
+      );
+    } catch (e) {
+      if (e instanceof PostgrestError && e.status === 409) {
+        const recovered = await findCategoryByParentAndSlug(parentId, slug);
+        if (recovered?.id) {
+          parentId = recovered.id;
+          parentSlug = String(recovered.slug || slug);
+          continue;
+        }
+      }
+      throw e;
+    }
     const row = Array.isArray(created) ? created[0] : null;
     if (!row?.id) return parentId;
     parentId = row.id;
@@ -77,6 +97,22 @@ export async function adminUpsertCategoryFromBreadcrumb(
   return parentId;
 }
 
+async function findCategoryByParentAndSlug(parentId: string, slug: string): Promise<{ id: string; slug: string } | null> {
+  const rows = await postgrestGet<any[]>("categories", {
+    select: "id,slug",
+    parent_id: `eq.${parentId}`,
+    slug: `eq.${enc(slug)}`,
+    limit: "1",
+  });
+  const row = Array.isArray(rows) ? rows[0] : null;
+  return row?.id ? { id: String(row.id), slug: String(row.slug ?? slug) } : null;
+}
+
+/**
+ * Garante slug único globalmente. Se o slug já existir em outro pai, tenta sufixos (-2, -3…).
+ * Se já existir no mesmo pai, devolve o mesmo slug — o caller deve usar findCategoryByParentAndSlug
+ * antes do INSERT (evita 23505 em categories_slug_key).
+ */
 async function allocateCategorySlugUnderParent(baseSlug: string, parentId: string): Promise<string> {
   let candidate = baseSlug;
   for (let n = 0; n < 50; n++) {
@@ -87,7 +123,9 @@ async function allocateCategorySlugUnderParent(baseSlug: string, parentId: strin
     });
     const row = Array.isArray(rows) ? rows[0] : null;
     if (!row) return candidate;
-    if (row.parent_id === parentId) return candidate;
+    if (String(row.parent_id) === String(parentId)) {
+      return candidate;
+    }
     candidate = `${baseSlug}-${n + 2}`;
   }
   return `${baseSlug}-${Date.now()}`;
