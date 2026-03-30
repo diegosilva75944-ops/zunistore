@@ -76,7 +76,7 @@ export async function POST(req: Request) {
     const result = await runTestMlImport(fetchUrl, "auto");
     let externalId: string;
     try {
-      /** URL bruta: `normalizeMlFetchUrl` remove o `#…wid=MLB…` necessário em links /up/ de recomendação. */
+      /** URL completa (incl. `#wid=MLB…` em /up/); o fetch usa `normalizeMlFetchUrl` que reescreve para `/p/MLB…`. */
       externalId = await extractMlItemIdFromUrlWithRedirects(p.sourceUrl.trim());
     } catch (e) {
       return withCors(

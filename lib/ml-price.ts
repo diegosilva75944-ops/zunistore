@@ -7,6 +7,7 @@
  * 5) regex R$. O sync combina isso com JSON-LD como no popup.
  */
 import { parseAndesFractionCentsToNumber } from "@/lib/ml-test/parseAndesMoney";
+import { resolveMlCatalogUrlForServerFetch } from "@/lib/ml-test/normalize";
 import { resolvePreviewPricing } from "@/lib/ml-test/resolvePreviewPricing";
 import { extractMercadoLivrePrices } from "@/lib/mercadolivre/price-extractor";
 
@@ -857,7 +858,7 @@ export function normalizeMercadoLivreProductUrl(
   url: string,
   opts?: { keepSearch?: boolean },
 ): string {
-  const raw = String(url || "").trim();
+  const raw = resolveMlCatalogUrlForServerFetch(String(url || "").trim());
   if (!raw) return raw;
   try {
     const u = new URL(raw);

@@ -1,5 +1,70 @@
 /** Validação e normalização de URL do Mercado Livre (teste interno). */
 
+/**
+ * URLs `/up/…` (catálogo + recomendações) definem o anúncio em `wid=MLB…` no **hash** (`#…&wid=MLB…`).
+ * Requisições HTTP não enviam fragmentos — o ML costuma responder com erro genérico ou tela de login.
+ * Quando houver `wid` (MLB…) extraído do hash, query ou `pdp_filters`, reescreve para PDP `/p/MLB…`.
+ */
+export function resolveMlCatalogUrlForServerFetch(raw: string): string {
+  const s = String(raw || "").trim();
+  if (!s) return s;
+  try {
+    const u = new URL(s);
+    const host = u.hostname.toLowerCase();
+    if (
+      !host.includes("mercadolivre.com") &&
+      !host.includes("mercadolibre.com") &&
+      host !== "meli.la" &&
+      !host.endsWith(".meli.la")
+    ) {
+      return s;
+    }
+
+    let wid: string | null = u.searchParams.get("wid") || u.searchParams.get("item_id");
+
+    const hash = u.hash.startsWith("#") ? u.hash.slice(1) : u.hash;
+    if (!wid && hash) {
+      try {
+        const hp = new URLSearchParams(hash);
+        wid = hp.get("wid") || hp.get("item_id");
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (!wid) {
+      const pdp = u.searchParams.get("pdp_filters");
+      if (pdp) {
+        try {
+          const decoded = decodeURIComponent(pdp);
+          const m = decoded.match(/item_id\s*:\s*(MLB\d{6,})/i);
+          if (m?.[1]) wid = m[1];
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    if (!wid) {
+      const hrefMatch = s.match(/[?&#]wid=(MLB\d{6,})\b/i);
+      if (hrefMatch?.[1]) wid = hrefMatch[1];
+    }
+
+    if (!wid || !/^MLB\d{6,}$/i.test(wid)) {
+      return s;
+    }
+
+    const mlb = wid.toUpperCase();
+    if (/\/p\/MLB\d+/i.test(u.pathname)) {
+      return s;
+    }
+
+    return `${u.origin}/p/${mlb}`;
+  } catch {
+    return s;
+  }
+}
+
 export function isMercadoLivreProductUrl(raw: string): boolean {
   const s = String(raw || "").trim();
   if (!s) return false;
@@ -22,7 +87,7 @@ export function isMercadoLivreProductUrl(raw: string): boolean {
  * Mantém search quando necessário para páginas de afiliado/poly (mesma ideia do sync).
  */
 export function normalizeMlFetchUrl(raw: string, opts?: { keepSearch?: boolean }): string {
-  const s = String(raw || "").trim();
+  const s = resolveMlCatalogUrlForServerFetch(String(raw || "").trim());
   if (!s) return s;
   try {
     const u = new URL(s);

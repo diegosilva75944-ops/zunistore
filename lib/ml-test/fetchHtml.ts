@@ -1,5 +1,7 @@
 import "server-only";
 
+import { resolveMlCatalogUrlForServerFetch } from "./normalize";
+
 const ML_FETCH_HEADERS: Record<string, string> = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -45,29 +47,30 @@ function looksBlocked(html: string): boolean {
 }
 
 export async function fetchMlHtml(url: string): Promise<FetchHtmlResult> {
+  const resolvedUrl = resolveMlCatalogUrlForServerFetch(url);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(resolvedUrl, {
       cache: "no-store",
       redirect: "follow",
       headers: ML_FETCH_HEADERS,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const text = await res.text();
-    const finalUrl = res.url || url;
+    const finalUrl = res.url || resolvedUrl;
 
     if (!res.ok) {
       return { ok: false, status: res.status, error: `HTTP ${res.status}` };
     }
 
     if (looksBlocked(text)) {
-      const res2 = await fetch(url, {
+      const res2 = await fetch(resolvedUrl, {
         cache: "no-store",
         redirect: "follow",
         headers: ML_MOBILE_HEADERS,
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       const text2 = await res2.text();
-      const final2 = res2.url || url;
+      const final2 = res2.url || resolvedUrl;
       if (res2.ok && !looksBlocked(text2)) {
         return { ok: true, html: text2, finalUrl: final2, usedMobileFallback: true };
       }
