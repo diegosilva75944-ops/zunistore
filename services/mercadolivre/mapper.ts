@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { NormalizedMlListing } from "./normalizer";
+import type { ExternalListingOrigin, NormalizedMlListing } from "./normalizer";
 import { slugify } from "@/lib/slug";
 
 export type MlToInternalProductDraft = {
@@ -22,7 +22,7 @@ export type MlToInternalProductDraft = {
 };
 
 export type MlExternalListingDraft = {
-  origin: "mercadolivre";
+  origin: ExternalListingOrigin;
   origin_tipo: "public_listing";
   external_id: string;
   external_permalink: string;
@@ -147,7 +147,9 @@ export function mapMlNormalizedToDrafts(opts: {
     off_percent: offPercent,
     rating: n.rating ?? null,
     reviews_count: n.reviews_count ?? null,
-    affiliate_code: opts.affiliateCodeOverride?.trim() || "ml_public",
+    affiliate_code:
+      opts.affiliateCodeOverride?.trim() ||
+      (n.origin === "magazinevoce" ? "magalu_ext" : "ml_public"),
     affiliate_url: affiliateUrl,
     source_url: sourceUrl,
     last_seen_at: now,
@@ -155,7 +157,7 @@ export function mapMlNormalizedToDrafts(opts: {
   };
 
   const externalDraft: MlExternalListingDraft = {
-    origin: "mercadolivre",
+    origin: n.origin,
     origin_tipo: "public_listing",
     external_id: n.external_id,
     /** URL canônica do anúncio; o link de afiliado fica em products.affiliate_url */

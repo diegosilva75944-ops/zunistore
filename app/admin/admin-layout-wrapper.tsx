@@ -65,6 +65,9 @@ export default function AdminLayoutWrapper({
               <NavLink href="/admin/test-ml-import" active={pathname.startsWith("/admin/test-ml-import")}>
                 Teste ML (interno)
               </NavLink>
+              <NavLink href="/admin/test-magalu-import" active={pathname.startsWith("/admin/test-magalu-import")}>
+                Teste Magalu (interno)
+              </NavLink>
               <NavLink href="/admin/tokens" active={pathname.startsWith("/admin/tokens")}>
                 Tokens
               </NavLink>

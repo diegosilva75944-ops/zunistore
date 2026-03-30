@@ -22,8 +22,10 @@ export type MlDescriptionLike = {
   last_updated?: string | null;
 } | null;
 
+export type ExternalListingOrigin = "mercadolivre" | "magazinevoce";
+
 export type NormalizedMlListing = {
-  origin: "mercadolivre";
+  origin: ExternalListingOrigin;
   origin_tipo: "public_listing";
   external_id: string;
   external_permalink: string | null;

@@ -19,7 +19,7 @@ function compareCode6(a: string, b: string): number {
 }
 
 /** Substitui o vínculo ML do produto (uma linha) para evitar conflito unique(product_id) ao mudar external_id. */
-async function replaceMercadoLivreListing(productId: string, externalDraft: object) {
+async function replaceProductExternalListing(productId: string, externalDraft: object) {
   await postgrestDelete("product_external_listings", { product_id: `eq.${productId}` });
   await postgrestPost(
     "product_external_listings",
@@ -29,7 +29,7 @@ async function replaceMercadoLivreListing(productId: string, externalDraft: obje
   );
 }
 
-async function findExistingByTitleNorm(titleNorm: string): Promise<ExistingMatch> {
+async function findExistingByTitleNorm(titleNorm: string, listingOrigin: string): Promise<ExistingMatch> {
   if (titleNorm.length < 2) return { kind: "none" };
   try {
     const rows = await postgrestGet<any[]>("products", {
@@ -51,7 +51,7 @@ async function findExistingByTitleNorm(titleNorm: string): Promise<ExistingMatch
       const pel = await postgrestGet<any[]>("product_external_listings", {
         select: "id",
         product_id: `eq.${id}`,
-        origin: "eq.mercadolivre",
+        origin: `eq.${listingOrigin}`,
         limit: "1",
       });
       const hasMl = Array.isArray(pel) && pel[0] ? 1 : 0;
@@ -73,10 +73,10 @@ async function findExistingByTitleNorm(titleNorm: string): Promise<ExistingMatch
   }
 }
 
-async function findExistingByExternalId(externalId: string): Promise<ExistingMatch> {
+async function findExistingByExternalId(origin: string, externalId: string): Promise<ExistingMatch> {
   const rows = await postgrestGet<any[]>("product_external_listings", {
     select: "id,product_id",
-    origin: "eq.mercadolivre",
+    origin: `eq.${origin}`,
     external_id: `eq.${encodeURIComponent(externalId)}`,
     limit: "1",
   });
@@ -84,10 +84,10 @@ async function findExistingByExternalId(externalId: string): Promise<ExistingMat
   return row?.product_id ? { kind: "external_id", product_id: row.product_id, external_row_id: row.id } : { kind: "none" };
 }
 
-async function findExistingByPermalink(permalink: string): Promise<ExistingMatch> {
+async function findExistingByPermalink(origin: string, permalink: string): Promise<ExistingMatch> {
   const rows = await postgrestGet<any[]>("product_external_listings", {
     select: "id,product_id",
-    origin: "eq.mercadolivre",
+    origin: `eq.${origin}`,
     external_permalink: `eq.${encodeURIComponent(permalink)}`,
     limit: "1",
   });
@@ -128,13 +128,18 @@ export async function mlImportOrUpdateProduct(opts: {
   descriptionDetail?: string;
 }) : Promise<MlImportResult> {
   const n = opts.normalized;
-  const permalink = n.external_permalink || `https://www.mercadolivre.com.br/p/${n.external_id}`;
+  const listingOrigin = n.origin;
+  const permalink =
+    n.external_permalink ||
+    (listingOrigin === "magazinevoce"
+      ? `https://www.magazinevoce.com.br/p/${n.external_id}`
+      : `https://www.mercadolivre.com.br/p/${n.external_id}`);
 
   // Dedup 1: external_id
-  let match = await findExistingByExternalId(n.external_id);
+  let match = await findExistingByExternalId(listingOrigin, n.external_id);
   // Dedup 2: permalink
   if (match.kind === "none") {
-    match = await findExistingByPermalink(permalink);
+    match = await findExistingByPermalink(listingOrigin, permalink);
   }
 
   // Categoria externa (nome + breadcrumb) para mapear em categories internas
@@ -155,9 +160,12 @@ export async function mlImportOrUpdateProduct(opts: {
     }
   }
 
-  // Fallback de preço: se API vier incompleta, tentamos HTML (mesma técnica do sync).
+  // Fallback de preço (somente Mercado Livre — extractor específico ML).
   let fallbackPrice: { price: number; promo_price: number | null } | null = null;
-  if (n.price_current == null || !Number.isFinite(n.price_current) || n.price_current <= 0) {
+  if (
+    listingOrigin === "mercadolivre" &&
+    (n.price_current == null || !Number.isFinite(n.price_current) || n.price_current <= 0)
+  ) {
     try {
       const ml = await fetchPricesFromUrl(permalink);
       if (ml.kind === "ok") {
@@ -193,7 +201,7 @@ export async function mlImportOrUpdateProduct(opts: {
   if (match.kind === "none") {
     const tn = normalizeProductTitleNorm(productDraft.title);
     if (tn.length >= 3) {
-      const byTitle = await findExistingByTitleNorm(tn);
+      const byTitle = await findExistingByTitleNorm(tn, listingOrigin);
       if (byTitle.kind === "title_norm") match = byTitle;
     }
   }
@@ -243,7 +251,7 @@ export async function mlImportOrUpdateProduct(opts: {
     );
 
     // Troca de MLB na URL: unique(product_id) impede dois listings; substitui a linha inteira.
-    await replaceMercadoLivreListing(match.product_id, externalDraft);
+    await replaceProductExternalListing(match.product_id, externalDraft);
 
     const rows = await postgrestGet<any[]>("products", {
       select: "id,code6,slug",
@@ -317,7 +325,7 @@ export async function mlImportOrUpdateProduct(opts: {
     } catch (delErr) {
       console.error("[mercadolivre] falha ao remover produto órfão", delErr);
     }
-    throw e instanceof Error ? e : new Error("Falha ao vincular anúncio ML ao produto.");
+    throw e instanceof Error ? e : new Error("Falha ao vincular anúncio externo ao produto.");
   }
 
   return { ok: true, action: "created", product_id: p.id, code6: p.code6, slug: p.slug };
