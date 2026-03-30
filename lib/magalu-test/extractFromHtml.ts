@@ -13,6 +13,62 @@ function brlTextToNumber(raw: string): number | null {
   return Number.isFinite(n) && n > 0 && n < 50_000_000 ? n : null;
 }
 
+/** Preços hidratados na página (Magalu): "price" = vitrine/de, "bestPrice" = melhor (ex.: Pix). */
+function parseEmbeddedMagaluPriceBlock(html: string): {
+  listFromBlock: number | null;
+  bestPrice: number | null;
+  fullPrice: number | null;
+} | null {
+  const re =
+    /"price"\s*:\s*\{\s*"paymentMethodDescription"\s*:\s*"[^"]*"\s*,\s*"price"\s*:\s*"(\d+(?:\.\d+)?)"\s*,\s*"fullPrice"\s*:\s*"(\d+(?:\.\d+)?)"\s*,\s*"bestPrice"\s*:\s*"(\d+(?:\.\d+)?)"/;
+  const m = html.match(re);
+  if (!m) return null;
+  const listFromBlock = Number(m[1]);
+  const fullPrice = Number(m[2]);
+  const bestPrice = Number(m[3]);
+  if (!Number.isFinite(bestPrice) || bestPrice <= 0) return null;
+  return {
+    listFromBlock: Number.isFinite(listFromBlock) && listFromBlock > 0 ? listFromBlock : null,
+    bestPrice,
+    fullPrice: Number.isFinite(fullPrice) && fullPrice > 0 ? fullPrice : null,
+  };
+}
+
+const PAYMENT_OR_UI_IMG_RE =
+  /payment-types|footer\/payment|\/payment\/|bandeira|formas[_-]?de[_-]?pagamento|favicon|apple-touch|\/img\/favicon|\/flags\/|cart[aã]o|visa\.svg|mastercard|elo\.svg|hipercard|amex|american-express|luizacred|pix[_-]?icon|parcelamento|luizacred/i;
+
+function magaluImageAreaFromUrl(url: string): number {
+  const m = url.match(/a-static\.mlcdn\.com\.br\/(\d+)x(\d+)\//i);
+  if (!m) return 0;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return 0;
+  return w * h;
+}
+
+function imageFileKey(url: string): string {
+  const path = url.split("?")[0];
+  const seg = path.split("/").pop() || path;
+  return seg.replace(/^\d+x\d+-/, "");
+}
+
+function isMagaluProductImageUrl(url: string, productId: string): boolean {
+  const u = url.split("?")[0].trim();
+  if (!/^https?:\/\//i.test(u)) return false;
+  if (/\{w\}|\{h\}/i.test(u)) return false;
+  if (PAYMENT_OR_UI_IMG_RE.test(u)) return false;
+  if (/wx\.mlcdn\.com\.br/i.test(u)) return false;
+  if (/\.svg(\?|$)/i.test(u)) return false;
+
+  if (/a-static\.mlcdn\.com\.br/i.test(u)) {
+    if (!/\/magazineluiza\/\d+\//i.test(u)) return false;
+    if (productId && !u.includes(`/magazineluiza/${productId}/`)) return false;
+    return /\.(jpe?g|png|webp)(\?|$)/i.test(u);
+  }
+
+  return false;
+}
+
 function collectPricesFromText(html: string): number[] {
   const re = /R\$\s*([\d]{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})/gi;
   const out: number[] = [];
@@ -41,25 +97,38 @@ function walkJsonLd(node: unknown, products: Record<string, unknown>[]): void {
 }
 
 function parseOfferPrice(offer: unknown): { current: number | null; original: number | null } {
-  if (offer == null || typeof offer !== "object") return { current: null, original: null };
-  const o = offer as Record<string, unknown>;
+  if (offer == null) return { current: null, original: null };
   const pick = (v: unknown): number | null => {
     if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
     if (typeof v === "string") return brlTextToNumber(v);
     return null;
   };
+
+  if (Array.isArray(offer)) {
+    let current: number | null = null;
+    let original: number | null = null;
+    for (const item of offer) {
+      const one = parseOfferPrice(item);
+      if (one.current != null) current = one.current;
+      if (one.original != null) original = one.original;
+    }
+    return { current, original };
+  }
+
+  if (typeof offer !== "object") return { current: null, original: null };
+  const o = offer as Record<string, unknown>;
   let current: number | null = null;
   let original: number | null = null;
 
-  if (o.price != null) current = pick(o.price);
+  if (o.price != null && typeof o.price !== "object") current = pick(o.price);
   const low = o.lowPrice;
   const high = o.highPrice;
   if (typeof low === "object" && low != null && "price" in (low as object)) {
     current = pick((low as { price?: unknown }).price);
-  } else if (low != null) current = pick(low);
+  } else if (low != null && typeof low !== "object") current = pick(low);
   if (typeof high === "object" && high != null && "price" in (high as object)) {
     original = pick((high as { price?: unknown }).price);
-  } else if (high != null) original = pick(high);
+  } else if (high != null && typeof high !== "object") original = pick(high);
 
   const offers = o.offers;
   if (offers && typeof offers === "object") {
@@ -79,7 +148,7 @@ function buildPricing(
   current: number | null,
   original: number | null,
   steps: string[],
-  candidateSource: "json_ld" | "regex",
+  candidateSource: "json_ld" | "regex" | "hydration",
 ): { pricing: PricingPreview; candidates: PriceCandidate[] } {
   const candidates: PriceCandidate[] = [];
   if (current != null) {
@@ -132,7 +201,11 @@ function buildPricing(
     displayMode: hasDiscount ? "discounted_price" : sell != null ? "single_price" : "unknown",
     installmentPrice: null,
     installments: null,
-    confidence: candidateSource === "json_ld" && current != null ? "high" : current != null ? "medium" : "low",
+    confidence:
+      candidateSource === "hydration" || (candidateSource === "json_ld" && current != null) ?
+        "high"
+      : current != null ? "medium"
+      : "low",
     source: "html",
   };
 
@@ -155,6 +228,15 @@ export function extractMagaluFromHtml(html: string, finalUrl: string): MagaluHtm
   const steps: string[] = ["Parse HTML (cheerio)"];
   const $ = cheerio.load(html);
 
+  const productIdFromUrl = (() => {
+    try {
+      const m = new URL(finalUrl).pathname.match(/\/p\/(\d+)/i);
+      return m ? m[1] : "";
+    } catch {
+      return "";
+    }
+  })();
+
   const titleOg = $('meta[property="og:title"]').attr("content")?.trim() || null;
   const titleH1 = $("h1").first().text().replace(/\s+/g, " ").trim() || null;
   let title: string | null = titleOg || titleH1;
@@ -162,17 +244,25 @@ export function extractMagaluFromHtml(html: string, finalUrl: string): MagaluHtm
   const descOg = $('meta[property="og:description"]').attr("content")?.trim() || "";
   const descMeta = $('meta[name="description"]').attr("content")?.trim() || "";
 
-  const images = new Set<string>();
-  $('meta[property="og:image"]').each((_, el) => {
-    const u = $(el).attr("content")?.trim();
-    if (u?.startsWith("http")) images.add(u);
-  });
-  $("img[src]").each((_, el) => {
-    const u = $(el).attr("src")?.trim();
+  const imageCandidates: string[] = [];
+  const pushImg = (raw: string | undefined | null) => {
+    const u = raw?.trim();
     if (!u?.startsWith("http")) return;
-    if (/magazineluiza|img|magalu|mlcdn|cloud/i.test(u) && !u.includes("avatar") && !u.includes("logo")) {
-      images.add(u.split("?")[0]);
+    if (!isMagaluProductImageUrl(u, productIdFromUrl)) return;
+    imageCandidates.push(u.split("?")[0]);
+  };
+
+  $('meta[property="og:image"]').each((_, el) => pushImg($(el).attr("content")));
+  $("img[src]").each((_, el) => {
+    const alt = ($(el).attr("alt") || "").toLowerCase();
+    if (
+      /cart[aã]o|visa|master|elo|hiper|amex|american express|parcela|boleto|pagamento|luizacred|diners/i.test(
+        alt,
+      )
+    ) {
+      return;
     }
+    pushImg($(el).attr("src"));
   });
 
   const products: Record<string, unknown>[] = [];
@@ -189,9 +279,28 @@ export function extractMagaluFromHtml(html: string, finalUrl: string): MagaluHtm
 
   let current: number | null = null;
   let original: number | null = null;
+  let priceSource: "json_ld" | "regex" | "hydration" = "json_ld";
   let rating: number | null = null;
   let reviewsCount: number | null = null;
   let jsonDescription = "";
+
+  const embedded = parseEmbeddedMagaluPriceBlock(html);
+  if (embedded) {
+    current = embedded.bestPrice;
+    if (
+      embedded.listFromBlock != null &&
+      embedded.bestPrice != null &&
+      embedded.listFromBlock > embedded.bestPrice
+    ) {
+      original = embedded.listFromBlock;
+    }
+    priceSource = "hydration";
+    steps.push(
+      `Preço (JSON embutido Magalu): melhor ${embedded.bestPrice}${
+        embedded.listFromBlock != null ? ` · vitrine ${embedded.listFromBlock}` : ""
+      }`,
+    );
+  }
 
   if (products.length) {
     steps.push(`JSON-LD: ${products.length} bloco(s) Product`);
@@ -201,10 +310,10 @@ export function extractMagaluFromHtml(html: string, finalUrl: string): MagaluHtm
     const img = p.image;
     if (Array.isArray(img)) {
       for (const x of img) {
-        if (typeof x === "string" && x.startsWith("http")) images.add(x);
+        if (typeof x === "string") pushImg(x);
       }
-    } else if (typeof img === "string" && img.startsWith("http")) {
-      images.add(img);
+    } else if (typeof img === "string") {
+      pushImg(img);
     }
     if (typeof p.description === "string" && p.description.length > jsonDescription.length) {
       jsonDescription = p.description.trim();
@@ -224,11 +333,20 @@ export function extractMagaluFromHtml(html: string, finalUrl: string): MagaluHtm
     }
 
     const off = parseOfferPrice(p.offers);
-    current = off.current;
-    original = off.original;
+    if (current == null && off.current != null) {
+      current = off.current;
+      priceSource = "json_ld";
+    }
+    if (
+      (original == null || original <= (current ?? 0)) &&
+      off.original != null &&
+      current != null &&
+      off.original > current
+    ) {
+      original = off.original;
+    }
   }
 
-  let priceSource: "json_ld" | "regex" = "json_ld";
   if (current == null) {
     const fromBody = collectPricesFromText($.text());
     const sorted = [...new Set(fromBody)].sort((a, b) => a - b);
@@ -236,7 +354,7 @@ export function extractMagaluFromHtml(html: string, finalUrl: string): MagaluHtm
       priceSource = "regex";
       current = sorted[0];
       original = sorted[sorted.length - 1];
-      if (original <= current) original = null;
+      if (original != null && original <= current) original = null;
       steps.push(`Preço (regex texto): candidatos ${sorted.slice(0, 6).join(", ")}`);
     } else if (sorted.length === 1) {
       priceSource = "regex";
@@ -245,6 +363,24 @@ export function extractMagaluFromHtml(html: string, finalUrl: string): MagaluHtm
   }
 
   const { pricing, candidates } = buildPricing(current, original, steps, priceSource);
+  if (pricing.originalPrice != null && pricing.currentPrice != null) {
+    steps.push(`Preço anterior (vitrine): ${pricing.originalPrice}`);
+  }
+
+  const byKey = new Map<string, { url: string; area: number }>();
+  for (const imgUrl of imageCandidates) {
+    const area = magaluImageAreaFromUrl(imgUrl);
+    const key = imageFileKey(imgUrl);
+    const prev = byKey.get(key);
+    if (!prev || area > prev.area) byKey.set(key, { url: imgUrl, area });
+  }
+  const imagesList = [...byKey.values()]
+    .sort((a, b) => b.area - a.area)
+    .map((x) => x.url)
+    .slice(0, 30);
+  if (imagesList.length) {
+    steps.push(`Imagens do produto (filtradas): ${imagesList.length}`);
+  }
 
   const specs: Record<string, string> = {};
   $("table tr").each((_, row) => {
@@ -286,20 +422,11 @@ export function extractMagaluFromHtml(html: string, finalUrl: string): MagaluHtm
   const categoryPathFinal =
     crumbsTrim.length > 0 ? crumbsTrim : categoryNameFromCrumbs ? [categoryNameFromCrumbs] : [];
 
-  const productIdFromUrl = (() => {
-    try {
-      const m = new URL(finalUrl).pathname.match(/\/p\/(\d+)/i);
-      return m ? m[1] : "";
-    } catch {
-      return "";
-    }
-  })();
-
   const data: Omit<TestMagaluImportResult, "debug"> = {
     title,
     shortDescription,
     fullDescription,
-    images: [...images].slice(0, 30),
+    images: imagesList,
     rating,
     reviewsCount,
     categoryPath: categoryPathFinal,
