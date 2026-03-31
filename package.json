@@ -13,7 +13,8 @@
     "test": "vitest run",
     "replace": "node scripts/replace-all.js",
     "postinstall": "node scripts/postinstall-playwright.js",
-    "test:playwright": "node scripts/test-playwright.js"
+    "test:playwright": "node scripts/test-playwright.js",
+    "ml:login": "node scripts/ml-login.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2",

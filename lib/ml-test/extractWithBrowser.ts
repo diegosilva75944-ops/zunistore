@@ -1,10 +1,13 @@
 import "server-only";
 
+import { existsSync } from "node:fs";
+
 export type PlaywrightFetchResult =
   | { ok: true; html: string; finalUrl: string }
   | { ok: false; error: string };
 
 const PLAYWRIGHT_TIMEOUT_MS = 75_000;
+const DEFAULT_STORAGE_STATE_PATH = ".playwright/ml-storage-state.json";
 
 /**
  * Fallback headless: renderiza a página como no navegador.
@@ -18,11 +21,14 @@ export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFe
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
     });
     try {
-      const page = await browser.newPage({
+      const storageStatePath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || DEFAULT_STORAGE_STATE_PATH;
+      const context = await browser.newContext({
         userAgent:
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         locale: "pt-BR",
+        storageState: existsSync(storageStatePath) ? storageStatePath : undefined,
       });
+      const page = await context.newPage();
       await page.goto(url, {
         waitUntil: "domcontentloaded",
         timeout: PLAYWRIGHT_TIMEOUT_MS,
