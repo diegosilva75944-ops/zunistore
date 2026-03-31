@@ -2,7 +2,8 @@ import "server-only";
 
 import { resolveMlCatalogUrlForServerFetch } from "./normalize";
 
-const ML_FETCH_HEADERS: Record<string, string> = {
+/** Reutilizável em outros módulos server (ex.: resolver MLB a partir do HTML da PDP). */
+export const ML_FETCH_HEADERS: Record<string, string> = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   Accept:

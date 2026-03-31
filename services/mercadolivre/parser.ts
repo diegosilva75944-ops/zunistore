@@ -125,6 +125,16 @@ export function extractMlItemIdFromUrl(input: string): string {
   return id;
 }
 
+/**
+ * Quando a URL só traz catálogo `/up/MLBU…` (sem `wid=MLB…` no hash), o anúncio real aparece no HTML,
+ * ex.: `<meta … content="meli://item?id=MLB6100526080"/>`.
+ */
+export function extractMlItemIdFromProductHtml(html: string): string | null {
+  const m = String(html || "").match(/meli:\/\/item\?id=(MLB\d{6,})\b/i);
+  if (m?.[1]) return m[1].toUpperCase();
+  return null;
+}
+
 /** Não lança — útil para tentar redirect depois. */
 export function tryExtractMlItemIdFromUrl(input: string): string | null {
   try {

@@ -87,14 +87,19 @@ export async function runTestMlImport(
   let candidates = [...extracted.candidates];
   let htmlSource = resolved.pricing.source;
 
-  const missingTitle = !extracted.title?.trim();
+  const t = extracted.title?.trim() ?? "";
+  const missingTitle = !t;
+  /** PDP de login/erro costuma expor só og:title “Mercado Livre” — forçar Playwright no modo auto. */
+  const genericSiteTitle = /^mercado\s+livre$/i.test(t);
   if (
     mode === "auto" &&
     !usedPlaywrightFirst &&
-    (isWeakResolved(resolved.pricing) || missingTitle)
+    (isWeakResolved(resolved.pricing) || missingTitle || genericSiteTitle)
   ) {
     globalSteps.push(
-      missingTitle && !isWeakResolved(resolved.pricing) ?
+      genericSiteTitle && !missingTitle ?
+        "Título genérico (possível bloqueio) → tentando Playwright…"
+      : missingTitle && !isWeakResolved(resolved.pricing) ?
         "Sem título no HTML → tentando Playwright…"
       : "Heurística fraca ou sem preço → tentando Playwright…",
     );

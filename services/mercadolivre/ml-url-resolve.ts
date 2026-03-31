@@ -1,8 +1,13 @@
 import "server-only";
 
+import { FETCH_TIMEOUT_MS, ML_FETCH_HEADERS } from "@/lib/ml-test/fetchHtml";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
 import { normalizeMercadoLivreProductUrl, resolveMercadoLivreFetchUrl } from "@/lib/ml-price";
-import { extractMlItemIdFromUrl, tryExtractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
+import {
+  extractMlItemIdFromProductHtml,
+  extractMlItemIdFromUrl,
+  tryExtractMlItemIdFromUrl,
+} from "@/services/mercadolivre/parser";
 
 /**
  * URLs candidatas para extrair MLB… — **source_url antes de affiliate_url** quando ambos existem,
@@ -88,6 +93,20 @@ async function followRedirectsToFinalUrl(url: string): Promise<string> {
   return get.url;
 }
 
+async function fetchHtmlBodyForItemResolution(pageUrl: string): Promise<string> {
+  const res = await fetch(pageUrl, {
+    method: "GET",
+    redirect: "follow",
+    headers: ML_FETCH_HEADERS,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  return res.text();
+}
+
+function pathnameHasMlbuCatalogSegment(pathname: string): boolean {
+  return /\/up\/MLBU\d+/i.test(pathname);
+}
+
 /**
  * Extrai MLB… da URL; se for link curto (meli.la) ou página que redireciona sem MLB no path inicial,
  * segue redirects HTTP e tenta de novo.
@@ -117,6 +136,25 @@ export async function extractMlItemIdFromUrlWithRedirects(input: string): Promis
   const finalUrl = await followRedirectsToFinalUrl(raw);
   const after = tryExtractMlItemIdFromUrl(finalUrl);
   if (after) return after;
+
+  let finalPath = "";
+  try {
+    finalPath = new URL(finalUrl).pathname;
+  } catch {
+    finalPath = url.pathname;
+  }
+
+  if (pathnameHasMlbuCatalogSegment(url.pathname) || pathnameHasMlbuCatalogSegment(finalPath)) {
+    const pageToFetch = pathnameHasMlbuCatalogSegment(url.pathname) ? raw : finalUrl;
+    try {
+      const html = await fetchHtmlBodyForItemResolution(pageToFetch);
+      const fromHtml = extractMlItemIdFromProductHtml(html);
+      if (fromHtml) return fromHtml;
+    } catch {
+      /* segue para throw abaixo */
+    }
+  }
+
   return extractMlItemIdFromUrl(finalUrl);
 }
 

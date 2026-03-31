@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
+import { extractMlItemIdFromProductHtml, extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
+
+describe("extractMlItemIdFromProductHtml", () => {
+  it("lê MLB do meta meli://item (PDP /up/MLBU…)", () => {
+    const html =
+      '<meta name="al:android:url" content="meli://item?id=MLB6100526080"/><title>x</title>';
+    expect(extractMlItemIdFromProductHtml(html)).toBe("MLB6100526080");
+  });
+
+  it("retorna null quando não há meli", () => {
+    expect(extractMlItemIdFromProductHtml("<html></html>")).toBeNull();
+  });
+});
 
 describe("extractMlItemIdFromUrl", () => {
   it("extrai MLB do fragmento wid em link /up/ (reco PDP)", () => {
