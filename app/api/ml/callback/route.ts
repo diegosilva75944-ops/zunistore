@@ -13,55 +13,8 @@ const schema = z.object({
 });
 
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const parsed = schema.safeParse({
-    code: url.searchParams.get("code"),
-    state: url.searchParams.get("state"),
-  });
-  if (!parsed.success) {
-    return NextResponse.json(
-      { ok: false, error: "Callback inválido (code/state ausentes).", details: parsed.error.flatten() },
-      { status: 400 },
-    );
-  }
-
-  const consumed = await consumeOAuthState(parsed.data.state);
-  if (!consumed.ok) {
-    return NextResponse.json(
-      { ok: false, error: `State inválido (${consumed.reason}).`, details: consumed.storeError ? serializeError(consumed.storeError) : undefined },
-      { status: 400 },
-    );
-  }
-
-  try {
-    const token = await exchangeCodeForToken(parsed.data.code);
-    await upsertMlToken({
-      user_id: String(token.user_id),
-      access_token: token.access_token,
-      refresh_token: token.refresh_token,
-      token_type: token.token_type ?? "bearer",
-      scope: token.scope ?? null,
-      expires_in: token.expires_in,
-      expires_at: computeExpiresAt(token.expires_in),
-    });
-  } catch (e) {
-    const details = serializeError(e);
-    const debugJson = {
-      ok: false,
-      error: "Falha ao trocar code por token e persistir.",
-      details,
-      env: {
-        MERCADOLIVRE_CLIENT_ID: Boolean(process.env.MERCADOLIVRE_CLIENT_ID),
-        MERCADOLIVRE_CLIENT_SECRET: Boolean(process.env.MERCADOLIVRE_CLIENT_SECRET),
-        MERCADOLIVRE_REDIRECT_URI: process.env.MERCADOLIVRE_REDIRECT_URI ?? null,
-        MERCADOLIVRE_AUTH_URL: process.env.MERCADOLIVRE_AUTH_URL ?? null,
-        MERCADOLIVRE_API_URL: process.env.MERCADOLIVRE_API_URL ?? null,
-        DATABASE_URL: Boolean(process.env.DATABASE_URL),
-        POSTGRES_URL: Boolean(process.env.POSTGRES_URL),
-        PGSSLMODE: process.env.PGSSLMODE ?? null,
-      },
-    };
-    const pretty = JSON.stringify(debugJson, null, 2);
+  const renderDebug = (payload: Record<string, unknown>, status = 500) => {
+    const pretty = JSON.stringify(payload, null, 2);
     const html = `<!doctype html>
 <html lang="pt-BR">
   <head>
@@ -88,11 +41,68 @@ export async function GET(req: Request) {
   </body>
 </html>`;
     return new NextResponse(html, {
-      status: 500,
+      status,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
-  }
+  };
 
-  return NextResponse.redirect("/admin/importacao?ml_oauth=ok");
+  try {
+    const url = new URL(req.url);
+    const parsed = schema.safeParse({
+      code: url.searchParams.get("code"),
+      state: url.searchParams.get("state"),
+    });
+    if (!parsed.success) {
+      return renderDebug(
+        {
+          ok: false,
+          error: "Callback inválido (code/state ausentes).",
+          details: parsed.error.flatten(),
+        },
+        400,
+      );
+    }
+
+    const consumed = await consumeOAuthState(parsed.data.state);
+    if (!consumed.ok) {
+      return renderDebug(
+        {
+          ok: false,
+          error: `State inválido (${consumed.reason}).`,
+          details: consumed.storeError ? serializeError(consumed.storeError) : undefined,
+        },
+        400,
+      );
+    }
+
+    const token = await exchangeCodeForToken(parsed.data.code);
+    await upsertMlToken({
+      user_id: String(token.user_id),
+      access_token: token.access_token,
+      refresh_token: token.refresh_token,
+      token_type: token.token_type ?? "bearer",
+      scope: token.scope ?? null,
+      expires_in: token.expires_in,
+      expires_at: computeExpiresAt(token.expires_in),
+    });
+
+    return NextResponse.redirect("/admin/importacao?ml_oauth=ok");
+  } catch (e) {
+    return renderDebug({
+      ok: false,
+      error: "Falha inesperada no callback OAuth.",
+      details: serializeError(e),
+      env: {
+        MERCADOLIVRE_CLIENT_ID: Boolean(process.env.MERCADOLIVRE_CLIENT_ID),
+        MERCADOLIVRE_CLIENT_SECRET: Boolean(process.env.MERCADOLIVRE_CLIENT_SECRET),
+        MERCADOLIVRE_REDIRECT_URI: process.env.MERCADOLIVRE_REDIRECT_URI ?? null,
+        MERCADOLIVRE_AUTH_URL: process.env.MERCADOLIVRE_AUTH_URL ?? null,
+        MERCADOLIVRE_API_URL: process.env.MERCADOLIVRE_API_URL ?? null,
+        DATABASE_URL: Boolean(process.env.DATABASE_URL),
+        POSTGRES_URL: Boolean(process.env.POSTGRES_URL),
+        PGSSLMODE: process.env.PGSSLMODE ?? null,
+      },
+    });
+  }
 }
 
