@@ -10,10 +10,20 @@ import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
 import { isWeakResolved, mergeResolvedDisplay, resolvePreviewPricing } from "./resolvePreviewPricing";
 import { fetchMlItemApi } from "./fetchMlItemApi";
 
-function tryExtractMlbIdFromRawUrl(rawUrl: string): string | null {
-  const s = String(rawUrl || "");
-  const m = s.match(/\bMLB\d{6,}\b/i);
-  return m?.[0] ? m[0].toUpperCase() : null;
+function tryExtractMlbIdFromAnyUrl(...urls: Array<string | null | undefined>): string | null {
+  const joined = urls
+    .filter((u): u is string => typeof u === "string" && u.length > 0)
+    .join(" ");
+
+  /** MLB123... */
+  const m1 = joined.match(/\b(MLB\d{6,})\b/i);
+  if (m1?.[1]) return m1[1].toUpperCase();
+
+  /** MLB-123... (produto.mercadolivre.com.br/MLB-123...) */
+  const m2 = joined.match(/\bMLB-(\d{6,})\b/i);
+  if (m2?.[1]) return `MLB${m2[1]}`;
+
+  return null;
 }
 
 export async function runTestMlImport(
@@ -31,7 +41,7 @@ export async function runTestMlImport(
     const pw = await fetchHtmlWithPlaywright(fetchUrl);
     if (!pw.ok) {
       /** Último recurso: API pública do item quando o ML bloqueia headless. */
-      const id = tryExtractMlbIdFromRawUrl(rawUrl);
+      const id = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl, pw.error);
       if (id) {
         const api = await fetchMlItemApi(id);
         if (api.ok && api.title && api.price) {
@@ -111,7 +121,7 @@ export async function runTestMlImport(
       globalSteps.push(`HTTP indisponível ou bloqueado: ${fetched.error}. Tentando Playwright…`);
       const pw = await fetchHtmlWithPlaywright(fetchUrl);
       if (!pw.ok) {
-        const id = tryExtractMlbIdFromRawUrl(rawUrl);
+        const id = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl, pw.error);
         if (id) {
           const api = await fetchMlItemApi(id);
           if (api.ok && api.title && api.price) {
