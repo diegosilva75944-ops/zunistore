@@ -10,6 +10,8 @@ import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
 import { isWeakResolved, mergeResolvedDisplay, resolvePreviewPricing } from "./resolvePreviewPricing";
 import { fetchMlItemApi } from "./fetchMlItemApi";
 import { mlGetItemAuth, mlResolveProductToItemAuth } from "@/services/mercadolivre/auth-api";
+import { MercadoLivreApiError } from "@/lib/mercadolivre/client";
+import { MercadoLivreNotAuthorizedError } from "@/lib/mercadolivre/get-valid-token";
 
 function tryExtractMlbIdFromAnyUrl(...urls: Array<string | null | undefined>): string | null {
   const joined = urls
@@ -83,6 +85,19 @@ async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string)
 
     return { ok: false as const, error: "Sem ID MLB para consulta auth." };
   } catch (e) {
+    if (e instanceof MercadoLivreNotAuthorizedError) {
+      return { ok: false as const, error: `API auth: não autorizado (${e.message})` };
+    }
+    if (e instanceof MercadoLivreApiError) {
+      const details =
+        e.details == null ? null
+        : typeof e.details === "string" ? e.details.slice(0, 400)
+        : JSON.stringify(e.details).slice(0, 400);
+      return {
+        ok: false as const,
+        error: `API auth: HTTP ${e.externalStatus} (${e.url})${details ? ` details=${details}` : ""}`,
+      };
+    }
     const msg = e instanceof Error ? e.message : String(e);
     return { ok: false as const, error: `API auth: ${msg}` };
   }
