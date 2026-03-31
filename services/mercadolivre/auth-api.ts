@@ -111,17 +111,39 @@ export async function mlSearchAuth(opts: { siteId: string; query: Record<string,
   };
 }
 
-export async function mlResolveProductToItemAuth(productId: string): Promise<string | null> {
-  const json = await mlApiGetJson<unknown>({ path: `/products/${encodeURIComponent(productId)}/items` });
-  const arr = Array.isArray(json) ? json : [];
-  for (const row of arr) {
-    if (typeof row === "string" && /^MLB\d{6,}$/i.test(row)) return row.toUpperCase();
-    if (row && typeof row === "object") {
-      const r = row as Record<string, unknown>;
-      const idLike = r.item_id ?? r.id;
-      if (typeof idLike === "string" && /^MLB\d{6,}$/i.test(idLike)) return idLike.toUpperCase();
-    }
+const productSchema = z.object({
+  id: z.string(),
+  status: z.string().optional().nullable(),
+  buy_box_winner: z
+    .object({
+      item_id: z.string().optional().nullable(),
+      price: z.number().optional().nullable(),
+      currency_id: z.string().optional().nullable(),
+    })
+    .optional()
+    .nullable(),
+});
+
+export type MlProductAuth = z.infer<typeof productSchema>;
+
+export async function mlGetProductAuth(productId: string): Promise<MlProductAuth> {
+  const json = await mlApiGetJson<unknown>({ path: `/products/${encodeURIComponent(productId)}` });
+  const parsed = productSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error("Formato inesperado ao carregar produto de catálogo do Mercado Livre.");
   }
+  return parsed.data;
+}
+
+export async function mlResolveProductToItemAuth(productId: string): Promise<string | null> {
+  /**
+   * O endpoint `/products/{product_id}/items` foi descontinuado.
+   * Fluxo atual: usar `/products/{product_id}` e pegar `buy_box_winner.item_id`.
+   * @see https://developers.mercadolivre.com.br/en_us/catalog-competition
+   */
+  const p = await mlGetProductAuth(productId);
+  const itemId = p.buy_box_winner?.item_id;
+  if (typeof itemId === "string" && /^MLB\d{6,}$/i.test(itemId)) return itemId.toUpperCase();
   return null;
 }
 
