@@ -9,6 +9,7 @@ import { preferMaxNullable } from "./extractReviews";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
 import { isWeakResolved, mergeResolvedDisplay, resolvePreviewPricing } from "./resolvePreviewPricing";
 import { fetchMlItemApi } from "./fetchMlItemApi";
+import { mlGetItemAuth, mlResolveProductToItemAuth } from "@/services/mercadolivre/auth-api";
 
 function tryExtractMlbIdFromAnyUrl(...urls: Array<string | null | undefined>): string | null {
   const joined = urls
@@ -24,6 +25,67 @@ function tryExtractMlbIdFromAnyUrl(...urls: Array<string | null | undefined>): s
   if (m2?.[1]) return `MLB${m2[1]}`;
 
   return null;
+}
+
+function tryExtractCatalogProductIdFromUrl(u: string): string | null {
+  const m = String(u || "").match(/\/p\/(MLB\d{6,})\b/i);
+  return m?.[1] ? m[1].toUpperCase() : null;
+}
+
+async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string) {
+  const catalogProductId = tryExtractCatalogProductIdFromUrl(fetchUrl) ?? tryExtractCatalogProductIdFromUrl(rawUrl);
+  const anyId = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl);
+
+  try {
+    if (catalogProductId) {
+      const resolvedItemId = await mlResolveProductToItemAuth(catalogProductId);
+      if (resolvedItemId) {
+        const item = await mlGetItemAuth(resolvedItemId);
+        const pics = Array.isArray(item.pictures) ? item.pictures : [];
+        const pictures = pics
+          .map((p) => (p?.secure_url || p?.url ? String(p.secure_url ?? p.url) : null))
+          .filter((x): x is string => typeof x === "string" && x.startsWith("http"));
+        return {
+          ok: true as const,
+          mode: "catalog" as const,
+          hint,
+          productId: catalogProductId,
+          itemId: resolvedItemId,
+          title: item.title ?? null,
+          price: typeof item.price === "number" && item.price > 0 ? item.price : null,
+          originalPrice:
+            typeof item.original_price === "number" && item.original_price > 0 ? item.original_price : null,
+          pictures,
+          permalink: item.permalink ?? null,
+        };
+      }
+    }
+
+    if (anyId) {
+      const item = await mlGetItemAuth(anyId);
+      const pics = Array.isArray(item.pictures) ? item.pictures : [];
+      const pictures = pics
+        .map((p) => (p?.secure_url || p?.url ? String(p.secure_url ?? p.url) : null))
+        .filter((x): x is string => typeof x === "string" && x.startsWith("http"));
+      return {
+        ok: true as const,
+        mode: "item" as const,
+        hint,
+        itemId: anyId,
+        title: item.title ?? null,
+        price: typeof item.price === "number" && item.price > 0 ? item.price : null,
+        originalPrice:
+          typeof item.original_price === "number" && item.original_price > 0 ? item.original_price : null,
+        pictures,
+        permalink: item.permalink ?? null,
+      };
+    }
+
+    return { ok: false as const, error: "Sem ID MLB para consulta auth." };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false as const, error: `API auth: ${msg}` };
+  }
 }
 
 export async function runTestMlImport(
@@ -74,6 +136,58 @@ export async function runTestMlImport(
   if (mode === "headless") {
     const pw = await fetchHtmlWithPlaywright(fetchUrl);
     if (!pw.ok) {
+      /** Preferir API oficial (OAuth) quando scraping está bloqueado. */
+      const auth = await tryFetchViaMlAuth(fetchUrl, rawUrl, "Playwright bloqueado (headless)");
+      if (auth.ok && auth.title && auth.price) {
+        globalSteps.push(`Playwright bloqueado (${pw.error}). Usando API auth (${auth.itemId})…`);
+        return {
+          title: auth.title,
+          shortDescription: "",
+          fullDescription: "",
+          images: auth.pictures,
+          rating: null,
+          reviewsCount: null,
+          categoryPath: [],
+          categoryName: "",
+          pricing: {
+            currentPrice: auth.price,
+            originalPrice:
+              auth.originalPrice && auth.originalPrice > auth.price ? auth.originalPrice : null,
+            discountPercent:
+              auth.originalPrice && auth.originalPrice > auth.price ?
+                Math.round((1 - auth.price / auth.originalPrice) * 100)
+              : null,
+            hasDiscount: Boolean(auth.originalPrice && auth.originalPrice > auth.price),
+            displayMode:
+              auth.originalPrice && auth.originalPrice > auth.price ? "discounted_price" : "single_price",
+            installmentPrice: null,
+            installments: null,
+            confidence: "low",
+            source: "mixed",
+          },
+          debug: {
+            candidates: [],
+            extractionSteps: [...globalSteps],
+            rawSignals: {
+              fetchUrl,
+              layer: "headless",
+              api: {
+                auth: true,
+                mode: auth.mode,
+                itemId: auth.itemId,
+                productId: (auth as any).productId ?? null,
+                permalink: auth.permalink,
+              },
+            },
+            chosenBlock: null,
+            chosenSignals: {},
+            usedCandidates: [],
+            ignoredCandidates: [],
+            discardReasons: ["Fallback API auth (headless bloqueado)"],
+          },
+        };
+      }
+
       /** Último recurso: API pública do item quando o ML bloqueia headless. */
       const id = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl, pw.error);
       if (id) {
@@ -164,6 +278,58 @@ export async function runTestMlImport(
       globalSteps.push(`HTTP indisponível ou bloqueado: ${fetched.error}. Tentando Playwright…`);
       const pw = await fetchHtmlWithPlaywright(fetchUrl);
       if (!pw.ok) {
+        /** Preferir API oficial (OAuth) quando scraping está bloqueado. */
+        const auth = await tryFetchViaMlAuth(fetchUrl, rawUrl, "Playwright bloqueado (auto)");
+        if (auth.ok && auth.title && auth.price) {
+          globalSteps.push(`Playwright bloqueado (${pw.error}). Usando API auth (${auth.itemId})…`);
+          return {
+            title: auth.title,
+            shortDescription: "",
+            fullDescription: "",
+            images: auth.pictures,
+            rating: null,
+            reviewsCount: null,
+            categoryPath: [],
+            categoryName: "",
+            pricing: {
+              currentPrice: auth.price,
+              originalPrice:
+                auth.originalPrice && auth.originalPrice > auth.price ? auth.originalPrice : null,
+              discountPercent:
+                auth.originalPrice && auth.originalPrice > auth.price ?
+                  Math.round((1 - auth.price / auth.originalPrice) * 100)
+                : null,
+              hasDiscount: Boolean(auth.originalPrice && auth.originalPrice > auth.price),
+              displayMode:
+                auth.originalPrice && auth.originalPrice > auth.price ? "discounted_price" : "single_price",
+              installmentPrice: null,
+              installments: null,
+              confidence: "low",
+              source: "mixed",
+            },
+            debug: {
+              candidates: [],
+              extractionSteps: [...globalSteps],
+              rawSignals: {
+                fetchUrl,
+                layer: "headless",
+                api: {
+                  auth: true,
+                  mode: auth.mode,
+                  itemId: auth.itemId,
+                  productId: (auth as any).productId ?? null,
+                  permalink: auth.permalink,
+                },
+              },
+              chosenBlock: null,
+              chosenSignals: {},
+              usedCandidates: [],
+              ignoredCandidates: [],
+              discardReasons: ["Fallback API auth (HTTP e headless bloqueados)"],
+            },
+          };
+        }
+
         const id = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl, pw.error);
         if (id) {
           const api = await fetchMlItemApi(id);
