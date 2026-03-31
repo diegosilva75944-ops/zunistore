@@ -20,18 +20,23 @@ async function main() {
   console.log("Abrindo Mercado Livre para login manual…");
   console.log("1) Faça login na conta.");
   console.log("2) Se aparecer verificação/captcha, conclua.");
-  console.log("3) Quando estiver logado e a home/página do produto carregar normalmente, volte aqui e aperte ENTER.");
+  console.log("3) Quando estiver logado, você pode fechar a janela (X) OU voltar aqui e apertar ENTER.");
   console.log(`Sessão será salva em: ${outAbs}`);
 
   await page.goto("https://www.mercadolivre.com.br/", { waitUntil: "domcontentloaded" });
 
-  await new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question("", () => {
-      rl.close();
-      resolve();
-    });
-  });
+  // Salva quando você apertar ENTER ou quando fechar a janela.
+  // Importante: sem timeout — login/captcha pode demorar.
+  await Promise.race([
+    new Promise((resolve) => {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      rl.question("", () => {
+        rl.close();
+        resolve();
+      });
+    }),
+    page.waitForEvent("close", { timeout: 0 }),
+  ]);
 
   await context.storageState({ path: outAbs });
   await browser.close();
