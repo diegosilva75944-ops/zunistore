@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
 import { sha256Hex } from "@/lib/crypto";
-import { normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
-import { runTestMlImport } from "@/lib/ml-test/pipeline";
-import { extractMlItemIdFromUrlWithRedirects } from "@/services/mercadolivre/ml-url-resolve";
-import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
-import { mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
+import { importMercadoLivreFromPdp } from "@/services/mercadolivre/import-from-pdp";
 
 export const runtime = "nodejs";
 
@@ -70,47 +66,20 @@ export async function POST(req: Request) {
       return withCors(NextResponse.json({ ok: false, error: "Payload inválido: informe sourceUrl e affiliateUrl." }, { status: 400 }));
     }
 
-    const p = parsed.data;
-    const fetchUrl = normalizeMlFetchUrl(p.sourceUrl, { keepSearch: true });
-
-    const result = await runTestMlImport(fetchUrl, "auto");
-    let externalId: string;
     try {
-      /** URL completa (incl. `#wid=MLB…` em /up/); o fetch usa `normalizeMlFetchUrl` que reescreve para `/p/MLB…`. */
-      externalId = await extractMlItemIdFromUrlWithRedirects(p.sourceUrl.trim());
+      const out = await importMercadoLivreFromPdp(parsed.data);
+      return withCors(NextResponse.json({ ok: true, ...out }));
     } catch (e) {
-      return withCors(
-        NextResponse.json(
-          { ok: false, error: e instanceof Error ? e.message : "Não foi possível identificar o produto na URL." },
-          { status: 400 },
-        ),
-      );
+      const msg = e instanceof Error ? e.message : "Erro ao importar.";
+      if (
+        /Não consegui extrair|Informe uma URL|não parece ser do Mercado Livre|invalid_link|invalid_item_id/i.test(
+          msg,
+        )
+      ) {
+        return withCors(NextResponse.json({ ok: false, error: msg }, { status: 400 }));
+      }
+      throw e;
     }
-
-    const normalized = buildNormalizedFromTestImport(result, externalId, fetchUrl);
-
-    const importResult = await mlImportOrUpdateProduct({
-      normalized,
-      updateIfExists: true,
-      htmlCategoryPath: result.categoryPath,
-      htmlCategoryName: result.categoryName,
-      affiliateUrl: p.affiliateUrl,
-      sourceUrl: fetchUrl,
-      affiliateCode: p.affiliateCode,
-      descriptionShort: result.shortDescription,
-      descriptionDetail: result.fullDescription,
-    });
-
-    const productUrl = `/produto/${importResult.code6}/${importResult.slug}`;
-    return withCors(
-      NextResponse.json({
-        ok: true,
-        code6: importResult.code6,
-        slug: importResult.slug,
-        productUrl,
-        action: importResult.action,
-      }),
-    );
   } catch (e) {
     console.error("[import/mercadolivre]", e);
     return withCors(
