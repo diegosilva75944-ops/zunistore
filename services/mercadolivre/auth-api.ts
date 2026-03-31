@@ -144,6 +144,16 @@ export async function mlResolveProductToItemAuth(productId: string): Promise<str
   const p = await mlGetProductAuth(productId);
   const itemId = p.buy_box_winner?.item_id;
   if (typeof itemId === "string" && /^MLB\d{6,}$/i.test(itemId)) return itemId.toUpperCase();
+
+  /**
+   * Fallback: alguns produtos não retornam `buy_box_winner` dependendo do contexto/conta.
+   * Tentar achar um anúncio ativo via busca por `product_id`.
+   */
+  const search = await mlSearchAuth({ siteId: "MLB", query: { product_id: productId, limit: 1 } });
+  const first = Array.isArray(search.results) ? search.results[0] : null;
+  const id = first && typeof first === "object" ? (first as any).id : null;
+  if (typeof id === "string" && /^MLB\d{6,}$/i.test(id)) return id.toUpperCase();
+
   return null;
 }
 
