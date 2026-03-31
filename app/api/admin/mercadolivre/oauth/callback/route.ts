@@ -13,36 +13,9 @@ const schema = z.object({
 });
 
 export async function GET(req: Request) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
-  }
-
+  /** Compatibilidade: endpoint canônico é /api/ml/callback */
   const url = new URL(req.url);
-  const parsed = schema.safeParse({
-    code: url.searchParams.get("code"),
-    state: url.searchParams.get("state"),
-  });
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: "Callback inválido (code/state ausentes)." }, { status: 400 });
-  }
-
-  const consumed = await consumeOAuthState(parsed.data.state);
-  if (!consumed.ok) {
-    return NextResponse.json({ ok: false, error: `State inválido (${consumed.reason}).` }, { status: 400 });
-  }
-
-  const token = await exchangeCodeForToken(parsed.data.code);
-  await upsertMlToken({
-    user_id: String(token.user_id),
-    access_token: token.access_token,
-    refresh_token: token.refresh_token,
-    token_type: token.token_type ?? "bearer",
-    scope: token.scope ?? null,
-    expires_in: token.expires_in,
-    expires_at: computeExpiresAt(token.expires_in),
-  });
-
-  return NextResponse.redirect("/admin/importacao?ml_oauth=ok");
+  const qs = url.searchParams.toString();
+  return NextResponse.redirect(`/api/ml/callback${qs ? `?${qs}` : ""}`);
 }
 
