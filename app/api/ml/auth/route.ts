@@ -51,6 +51,13 @@ export async function GET() {
   authUrl.searchParams.set("client_id", env.env.MERCADOLIVRE_CLIENT_ID);
   authUrl.searchParams.set("redirect_uri", env.env.MERCADOLIVRE_REDIRECT_URI);
   authUrl.searchParams.set("state", state);
+  /**
+   * Sem `scope`, alguns endpoints retornam 403 (forbidden) mesmo com OAuth.
+   * Pedir o mínimo necessário para leitura + refresh token.
+   * Docs: https://developers.mercadolivre.com.br/pt_br/autenticacao-e-autorizacao
+   */
+  authUrl.searchParams.set("scope", "read offline_access");
+  authUrl.searchParams.set("prompt", "consent");
 
   return NextResponse.redirect(authUrl.toString());
 }
