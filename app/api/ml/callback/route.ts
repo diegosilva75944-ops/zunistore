@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/admin/auth";
 import { consumeOAuthState } from "@/lib/mercadolivre/oauth-state-store";
 import { exchangeCodeForToken, computeExpiresAt } from "@/lib/mercadolivre/oauth";
 import { upsertMlToken } from "@/lib/mercadolivre/token-store";
@@ -14,11 +13,6 @@ const schema = z.object({
 });
 
 export async function GET(req: Request) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "Não autenticado." }, { status: 401 });
-  }
-
   const url = new URL(req.url);
   const parsed = schema.safeParse({
     code: url.searchParams.get("code"),
