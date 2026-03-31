@@ -37,6 +37,7 @@ function tryExtractCatalogProductIdFromUrl(u: string): string | null {
 async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string) {
   const catalogProductId = tryExtractCatalogProductIdFromUrl(fetchUrl) ?? tryExtractCatalogProductIdFromUrl(rawUrl);
   const anyId = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl);
+  const anyIdLooksLikeCatalogId = Boolean(catalogProductId && anyId && anyId === catalogProductId);
 
   try {
     if (catalogProductId) {
@@ -59,6 +60,16 @@ async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string)
             typeof item.original_price === "number" && item.original_price > 0 ? item.original_price : null,
           pictures,
           permalink: item.permalink ?? null,
+        };
+      }
+
+      // Se a URL é de catálogo (/p/...) e não foi possível resolver item_id,
+      // NÃO tentar /items/{productId} (isso gera 404).
+      if (!anyId || anyIdLooksLikeCatalogId) {
+        return {
+          ok: false as const,
+          error:
+            "API auth: link de catálogo sem anúncio ativo (buy_box_winner.item_id ausente).",
         };
       }
     }
