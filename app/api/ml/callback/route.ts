@@ -86,7 +86,7 @@ export async function GET(req: Request) {
       expires_at: computeExpiresAt(token.expires_in),
     });
 
-    return NextResponse.redirect("/admin/importacao?ml_oauth=ok");
+    return NextResponse.redirect(new URL("/admin/importacao?ml_oauth=ok", req.url));
   } catch (e) {
     return renderDebug({
       ok: false,
