@@ -45,24 +45,43 @@ export async function mlApiGetJson<T = unknown>(opts: RequestOpts): Promise<T> {
     tokenPreview: access_token ? `${access_token.slice(0, 8)}…${access_token.slice(-4)}` : null,
   });
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${access_token}`,
-    },
-    cache: "no-store",
-  });
+  const doFetch = async (withAuth: boolean) => {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        ...(withAuth ? { Authorization: `Bearer ${access_token}` } : null),
+      } as any,
+      cache: "no-store",
+    });
+    const text = await res.text().catch(() => "");
+    let body: unknown = null;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch {
+      body = text;
+    }
+    return { res, body };
+  };
 
-  const text = await res.text().catch(() => "");
-  let body: unknown = null;
-  try {
-    body = text ? JSON.parse(text) : null;
-  } catch {
-    body = text;
-  }
+  const { res, body } = await doFetch(true);
 
   if (!res.ok) {
+    const errCode =
+      body && typeof body === "object" ? (body as any).error ?? (body as any).message : null;
+    const isForbidden = res.status === 403 && (errCode === "access_denied" || errCode === "forbidden");
+    if (isForbidden) {
+      // Alguns endpoints públicos retornam 403 quando autenticados dependendo do token/app.
+      // Tentar novamente sem Authorization.
+      console.warn("[ml-api] forbidden_with_auth_retry_public", { url, status: res.status, errCode });
+      const pub = await doFetch(false);
+      if (pub.res.ok) {
+        console.log("[ml-api] ok_public_fallback", { url, status: pub.res.status });
+        return pub.body as T;
+      }
+      console.warn("[ml-api] public_fallback_failed", { url, status: pub.res.status, body: pub.body });
+    }
+
     console.warn("[ml-api] non-ok", {
       url,
       status: res.status,
