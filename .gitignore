@@ -46,3 +46,9 @@ next-env.d.ts
 
 # playwright (sessão local ML)
 .playwright/
+
+# Flutter (app mobile)
+mobile/**/build/
+mobile/**/.dart_tool/
+mobile/**/.flutter-plugins
+mobile/**/.flutter-plugins-dependencies

@@ -1,0 +1,24 @@
+name: zuni_ml_worker
+description: Worker Flutter para sincronizar preços e importar produtos Mercado Livre (ZuniStore).
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.3
+  webview_flutter: ^4.10.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
