@@ -30,6 +30,12 @@ export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFe
       await new Promise((r) => setTimeout(r, 1200));
       const html = await page.content();
       const finalUrl = page.url();
+      if (/\/gz\/account-verification\b|captcha/i.test(finalUrl)) {
+        return {
+          ok: false,
+          error: `Playwright: bloqueado (finalUrl=${finalUrl})`,
+        };
+      }
       return { ok: true, html, finalUrl };
     } finally {
       await browser.close();

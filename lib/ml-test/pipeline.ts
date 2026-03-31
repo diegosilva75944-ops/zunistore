@@ -8,6 +8,13 @@ import { makeShortDescription, preferLongerText } from "./extractDescriptions";
 import { preferMaxNullable } from "./extractReviews";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
 import { isWeakResolved, mergeResolvedDisplay, resolvePreviewPricing } from "./resolvePreviewPricing";
+import { fetchMlItemApi } from "./fetchMlItemApi";
+
+function tryExtractMlbIdFromRawUrl(rawUrl: string): string | null {
+  const s = String(rawUrl || "");
+  const m = s.match(/\bMLB\d{6,}\b/i);
+  return m?.[0] ? m[0].toUpperCase() : null;
+}
 
 export async function runTestMlImport(
   rawUrl: string,
@@ -23,6 +30,48 @@ export async function runTestMlImport(
   if (mode === "headless") {
     const pw = await fetchHtmlWithPlaywright(fetchUrl);
     if (!pw.ok) {
+      /** Último recurso: API pública do item quando o ML bloqueia headless. */
+      const id = tryExtractMlbIdFromRawUrl(rawUrl);
+      if (id) {
+        const api = await fetchMlItemApi(id);
+        if (api.ok && api.title && api.price) {
+          globalSteps.push(`Playwright bloqueado (${pw.error}). Usando API items (${api.id})…`);
+          return {
+            title: api.title,
+            shortDescription: "",
+            fullDescription: "",
+            images: api.pictures,
+            rating: null,
+            reviewsCount: null,
+            categoryPath: [],
+            categoryName: "",
+            pricing: {
+              currentPrice: api.price,
+              originalPrice: api.originalPrice && api.originalPrice > api.price ? api.originalPrice : null,
+              discountPercent:
+                api.originalPrice && api.originalPrice > api.price ?
+                  Math.round((1 - api.price / api.originalPrice) * 100)
+                : null,
+              hasDiscount: Boolean(api.originalPrice && api.originalPrice > api.price),
+              displayMode: api.originalPrice && api.originalPrice > api.price ? "discounted_price" : "single_price",
+              installmentPrice: null,
+              installments: null,
+              confidence: "low",
+              source: "mixed",
+            },
+            debug: {
+              candidates: [],
+              extractionSteps: [...globalSteps],
+              rawSignals: { fetchUrl, layer: "headless", api: { id: api.id, permalink: api.permalink } },
+              chosenBlock: null,
+              chosenSignals: {},
+              usedCandidates: [],
+              ignoredCandidates: [],
+              discardReasons: ["Fallback API items (headless bloqueado)"],
+            },
+          };
+        }
+      }
       throw new Error(pw.error || "Playwright falhou ao abrir a página.");
     }
     globalSteps.push(`Playwright: HTML ${pw.html.length} chars (final: ${pw.finalUrl})`);
@@ -62,6 +111,47 @@ export async function runTestMlImport(
       globalSteps.push(`HTTP indisponível ou bloqueado: ${fetched.error}. Tentando Playwright…`);
       const pw = await fetchHtmlWithPlaywright(fetchUrl);
       if (!pw.ok) {
+        const id = tryExtractMlbIdFromRawUrl(rawUrl);
+        if (id) {
+          const api = await fetchMlItemApi(id);
+          if (api.ok && api.title && api.price) {
+            globalSteps.push(`Playwright bloqueado (${pw.error}). Usando API items (${api.id})…`);
+            return {
+              title: api.title,
+              shortDescription: "",
+              fullDescription: "",
+              images: api.pictures,
+              rating: null,
+              reviewsCount: null,
+              categoryPath: [],
+              categoryName: "",
+              pricing: {
+                currentPrice: api.price,
+                originalPrice: api.originalPrice && api.originalPrice > api.price ? api.originalPrice : null,
+                discountPercent:
+                  api.originalPrice && api.originalPrice > api.price ?
+                    Math.round((1 - api.price / api.originalPrice) * 100)
+                  : null,
+                hasDiscount: Boolean(api.originalPrice && api.originalPrice > api.price),
+                displayMode: api.originalPrice && api.originalPrice > api.price ? "discounted_price" : "single_price",
+                installmentPrice: null,
+                installments: null,
+                confidence: "low",
+                source: "mixed",
+              },
+              debug: {
+                candidates: [],
+                extractionSteps: [...globalSteps],
+                rawSignals: { fetchUrl, layer: "headless", api: { id: api.id, permalink: api.permalink } },
+                chosenBlock: null,
+                chosenSignals: {},
+                usedCandidates: [],
+                ignoredCandidates: [],
+                discardReasons: ["Fallback API items (HTTP e headless bloqueados)"],
+              },
+            };
+          }
+        }
         throw new Error(pw.error || fetched.error || "Falha ao abrir a página.");
       }
       initialHtml = pw.html;
