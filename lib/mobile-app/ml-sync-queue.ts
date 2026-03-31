@@ -5,7 +5,7 @@ import { postgrestGet } from "@/lib/postgrest/server";
 export type MlSyncQueueItem = {
   product_id: string;
   code6: string;
-  /** URL que o app deve abrir (preferência: affiliate, senão source). */
+  /** URL que o app deve abrir (preferência: source_url PDP longa; senão affiliate). */
   fetch_url: string;
   source_url: string | null;
   affiliate_url: string | null;
@@ -30,8 +30,8 @@ export async function listNextMlProductsForMobileSync(limit: number): Promise<Ml
     const sourceUrl = typeof r?.source_url === "string" ? r.source_url : null;
     const affiliateUrl = typeof r?.affiliate_url === "string" ? r.affiliate_url : null;
     const fetchUrl =
-      affiliateUrl && affiliateUrl.trim().startsWith("http") ? affiliateUrl.trim()
-      : sourceUrl && sourceUrl.trim().startsWith("http") ? sourceUrl.trim()
+      sourceUrl && sourceUrl.trim().startsWith("http") ? sourceUrl.trim()
+      : affiliateUrl && affiliateUrl.trim().startsWith("http") ? affiliateUrl.trim()
       : null;
     if (!id || !code6 || !fetchUrl) continue;
     out.push({
