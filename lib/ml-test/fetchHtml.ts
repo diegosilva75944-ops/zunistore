@@ -32,19 +32,21 @@ export type FetchHtmlResult =
 
 function looksBlocked(html: string): boolean {
   const s = html.slice(0, 320_000).toLowerCase();
-  if (
-    /ui-pdp-price__main-container|ui-pdp-title|poly-component__price|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"|vpp-frontend|"price"\s*:\s*\{\s*"type"\s*:\s*"price"\s*,\s*"value"/i.test(
+  const hasProductSignals =
+    /ui-pdp-price__main-container|ui-pdp-title|poly-component__price|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"|"price"\s*:\s*\{\s*"type"\s*:\s*"price"\s*,\s*"value"/i.test(
       s,
-    )
-  ) {
-    return false;
-  }
-  return (
+    );
+  /**
+   * O HTML de login/erro pode carregar assets de PDP (ex.: vpp-frontend).
+   * Só considerar “não bloqueado” se também houver sinais reais de produto.
+   */
+  const hasBlockSignals =
     /para continuar,?\s*acesse\s+sua\s+conta/i.test(s) ||
     (/\bsou\s+novo\b/i.test(s) && /\bj[aá]\s+tenho\s+conta\b/i.test(s)) ||
     /ocorreu um erro\.?\s*por favor,?\s*tente novamente/i.test(s) ||
-    /entre\s+com\s+sua\s+conta|fa[cç]a\s+login/i.test(s)
-  );
+    /entre\s+com\s+sua\s+conta|fa[cç]a\s+login/i.test(s);
+
+  return hasBlockSignals && !hasProductSignals;
 }
 
 export async function fetchMlHtml(url: string): Promise<FetchHtmlResult> {
