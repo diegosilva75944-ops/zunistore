@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   const { url, mode } = parsed.data;
 
   try {
-    const result = await runTestMlImport(url, mode as ImportMode);
+    const result = await runTestMlImport(url, mode as ImportMode, { returnPartialOnBlock: true });
     return NextResponse.json({ ok: true, result });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Falha ao processar a URL.";

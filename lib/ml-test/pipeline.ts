@@ -29,6 +29,7 @@ function tryExtractMlbIdFromAnyUrl(...urls: Array<string | null | undefined>): s
 export async function runTestMlImport(
   rawUrl: string,
   mode: ImportMode,
+  opts?: { returnPartialOnBlock?: boolean },
 ): Promise<TestMlImportResult> {
   if (!isMercadoLivreProductUrl(rawUrl)) {
     throw new Error("Informe uma URL do Mercado Livre (mercadolivre.com.br/… ou meli.la/…).");
@@ -36,6 +37,39 @@ export async function runTestMlImport(
 
   const fetchUrl = normalizeMlFetchUrl(rawUrl, { keepSearch: true });
   const globalSteps: string[] = [`URL normalizada: ${fetchUrl}`, `Modo: ${mode}`];
+  const returnPartialOnBlock = Boolean(opts?.returnPartialOnBlock);
+
+  const blockedResult = (why: string, extra?: Record<string, unknown>): TestMlImportResult => ({
+    title: null,
+    shortDescription: "",
+    fullDescription: "",
+    images: [],
+    rating: null,
+    reviewsCount: null,
+    categoryPath: [],
+    categoryName: "",
+    pricing: {
+      currentPrice: null,
+      originalPrice: null,
+      discountPercent: null,
+      hasDiscount: false,
+      displayMode: "unknown",
+      installmentPrice: null,
+      installments: null,
+      confidence: "low",
+      source: "mixed",
+    },
+    debug: {
+      candidates: [],
+      extractionSteps: [...globalSteps, why],
+      rawSignals: { fetchUrl, mode, ...(extra ?? {}) },
+      chosenBlock: null,
+      chosenSignals: {},
+      usedCandidates: [],
+      ignoredCandidates: [],
+      discardReasons: [why],
+    },
+  });
 
   if (mode === "headless") {
     const pw = await fetchHtmlWithPlaywright(fetchUrl);
@@ -81,6 +115,15 @@ export async function runTestMlImport(
             },
           };
         }
+        if (returnPartialOnBlock) {
+          return blockedResult(`Bloqueado no headless: ${pw.error} (API items falhou: ${api.ok ? "sem dados" : api.error})`, {
+            layer: "headless",
+            apiTried: { id },
+          });
+        }
+      }
+      if (returnPartialOnBlock) {
+        return blockedResult(`Bloqueado no headless: ${pw.error}`, { layer: "headless" });
       }
       throw new Error(pw.error || "Playwright falhou ao abrir a página.");
     }
@@ -161,6 +204,15 @@ export async function runTestMlImport(
               },
             };
           }
+          if (returnPartialOnBlock) {
+            return blockedResult(
+              `Bloqueado no fetch+headless: ${pw.error} (API items falhou: ${api.ok ? "sem dados" : api.error})`,
+              { layer: "headless", apiTried: { id } },
+            );
+          }
+        }
+        if (returnPartialOnBlock) {
+          return blockedResult(`Bloqueado no fetch+headless: ${pw.error}`, { layer: "headless" });
         }
         throw new Error(pw.error || fetched.error || "Falha ao abrir a página.");
       }
