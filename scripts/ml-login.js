@@ -6,22 +6,26 @@ async function main() {
   const { chromium } = require("playwright");
 
   const outPath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || ".playwright/ml-storage-state.json";
+  const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || ".playwright/ml-user-data";
   const outAbs = path.resolve(process.cwd(), outPath);
+  const userDataAbs = path.resolve(process.cwd(), userDataDir);
   fs.mkdirSync(path.dirname(outAbs), { recursive: true });
+  fs.mkdirSync(userDataAbs, { recursive: true });
 
-  const browser = await chromium.launch({ headless: false });
-  const context = await browser.newContext({
+  const context = await chromium.launchPersistentContext(userDataAbs, {
+    headless: false,
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     locale: "pt-BR",
   });
-  const page = await context.newPage();
+  const page = context.pages()[0] || (await context.newPage());
 
   console.log("Abrindo Mercado Livre para login manual…");
   console.log("1) Faça login na conta.");
   console.log("2) Se aparecer verificação/captcha, conclua.");
   console.log("3) Quando estiver logado, você pode fechar a janela (X) OU voltar aqui e apertar ENTER.");
   console.log(`Sessão será salva em: ${outAbs}`);
+  console.log(`Perfil persistente (userDataDir): ${userDataAbs}`);
 
   await page.goto("https://www.mercadolivre.com.br/", { waitUntil: "domcontentloaded" });
 
@@ -39,7 +43,7 @@ async function main() {
   ]);
 
   await context.storageState({ path: outAbs });
-  await browser.close();
+  await context.close();
 
   console.log("OK. Sessão salva.");
   console.log("Agora rode a aba Teste ML novamente (modo auto/headless).");

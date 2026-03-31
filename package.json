@@ -14,7 +14,8 @@
     "replace": "node scripts/replace-all.js",
     "postinstall": "node scripts/postinstall-playwright.js",
     "test:playwright": "node scripts/test-playwright.js",
-    "ml:login": "node scripts/ml-login.js"
+    "ml:login": "node scripts/ml-login.js",
+    "ml:login:env": "node -e \"console.log('ML_PLAYWRIGHT_USER_DATA_DIR=.playwright/ml-user-data'); console.log('ML_PLAYWRIGHT_STORAGE_STATE=.playwright/ml-storage-state.json'); console.log('ML_PLAYWRIGHT_HEADLESS=0  (opcional, para ver janela no Teste ML)');\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2",
