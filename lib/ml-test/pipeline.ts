@@ -187,6 +187,13 @@ export async function runTestMlImport(
           },
         };
       }
+      if (!auth.ok) {
+        globalSteps.push(`API auth falhou (${auth.error}) — tentando API pública items…`);
+      } else {
+        globalSteps.push(
+          `API auth sem dados suficientes (title=${Boolean(auth.title)}, price=${Boolean(auth.price)}) — tentando API pública items…`,
+        );
+      }
 
       /** Último recurso: API pública do item quando o ML bloqueia headless. */
       const id = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl, pw.error);
@@ -230,14 +237,21 @@ export async function runTestMlImport(
           };
         }
         if (returnPartialOnBlock) {
-          return blockedResult(`Bloqueado no headless: ${pw.error} (API items falhou: ${api.ok ? "sem dados" : api.error})`, {
-            layer: "headless",
-            apiTried: { id },
-          });
+          return blockedResult(
+            `Bloqueado no headless: ${pw.error} (API auth: ${auth.ok ? "sem dados" : auth.error}; API items falhou: ${api.ok ? "sem dados" : api.error})`,
+            {
+              layer: "headless",
+              apiTried: { id },
+              authTried: { ok: auth.ok, error: auth.ok ? null : auth.error },
+            },
+          );
         }
       }
       if (returnPartialOnBlock) {
-        return blockedResult(`Bloqueado no headless: ${pw.error}`, { layer: "headless" });
+        return blockedResult(`Bloqueado no headless: ${pw.error} (API auth: ${auth.ok ? "sem dados" : auth.error})`, {
+          layer: "headless",
+          authTried: { ok: auth.ok, error: auth.ok ? null : auth.error },
+        });
       }
       throw new Error(pw.error || "Playwright falhou ao abrir a página.");
     }
@@ -329,6 +343,13 @@ export async function runTestMlImport(
             },
           };
         }
+        if (!auth.ok) {
+          globalSteps.push(`API auth falhou (${auth.error}) — tentando API pública items…`);
+        } else {
+          globalSteps.push(
+            `API auth sem dados suficientes (title=${Boolean(auth.title)}, price=${Boolean(auth.price)}) — tentando API pública items…`,
+          );
+        }
 
         const id = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl, pw.error);
         if (id) {
@@ -372,13 +393,20 @@ export async function runTestMlImport(
           }
           if (returnPartialOnBlock) {
             return blockedResult(
-              `Bloqueado no fetch+headless: ${pw.error} (API items falhou: ${api.ok ? "sem dados" : api.error})`,
-              { layer: "headless", apiTried: { id } },
+              `Bloqueado no fetch+headless: ${pw.error} (API auth: ${auth.ok ? "sem dados" : auth.error}; API items falhou: ${api.ok ? "sem dados" : api.error})`,
+              {
+                layer: "headless",
+                apiTried: { id },
+                authTried: { ok: auth.ok, error: auth.ok ? null : auth.error },
+              },
             );
           }
         }
         if (returnPartialOnBlock) {
-          return blockedResult(`Bloqueado no fetch+headless: ${pw.error}`, { layer: "headless" });
+          return blockedResult(
+            `Bloqueado no fetch+headless: ${pw.error} (API auth: ${auth.ok ? "sem dados" : auth.error})`,
+            { layer: "headless", authTried: { ok: auth.ok, error: auth.ok ? null : auth.error } },
+          );
         }
         throw new Error(pw.error || fetched.error || "Falha ao abrir a página.");
       }
