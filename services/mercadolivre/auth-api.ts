@@ -148,11 +148,34 @@ export async function mlResolveProductToItemAuth(productId: string): Promise<str
   /**
    * Fallback: alguns produtos não retornam `buy_box_winner` dependendo do contexto/conta.
    * Tentar achar um anúncio ativo via busca por `product_id`.
+   *
+   * Observação: `/sites/{site_id}/search` é público. Em alguns cenários o ML retorna 403
+   * quando chamamos com Authorization; aqui usamos fetch sem token para aumentar compatibilidade.
    */
-  const search = await mlSearchAuth({ siteId: "MLB", query: { product_id: productId, limit: 1 } });
-  const first = Array.isArray(search.results) ? search.results[0] : null;
-  const id = first && typeof first === "object" ? (first as any).id : null;
-  if (typeof id === "string" && /^MLB\d{6,}$/i.test(id)) return id.toUpperCase();
+  try {
+    const url = new URL("https://api.mercadolibre.com/sites/MLB/search");
+    url.searchParams.set("product_id", productId);
+    url.searchParams.set("limit", "1");
+    const res = await fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Accept: "application/json,text/plain,*/*",
+        "Accept-Language": "pt-BR,pt;q=0.9",
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (res.ok) {
+      const json = (await res.json().catch(() => null)) as any;
+      const first = json && Array.isArray(json.results) ? json.results[0] : null;
+      const id = first && typeof first === "object" ? first.id : null;
+      if (typeof id === "string" && /^MLB\d{6,}$/i.test(id)) return id.toUpperCase();
+    }
+  } catch {
+    // sem impacto: apenas fallback
+  }
 
   return null;
 }
