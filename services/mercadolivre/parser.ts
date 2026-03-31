@@ -71,6 +71,12 @@ export function extractMlItemIdFromUrl(input: string): string {
     hashParams = new URLSearchParams();
   }
 
+  /** `wid` / `item_id` no hash definem o anúncio em links `/p/MLB…` + reco (path pode ser outro MLB). */
+  const widFromHash = hashParams.get("wid") || hashParams.get("item_id");
+  if (widFromHash && isMlbItemId(widFromHash)) {
+    return widFromHash.toUpperCase();
+  }
+
   /** Em páginas /up/… (catálogo / reco) o MLB do anúncio costuma vir no hash (wid) — priorizar. */
   const pathLooksLikeUserProduct = /\/up\/[^/]+/i.test(path);
 

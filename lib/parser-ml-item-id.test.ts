@@ -31,4 +31,10 @@ describe("extractMlItemIdFromUrl", () => {
       "https://www.mercadolivre.com.br/x/p/MLB19907986?pdp_filters=item_id%3AMLB5368821480";
     expect(extractMlItemIdFromUrl(u)).toBe("MLB5368821480");
   });
+
+  it("prioriza wid do hash quando /p/ no path traz outro MLB (catálogo + reco)", () => {
+    const url =
+      "https://www.mercadolivre.com.br/cadeira/p/MLB32068338#polycard_client=x&wid=MLB4519212879&sid=recos";
+    expect(extractMlItemIdFromUrl(url)).toBe("MLB4519212879");
+  });
 });

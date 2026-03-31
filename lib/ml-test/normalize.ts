@@ -55,9 +55,10 @@ export function resolveMlCatalogUrlForServerFetch(raw: string): string {
     }
 
     const mlb = wid.toUpperCase();
-    if (/\/p\/MLB\d+/i.test(u.pathname)) {
-      return s;
-    }
+    /**
+     * Links de recomendação têm `/p/MLB…` do **produto catálogo** e o anúncio real em `#wid=MLB…` (outro id).
+     * Não retornar cedo: o fetch HTTP não envia hash — sem reescrita baixa-se a página errada e o import vem vazio.
+     */
     /** Já é permalink clássico do anúncio (BR). */
     if (/produto\.mercadolivre\.com\.br/i.test(host) && /\/MLB-\d+/i.test(u.pathname)) {
       return s;
