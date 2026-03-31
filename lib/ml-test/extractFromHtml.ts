@@ -133,7 +133,7 @@ function baseMeta(): Pick<
   };
 }
 
-function extractJsonLdProduct(html: string): {
+type JsonLdProductShape = {
   title: string | null;
   description: string | null;
   image: string | string[] | null;
@@ -142,7 +142,87 @@ function extractJsonLdProduct(html: string): {
   lowPrice: number | null;
   ratingValue: number | null;
   reviewCount: number | null;
-} | null {
+};
+
+function extractProductFieldsFromLdNode(o: Record<string, unknown>): JsonLdProductShape | null {
+  const type = o["@type"];
+  const isProduct =
+    type === "Product" ||
+    (Array.isArray(type) && (type as string[]).includes("Product"));
+  if (!isProduct) return null;
+  const name = typeof o.name === "string" ? o.name : null;
+  const desc = typeof o.description === "string" ? o.description : null;
+  const image = o.image as string | string[] | null | undefined;
+  const offers = o.offers as Record<string, unknown> | Record<string, unknown>[] | undefined;
+  const offer = Array.isArray(offers) ? offers[0] : offers;
+  let price: number | null = null;
+  let highPrice: number | null = null;
+  let lowPrice: number | null = null;
+  if (offer && typeof offer === "object") {
+    const off = offer as Record<string, unknown>;
+    const p = off.price != null ? Number(off.price) : NaN;
+    const h = off.highPrice != null ? Number(off.highPrice) : NaN;
+    const l = off.lowPrice != null ? Number(off.lowPrice) : NaN;
+    if (Number.isFinite(p) && p > 0) price = p;
+    if (Number.isFinite(h) && h > 0) highPrice = h;
+    if (Number.isFinite(l) && l > 0) lowPrice = l;
+  }
+  let ratingValue: number | null = null;
+  let reviewCount: number | null = null;
+  const agg = o.aggregateRating;
+  if (agg && typeof agg === "object" && !Array.isArray(agg)) {
+    const a = agg as Record<string, unknown>;
+    const rv = a.ratingValue;
+    if (typeof rv === "number" && Number.isFinite(rv) && rv >= 0 && rv <= 5) {
+      ratingValue = rv;
+    } else if (typeof rv === "string") {
+      const n = parseFloat(rv.replace(",", "."));
+      if (Number.isFinite(n) && n >= 0 && n <= 5) ratingValue = n;
+    }
+    const rc = a.reviewCount;
+    if (typeof rc === "number" && Number.isFinite(rc) && rc >= 0) {
+      reviewCount = Math.round(rc);
+    } else if (typeof rc === "string") {
+      const n = parseInt(String(rc).replace(/\D/g, ""), 10);
+      if (Number.isFinite(n) && n >= 0) reviewCount = n;
+    }
+  }
+  return {
+    title: name,
+    description: desc,
+    image: image ?? null,
+    price,
+    highPrice,
+    lowPrice,
+    ratingValue,
+    reviewCount,
+  };
+}
+
+/** Percorre nós ld+json, incluindo `@graph` aninhado (PDP ML e outros). */
+function findProductInLdJson(obj: unknown): JsonLdProductShape | null {
+  if (obj == null) return null;
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const r = findProductInLdJson(item);
+      if (r) return r;
+    }
+    return null;
+  }
+  if (typeof obj !== "object") return null;
+  const o = obj as Record<string, unknown>;
+  const direct = extractProductFieldsFromLdNode(o);
+  if (direct) return direct;
+  if (Array.isArray(o["@graph"])) {
+    for (const g of o["@graph"]) {
+      const r = findProductInLdJson(g);
+      if (r) return r;
+    }
+  }
+  return null;
+}
+
+function extractJsonLdProduct(html: string): JsonLdProductShape | null {
   const scriptRe = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m: RegExpExecArray | null;
   while ((m = scriptRe.exec(html)) !== null) {
@@ -154,62 +234,10 @@ function extractJsonLdProduct(html: string): {
     } catch {
       continue;
     }
-    const list = Array.isArray(data) ? data : [data];
-    for (const node of list) {
-      if (!node || typeof node !== "object") continue;
-      const o = node as Record<string, unknown>;
-      const type = o["@type"];
-      const isProduct =
-        type === "Product" ||
-        (Array.isArray(type) && (type as string[]).includes("Product"));
-      if (!isProduct) continue;
-      const name = typeof o.name === "string" ? o.name : null;
-      const desc = typeof o.description === "string" ? o.description : null;
-      const image = o.image as string | string[] | null | undefined;
-      const offers = o.offers as Record<string, unknown> | Record<string, unknown>[] | undefined;
-      const offer = Array.isArray(offers) ? offers[0] : offers;
-      let price: number | null = null;
-      let highPrice: number | null = null;
-      let lowPrice: number | null = null;
-      if (offer && typeof offer === "object") {
-        const off = offer as Record<string, unknown>;
-        const p = off.price != null ? Number(off.price) : NaN;
-        const h = off.highPrice != null ? Number(off.highPrice) : NaN;
-        const l = off.lowPrice != null ? Number(off.lowPrice) : NaN;
-        if (Number.isFinite(p) && p > 0) price = p;
-        if (Number.isFinite(h) && h > 0) highPrice = h;
-        if (Number.isFinite(l) && l > 0) lowPrice = l;
-      }
-      let ratingValue: number | null = null;
-      let reviewCount: number | null = null;
-      const agg = o.aggregateRating;
-      if (agg && typeof agg === "object" && !Array.isArray(agg)) {
-        const a = agg as Record<string, unknown>;
-        const rv = a.ratingValue;
-        if (typeof rv === "number" && Number.isFinite(rv) && rv >= 0 && rv <= 5) {
-          ratingValue = rv;
-        } else if (typeof rv === "string") {
-          const n = parseFloat(rv.replace(",", "."));
-          if (Number.isFinite(n) && n >= 0 && n <= 5) ratingValue = n;
-        }
-        const rc = a.reviewCount;
-        if (typeof rc === "number" && Number.isFinite(rc) && rc >= 0) {
-          reviewCount = Math.round(rc);
-        } else if (typeof rc === "string") {
-          const n = parseInt(String(rc).replace(/\D/g, ""), 10);
-          if (Number.isFinite(n) && n >= 0) reviewCount = n;
-        }
-      }
-      return {
-        title: name,
-        description: desc,
-        image: image ?? null,
-        price,
-        highPrice,
-        lowPrice,
-        ratingValue,
-        reviewCount,
-      };
+    const roots = Array.isArray(data) ? data : [data];
+    for (const root of roots) {
+      const product = findProductInLdJson(root);
+      if (product) return product;
     }
   }
   return null;
@@ -221,20 +249,32 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
 
   const $ = load(html);
 
+  const jsonLd = extractJsonLdProduct(html);
+  rawSignals.jsonLd = jsonLd;
+
   const title =
     $("h1").first().text().trim() ||
     $('meta[property="og:title"]').attr("content")?.trim() ||
+    jsonLd?.title?.trim() ||
     null;
-
-  const jsonLd = extractJsonLdProduct(html);
-  rawSignals.jsonLd = jsonLd;
 
   const fullDescDom = extractFullDescription($);
   /** JSON-LD costuma trazer só o resumo; o bloco #description no DOM tem o texto completo. */
   const fullDesc = preferLongerText(fullDescDom, jsonLd?.description?.trim() ?? "");
   const shortFromSpecs = extractShortDescriptionFromHighlightedSpecs($);
   const shortDescription = shortFromSpecs.trim() || makeShortDescription(fullDesc, title);
-  const images = extractGalleryImages($);
+  const galleryImages = extractGalleryImages($);
+  const images =
+    galleryImages.length > 0 ?
+      galleryImages
+    : (() => {
+        const im = jsonLd?.image;
+        if (im == null) return [];
+        const arr = Array.isArray(im) ? im : [im];
+        return arr
+          .filter((u): u is string => typeof u === "string" && u.trim().length > 0)
+          .map((u) => (u.startsWith("//") ? `https:${u}` : u));
+      })();
 
   const domReviews = extractRatingAndReviews($, html);
   const rating =
@@ -248,6 +288,67 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
   rawSignals.categoryName = categoryName;
 
   const candidates: PriceCandidate[] = [];
+
+  /** PDP nova (VPP): preço também vem em JSON embutido no HTML quando ld+json falha ou vem em @graph. */
+  function extractMlVppEmbeddedPriceCandidates(htmlStr: string): PriceCandidate[] {
+    const out: PriceCandidate[] = [];
+    const m = htmlStr.match(
+      /"price"\s*:\s*\{\s*"type"\s*:\s*"price"\s*,\s*"value"\s*:\s*([\d.]+)\s*,\s*"original_value"\s*:\s*([\d.]+)/,
+    );
+    if (m) {
+      const cur = Number(m[1]);
+      const orig = Number(m[2]);
+      if (Number.isFinite(orig) && orig > cur && cur > 0) {
+        out.push({
+          ...baseMeta(),
+          containerPath: "vpp-embedded-json",
+          isVisible: false,
+          value: roundMoney(orig),
+          rawText: `original_value:${orig}`,
+          nearText: "vpp price json",
+          source: "json_ld",
+          fromMainBlock: true,
+          isInstallment: false,
+          isShipping: false,
+          isRecommendation: false,
+          isOriginalCandidate: true,
+          isCurrentCandidate: false,
+        });
+        out.push({
+          ...baseMeta(),
+          containerPath: "vpp-embedded-json",
+          isVisible: false,
+          value: roundMoney(cur),
+          rawText: `value:${cur}`,
+          nearText: "vpp price json",
+          source: "json_ld",
+          fromMainBlock: true,
+          isInstallment: false,
+          isShipping: false,
+          isRecommendation: false,
+          isOriginalCandidate: false,
+          isCurrentCandidate: true,
+        });
+      } else if (Number.isFinite(cur) && cur > 0) {
+        out.push({
+          ...baseMeta(),
+          containerPath: "vpp-embedded-json",
+          isVisible: false,
+          value: roundMoney(cur),
+          rawText: `value:${cur}`,
+          nearText: "vpp price json",
+          source: "json_ld",
+          fromMainBlock: true,
+          isInstallment: false,
+          isShipping: false,
+          isRecommendation: false,
+          isOriginalCandidate: false,
+          isCurrentCandidate: true,
+        });
+      }
+    }
+    return out;
+  }
 
   if (jsonLd) {
     steps.push(`[${label}] JSON-LD Product encontrado`);
@@ -298,6 +399,14 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
         isOriginalCandidate: false,
         isCurrentCandidate: true,
       });
+    }
+  }
+
+  if (candidates.length === 0) {
+    const vpp = extractMlVppEmbeddedPriceCandidates(html);
+    if (vpp.length) {
+      candidates.push(...vpp);
+      steps.push(`[${label}] Preço (JSON embutido VPP): ${vpp.length} candidato(s)`);
     }
   }
 

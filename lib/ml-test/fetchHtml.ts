@@ -32,7 +32,7 @@ export type FetchHtmlResult =
 function looksBlocked(html: string): boolean {
   const s = html.slice(0, 320_000).toLowerCase();
   if (
-    /ui-pdp-price__main-container|poly-component__price|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"/i.test(
+    /ui-pdp-price__main-container|ui-pdp-title|poly-component__price|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"|vpp-frontend|"price"\s*:\s*\{\s*"type"\s*:\s*"price"\s*,\s*"value"/i.test(
       s,
     )
   ) {

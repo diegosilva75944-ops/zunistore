@@ -87,8 +87,17 @@ export async function runTestMlImport(
   let candidates = [...extracted.candidates];
   let htmlSource = resolved.pricing.source;
 
-  if (mode === "auto" && isWeakResolved(resolved.pricing) && !usedPlaywrightFirst) {
-    globalSteps.push("Heurística fraca ou sem preço → tentando Playwright…");
+  const missingTitle = !extracted.title?.trim();
+  if (
+    mode === "auto" &&
+    !usedPlaywrightFirst &&
+    (isWeakResolved(resolved.pricing) || missingTitle)
+  ) {
+    globalSteps.push(
+      missingTitle && !isWeakResolved(resolved.pricing) ?
+        "Sem título no HTML → tentando Playwright…"
+      : "Heurística fraca ou sem preço → tentando Playwright…",
+    );
     const pw = await fetchHtmlWithPlaywright(fetchUrl);
     if (pw.ok) {
       globalSteps.push(`Playwright: ${pw.html.length} chars`);
