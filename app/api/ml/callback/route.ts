@@ -46,6 +46,23 @@ export async function GET(req: Request) {
     });
   };
 
+  const resolvePublicOrigin = () => {
+    const xfProto = req.headers.get("x-forwarded-proto");
+    const xfHost = req.headers.get("x-forwarded-host");
+    if (xfProto && xfHost) return `${xfProto}://${xfHost}`;
+    const host = req.headers.get("host");
+    if (host) return `https://${host}`;
+    const redirect = process.env.MERCADOLIVRE_REDIRECT_URI;
+    if (redirect) {
+      try {
+        return new URL(redirect).origin;
+      } catch {
+        /* ignore */
+      }
+    }
+    return new URL(req.url).origin;
+  };
+
   try {
     const url = new URL(req.url);
     const parsed = schema.safeParse({
@@ -86,7 +103,7 @@ export async function GET(req: Request) {
       expires_at: computeExpiresAt(token.expires_in),
     });
 
-    return NextResponse.redirect(new URL("/admin/importacao?ml_oauth=ok", req.url));
+    return NextResponse.redirect(new URL("/admin/importacao?ml_oauth=ok", resolvePublicOrigin()));
   } catch (e) {
     return renderDebug({
       ok: false,
