@@ -30,7 +30,11 @@ export type FetchHtmlResult =
   | { ok: true; html: string; finalUrl: string; usedMobileFallback: boolean }
   | { ok: false; status?: number; error: string };
 
-function looksBlocked(html: string): boolean {
+/**
+ * HTML de parede de login / erro sem PDP (mesma heurística do `fetch` HTTP).
+ * Exportado para o Playwright decidir quando abrir o modo interativo.
+ */
+export function isMlBlockedOrLoginHtml(html: string): boolean {
   const s = html.slice(0, 320_000).toLowerCase();
   const hasProductSignals =
     /ui-pdp-price__main-container|ui-pdp-title|poly-component__price|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"|"price"\s*:\s*\{\s*"type"\s*:\s*"price"\s*,\s*"value"/i.test(
@@ -47,6 +51,10 @@ function looksBlocked(html: string): boolean {
     /entre\s+com\s+sua\s+conta|fa[cç]a\s+login/i.test(s);
 
   return hasBlockSignals && !hasProductSignals;
+}
+
+function looksBlocked(html: string): boolean {
+  return isMlBlockedOrLoginHtml(html);
 }
 
 export async function fetchMlHtml(url: string): Promise<FetchHtmlResult> {

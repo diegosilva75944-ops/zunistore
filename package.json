@@ -15,7 +15,7 @@
     "postinstall": "node scripts/postinstall-playwright.js",
     "test:playwright": "node scripts/test-playwright.js",
     "ml:login": "node scripts/ml-login.js",
-    "ml:login:env": "node -e \"console.log('ML_PLAYWRIGHT_USER_DATA_DIR=.playwright/ml-user-data'); console.log('ML_PLAYWRIGHT_STORAGE_STATE=.playwright/ml-storage-state.json'); console.log('ML_PLAYWRIGHT_HEADLESS=0  (opcional, para ver janela no Teste ML)');\""
+    "ml:login:env": "node -e \"console.log('ML_PLAYWRIGHT_USER_DATA_DIR=.playwright/ml-user-data'); console.log('ML_PLAYWRIGHT_STORAGE_STATE=.playwright/ml-storage-state.json'); console.log('ML_PLAYWRIGHT_HEADLESS=0  (opcional, janela sempre visível)'); console.log('ML_PLAYWRIGHT_HEADED_ON_BLOCK=1  (abre janela só se headless falhar por bloqueio/login)'); console.log('ML_PLAYWRIGHT_INTERACTIVE_TIMEOUT_MS=300000  (5 min ao aguardar desbloqueio)');\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2",
