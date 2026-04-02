@@ -1,0 +1,3 @@
+sudo docker image prune -a -f
+sudo docker system df
+df -h /var
