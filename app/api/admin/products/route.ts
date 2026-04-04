@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminListProducts } from "@/lib/admin/db";
+import { adminListProducts, adminMoveAllAffiliateExpiredProductsToHistory } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
 
@@ -15,6 +15,14 @@ export async function GET(req: Request) {
     const code6 = searchParams.get("code6")?.trim() ?? null;
     const categoryId = searchParams.get("categoryId")?.trim() || null;
     const affiliateExpired = searchParams.get("affiliateExpired") === "true";
+    const promoRaw = searchParams.get("promo")?.trim();
+    const promoScope =
+      promoRaw === "fora_promocao" ? ("fora_promocao" as const) : ("em_promocao" as const);
+
+    /** Alinha com a aba Deletados: move `affiliate_valid = false` para o histórico antes de listar. */
+    if (!affiliateExpired) {
+      await adminMoveAllAffiliateExpiredProductsToHistory();
+    }
 
     const { items, total } = await adminListProducts({
       page,
@@ -23,6 +31,7 @@ export async function GET(req: Request) {
       code6: code6 || null,
       categoryId: categoryId || null,
       affiliateExpired: affiliateExpired || null,
+      promoScope,
     });
 
     return NextResponse.json({ items, total, page, perPage });

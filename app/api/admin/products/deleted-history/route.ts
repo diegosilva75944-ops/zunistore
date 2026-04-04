@@ -26,8 +26,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ items, total, page, perPage });
   } catch (e) {
     console.error(e);
+    const detail = e instanceof Error ? e.message : String(e);
     return NextResponse.json(
-      { error: "Erro ao listar histórico de deletados." },
+      { error: "Erro ao listar histórico de deletados.", detail },
       { status: 500 },
     );
   }

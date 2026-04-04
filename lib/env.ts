@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getPostgrestAnonKey, getPostgrestServiceKey } from "@/lib/postgrest/config";
 
 const schema = z.object({
   NEXT_PUBLIC_SITE_URL: z.string().url().optional(),
@@ -19,12 +20,8 @@ export function getOptionalEnv(): Env | null {
   if (cached !== undefined) return cached;
   const apiUrl =
     process.env.POSTGREST_URL ?? process.env.DB_API_URL ?? process.env.SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.DB_ANON_KEY ?? "local-dev-key";
-  const serviceRoleKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.DB_SERVICE_ROLE_KEY ??
-    process.env.DB_SERVICE_KEY ??
-    anonKey;
+  const anonKey = getPostgrestAnonKey();
+  const serviceRoleKey = getPostgrestServiceKey();
   const parsed = schema.safeParse({
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     SUPABASE_URL: apiUrl,

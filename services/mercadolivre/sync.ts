@@ -7,7 +7,7 @@ import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
 import { extractMlItemIdFromFirstWorkingCandidate } from "@/services/mercadolivre/ml-url-resolve";
 import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
 import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
-import { mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
+import { deleteConflictingExternalListingsForOtherProducts, mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -49,6 +49,12 @@ export async function ensureMercadoLivreListingRowForProduct(
     : `https://www.mercadolivre.com.br/p/${externalId}`;
 
   try {
+    await deleteConflictingExternalListingsForOtherProducts({
+      keepProductId: productId,
+      origin: "mercadolivre",
+      externalId,
+      externalPermalink: permalink,
+    });
     await postgrestPost(
       "product_external_listings",
       {

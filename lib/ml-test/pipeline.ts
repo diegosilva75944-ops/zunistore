@@ -7,6 +7,7 @@ import { fetchHtmlWithPlaywright } from "./extractWithBrowser";
 import { makeShortDescription, preferLongerText } from "./extractDescriptions";
 import { preferMaxNullable } from "./extractReviews";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
+import { normalizeSuspiciousGluedBrlInteger } from "./parseAndesMoney";
 import { isWeakResolved, mergeResolvedDisplay, resolvePreviewPricing } from "./resolvePreviewPricing";
 import { fetchMlItemApi } from "./fetchMlItemApi";
 import { mlGetItemAuth, mlResolveProductToItemAuth } from "@/services/mercadolivre/auth-api";
@@ -34,6 +35,18 @@ function tryExtractCatalogProductIdFromUrl(u: string): string | null {
   return m?.[1] ? m[1].toUpperCase() : null;
 }
 
+function normMlAuthPrices(
+  price: unknown,
+  original: unknown,
+): { price: number | null; originalPrice: number | null } {
+  const rawP = typeof price === "number" && price > 0 ? price : null;
+  const p = rawP != null ? normalizeSuspiciousGluedBrlInteger(rawP) : null;
+  const rawO = typeof original === "number" && original > 0 ? original : null;
+  const oNorm = rawO != null ? normalizeSuspiciousGluedBrlInteger(rawO) : null;
+  const o = p != null && oNorm != null && oNorm > p ? oNorm : null;
+  return { price: p, originalPrice: o };
+}
+
 async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string) {
   const catalogProductId = tryExtractCatalogProductIdFromUrl(fetchUrl) ?? tryExtractCatalogProductIdFromUrl(rawUrl);
   const anyId = tryExtractMlbIdFromAnyUrl(rawUrl, fetchUrl);
@@ -48,6 +61,7 @@ async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string)
         const pictures = pics
           .map((p) => (p?.secure_url || p?.url ? String(p.secure_url ?? p.url) : null))
           .filter((x): x is string => typeof x === "string" && x.startsWith("http"));
+        const ap = normMlAuthPrices(item.price, item.original_price);
         return {
           ok: true as const,
           mode: "catalog" as const,
@@ -55,9 +69,8 @@ async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string)
           productId: catalogProductId,
           itemId: resolvedItemId,
           title: item.title ?? null,
-          price: typeof item.price === "number" && item.price > 0 ? item.price : null,
-          originalPrice:
-            typeof item.original_price === "number" && item.original_price > 0 ? item.original_price : null,
+          price: ap.price,
+          originalPrice: ap.originalPrice,
           pictures,
           permalink: item.permalink ?? null,
         };
@@ -80,15 +93,15 @@ async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string)
       const pictures = pics
         .map((p) => (p?.secure_url || p?.url ? String(p.secure_url ?? p.url) : null))
         .filter((x): x is string => typeof x === "string" && x.startsWith("http"));
+      const ap = normMlAuthPrices(item.price, item.original_price);
       return {
         ok: true as const,
         mode: "item" as const,
         hint,
         itemId: anyId,
         title: item.title ?? null,
-        price: typeof item.price === "number" && item.price > 0 ? item.price : null,
-        originalPrice:
-          typeof item.original_price === "number" && item.original_price > 0 ? item.original_price : null,
+        price: ap.price,
+        originalPrice: ap.originalPrice,
         pictures,
         permalink: item.permalink ?? null,
       };

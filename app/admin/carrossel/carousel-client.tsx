@@ -195,6 +195,7 @@ export function CarouselClient({
                     src={it.product.images[0]}
                     alt={it.product.title}
                     fill
+                    sizes="80px"
                     className="object-contain p-1"
                   />
                 ) : null}
@@ -260,7 +261,7 @@ function SortableRow({
       </div>
 
       <div className="relative h-14 w-14 rounded-xl overflow-hidden bg-zinc-50 ring-1 ring-zinc-200 shrink-0">
-        {image ? <Image src={image} alt={title} fill className="object-contain p-1" /> : null}
+        {image ? <Image src={image} alt={title} fill sizes="56px" className="object-contain p-1" /> : null}
       </div>
 
       <div className="flex-1 min-w-0">

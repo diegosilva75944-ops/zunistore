@@ -53,6 +53,14 @@ export function isMlBlockedOrLoginHtml(html: string): boolean {
   return hasBlockSignals && !hasProductSignals;
 }
 
+/** Sinais mínimos de PDP (preço/título/schema) — útil após login manual no Playwright. */
+export function hasMlProductPageSignals(html: string): boolean {
+  const s = html.slice(0, 320_000).toLowerCase();
+  return /ui-pdp-price__main-container|ui-pdp-title|poly-component__price|andes-money-amount__fraction|schema\.org\/product|"@type"\s*:\s*"product"|"price"\s*:\s*\{\s*"type"\s*:\s*"price"\s*,\s*"value"/i.test(
+    s,
+  );
+}
+
 function looksBlocked(html: string): boolean {
   return isMlBlockedOrLoginHtml(html);
 }

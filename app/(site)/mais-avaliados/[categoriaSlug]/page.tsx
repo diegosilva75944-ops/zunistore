@@ -54,7 +54,7 @@ export default async function MaisAvaliadosCategoriaPage(props: {
           <h1 id="mais-avaliados-cat-heading" className="text-2xl font-semibold">
             Mais avaliados — {category.name}
           </h1>
-          <p className="text-sm text-zinc-600">Total: {total}</p>
+          <p className="text-sm text-zinc-600">Total: {total} (inclui subcategorias)</p>
         </div>
 
         <div className={PRODUCT_CARD_GRID_CLASS}>

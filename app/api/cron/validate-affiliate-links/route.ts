@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { postgrestGet } from "@/lib/postgrest/server";
-import { adminValidateAffiliateLinksBatch } from "@/lib/admin/db";
+import {
+  adminMoveAllAffiliateExpiredProductsToHistory,
+  adminValidateAffiliateLinksBatch,
+  mergeProductIdsForAffiliateValidation,
+} from "@/lib/admin/db";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -35,19 +39,47 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(30, Math.max(1, parseInt(searchParams.get("limit") ?? "15", 10) || 15));
 
-    const rows = await postgrestGet<{ id: string }[]>("products", {
-      select: "id",
-      order: "affiliate_valid_checked_at.asc.nullsfirst",
-      limit: String(limit),
-    });
+    const sweep = await adminMoveAllAffiliateExpiredProductsToHistory();
 
-    const ids = (Array.isArray(rows) ? rows : []).map((r) => r.id);
+    let expiredRows: { id: string }[] = [];
+    try {
+      expiredRows = await postgrestGet<{ id: string }[]>("products", {
+        select: "id",
+        affiliate_valid: "eq.false",
+        limit: String(limit),
+      });
+    } catch (e) {
+      console.warn("[cron validate-affiliate-links] consulta affiliate_valid=false ignorada", e);
+    }
+    const expiredIds = (Array.isArray(expiredRows) ? expiredRows : []).map((r) => r.id).filter(Boolean);
+    const need = Math.max(0, limit - expiredIds.length);
+
+    let queueRows: { id: string }[] = [];
+    if (need > 0) {
+      try {
+        queueRows = await postgrestGet<{ id: string }[]>("products", {
+          select: "id",
+          order: "affiliate_valid_checked_at.asc.nullsfirst",
+          limit: String(Math.min(need * 4, 100)),
+        });
+      } catch (e) {
+        console.warn("[cron validate-affiliate-links] fallback order created_at", e);
+        queueRows = await postgrestGet<{ id: string }[]>("products", {
+          select: "id",
+          order: "created_at.desc",
+          limit: String(Math.min(need * 4, 100)),
+        });
+      }
+    }
+
+    const ids = mergeProductIdsForAffiliateValidation(expiredIds, queueRows, limit);
     if (ids.length === 0) {
       return NextResponse.json({
         ok: true,
         checked: 0,
         valid: 0,
         invalid: 0,
+        errors: 0,
         message: "Nenhum produto para validar.",
       });
     }
@@ -55,11 +87,13 @@ export async function GET(req: Request) {
     const result = await adminValidateAffiliateLinksBatch(ids);
     return NextResponse.json({
       ok: true,
+      sweptFromExpiredFlag: sweep.moved,
       ...result,
-      message: `Validados ${result.checked} link(s): ${result.valid} válido(s), ${result.invalid} inválido(s).`,
+      message: `Histórico: ${sweep.moved} com flag expirado. Validados ${result.checked} link(s): ${result.valid} válido(s), ${result.invalid} inválido(s)${result.errors > 0 ? `, ${result.errors} erro(s)` : ""}.`,
     });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ ok: false, error: "Erro ao validar links." }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: "Erro ao validar links.", detail: msg }, { status: 500 });
   }
 }

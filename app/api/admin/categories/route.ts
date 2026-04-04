@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { adminListCategories, adminCreateCategory } from "@/lib/admin/db";
+import { adminListCategories, adminCreateCategory, adminCategoryProductCounts } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
 
@@ -13,8 +13,12 @@ const createSchema = z.object({
 
 export async function GET() {
   try {
-    const list = await adminListCategories();
-    return NextResponse.json(list);
+    const [list, counts] = await Promise.all([adminListCategories(), adminCategoryProductCounts()]);
+    const withCounts = list.map((c: { id: string }) => ({
+      ...c,
+      product_count: counts[c.id] ?? 0,
+    }));
+    return NextResponse.json(withCounts);
   } catch (e) {
     console.error(e);
     return NextResponse.json(

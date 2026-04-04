@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCategoryBySlug, listProducts } from "@/lib/store";
+import { getCategoryBySlug, getSiteCategoriesFlatCached, listProducts } from "@/lib/store";
 import { robotsForListing } from "@/lib/seo";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
@@ -36,6 +36,12 @@ export default async function CategoriaPage(props: {
   const category = await getCategoryBySlug(categoriaSlug);
   if (!category) notFound();
 
+  const flat = await getSiteCategoriesFlatCached();
+  const parent = category.parent_id ? flat.find((c) => c.id === category.parent_id) ?? null : null;
+  const childCategories = flat
+    .filter((c) => c.parent_id === category.id)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt"));
+
   const sort = (asString(searchParams.ord) ?? "recentes") as any;
   const perPage = (asNumber(searchParams.pp) ?? 20) as 10 | 20 | 50;
   const page = asNumber(searchParams.p) ?? 1;
@@ -52,11 +58,33 @@ export default async function CategoriaPage(props: {
       <CategoryVisitTracker categoryId={category.id} />
       <section className="zuni-site-section space-y-6" aria-labelledby="categoria-heading">
         <div className="flex items-end justify-between flex-wrap gap-3">
-          <div>
+          <div className="space-y-2 min-w-0">
+            {parent ? (
+              <Link
+                href={`/categoria/${parent.slug}`}
+                className="text-xs font-medium text-zuni-primary hover:underline inline-block"
+              >
+                ← {parent.name}
+              </Link>
+            ) : null}
             <h1 id="categoria-heading" className="text-2xl font-semibold">
               {category.name}
             </h1>
-            <p className="text-sm text-zinc-600">Total: {total}</p>
+            <p className="text-sm text-zinc-600">Total: {total} (inclui subcategorias)</p>
+            {childCategories.length > 0 ? (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <span className="text-xs text-zinc-500 w-full">Subcategorias:</span>
+                {childCategories.map((ch) => (
+                  <Link
+                    key={ch.id}
+                    href={`/categoria/${ch.slug}`}
+                    className="text-xs px-3 py-1 rounded-full border border-zinc-200 bg-white hover:bg-zuni-purple-light hover:border-zuni-primary/30"
+                  >
+                    {ch.name}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
           </div>
           <Link
             href={`/ofertas/${category.slug}`}

@@ -94,8 +94,16 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   );
   const [validatingLinks, setValidatingLinks] = useState(false);
   const [validateResult, setValidateResult] = useState<string | null>(null);
+  const [historyActionId, setHistoryActionId] = useState<string | null>(null);
+  /** Itens movidos ao histórico desde a última vez que a aba Histórico foi aberta (balão na aba). */
+  const [historicoTabBadgeCount, setHistoricoTabBadgeCount] = useState(0);
 
   const prevTabRef = useRef<"listagem" | "historico" | "precos" | null>(null);
+
+  /** Listagem: vitrine do site (`is_offer`) vs aguardando promoção. */
+  const listingPromo = useMemo(() => {
+    return searchParams.get("promo") === "fora_promocao" ? "fora_promocao" : "em_promocao";
+  }, [searchParams]);
 
   /** Ao entrar na aba Histórico de preços vindo de outra aba, atualiza filtros para o dia atual. */
   useEffect(() => {
@@ -108,6 +116,10 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       setPriceHistoryPage(1);
     }
     prevTabRef.current = tab;
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab === "historico") setHistoricoTabBadgeCount(0);
   }, [tab]);
 
   const replaceListingParams = useCallback(
@@ -145,12 +157,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
     if (filterCode6.trim()) params.set("code6", filterCode6.trim());
     if (filterCategoryId) params.set("categoryId", filterCategoryId);
     if (filterAffiliateExpired) params.set("affiliateExpired", "true");
+    if (listingPromo === "fora_promocao") params.set("promo", "fora_promocao");
     const res = await fetch(`/api/admin/products?${params.toString()}`);
     const data = await res.json().catch(() => ({}));
     setItems(Array.isArray(data?.items) ? data.items : []);
     setTotal(Number(data?.total) ?? 0);
     setLoading(false);
-  }, [page, perPage, filterQ, filterCode6, filterCategoryId, filterAffiliateExpired]);
+  }, [page, perPage, filterQ, filterCode6, filterCategoryId, filterAffiliateExpired, listingPromo]);
 
   useEffect(() => {
     fetchProducts();
@@ -158,14 +171,21 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
 
   const fetchDeletedHistory = useCallback(async () => {
     setDeletedLoading(true);
+    try {
+      await fetch("/api/admin/products/sweep-expired-affiliate", { method: "POST" });
+    } catch {
+      /* segue a listagem mesmo se sweep falhar */
+    }
     const params = new URLSearchParams();
     params.set("page", String(deletedPage));
     params.set("perPage", String(deletedPerPage));
     const res = await fetch(`/api/admin/products/deleted-history?${params.toString()}`);
     const data = await res.json().catch(() => ({}));
     setDeletedItems(Array.isArray(data?.items) ? data.items : []);
-    setDeletedTotal(Number(data?.total) ?? 0);
+    const delTotal = Number(data?.total);
+    setDeletedTotal(Number.isFinite(delTotal) && delTotal >= 0 ? delTotal : 0);
     setDeletedLoading(false);
+    setFilterVersion((v) => v + 1);
   }, [deletedPage, deletedPerPage]);
 
   useEffect(() => {
@@ -268,6 +288,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         return;
       }
       if (data.deleted) {
+        setHistoricoTabBadgeCount((c) => c + 1);
         alert(data.message ?? "Produto não encontrado na URL. Removido da listagem e salvo no histórico.");
       }
       await fetchProducts(true);
@@ -326,6 +347,9 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           `Sincronizado! Total: ${data.total}, Atualizados: ${data.updated}, Ignorados: ${data.skipped}, Falhas: ${data.failed}${deletedPart}`,
         );
       }
+
+      const deletedN = typeof data.deleted === "number" && data.deleted > 0 ? data.deleted : 0;
+      if (deletedN > 0) setHistoricoTabBadgeCount((c) => c + deletedN);
 
       await fetchProducts(true);
       fetch("/api/admin/products/affiliate-expired-count")
@@ -391,7 +415,10 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   }
 
   const allChecked = items.length > 0 && items.every((p) => selected[p.id]);
-  const deletedTotalPages = Math.max(1, Math.ceil(deletedTotal / deletedPerPage));
+  const deletedTotalPages = Math.max(
+    1,
+    Math.ceil((Number.isFinite(deletedTotal) ? deletedTotal : 0) / deletedPerPage),
+  );
 
   return (
     <div className="space-y-3">
@@ -410,13 +437,21 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         <button
           type="button"
           onClick={() => replaceListingParams({ tab: "historico" })}
-          className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition ${
+          className={`relative px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition ${
             tab === "historico"
               ? "border-zuni-primary text-zuni-primary bg-white"
               : "border-transparent text-zinc-600 hover:text-zinc-900"
           }`}
         >
           Histórico (deletados)
+          {historicoTabBadgeCount > 0 && tab !== "historico" ? (
+            <span
+              className="absolute -right-0.5 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white tabular-nums"
+              aria-label={`${historicoTabBadgeCount} novo(s) no histórico`}
+            >
+              {historicoTabBadgeCount > 99 ? "99+" : historicoTabBadgeCount}
+            </span>
+          ) : null}
         </button>
         <button
           type="button"
@@ -604,7 +639,9 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       ) : tab === "historico" ? (
         <div className="space-y-3">
           <p className="text-sm text-zinc-600">
-            Produtos removidos da listagem e do site quando a sincronização de preços não encontrou mais o produto na URL.
+            Produtos removidos do catálogo quando o anúncio deixou de existir na URL (sync) ou quando o{" "}
+            <strong>link de afiliado expirou</strong> na validação. Pode apagar o registo do histórico ou restaurar o
+            produto com um <strong>novo link de afiliado</strong>.
           </p>
           {deletedLoading ? (
             <div className="rounded-2xl ring-1 ring-zinc-200 p-8 text-center text-sm text-zinc-500">
@@ -624,12 +661,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                       <th className="p-3 text-left">Removido em</th>
                       <th className="p-3 text-left">Motivo</th>
                       <th className="p-3 text-left">Link</th>
+                      <th className="p-3 text-left">Ações</th>
                     </tr>
                   </thead>
                   <tbody>
                     {deletedItems.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="p-6 text-center text-zinc-500">
+                        <td colSpan={9} className="p-6 text-center text-zinc-500">
                           Nenhum produto no histórico.
                         </td>
                       </tr>
@@ -647,7 +685,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                             <td className="p-3">
                               <div className="relative h-12 w-12 rounded-xl overflow-hidden bg-zinc-50 ring-1 ring-zinc-200">
                                 {img ? (
-                                  <Image src={img} alt={d.title} fill className="object-contain p-1" />
+                                  <Image
+                                    src={img}
+                                    alt={d.title}
+                                    fill
+                                    sizes="48px"
+                                    className="object-contain p-1"
+                                  />
                                 ) : null}
                               </div>
                             </td>
@@ -662,7 +706,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                                   : "—"}
                             </td>
                             <td className="p-3 text-xs text-zinc-600">{date}</td>
-                            <td className="p-3 text-xs text-zinc-500">{d.reason === "sync_not_found" ? "Não encontrado na URL" : d.reason}</td>
+                            <td className="p-3 text-xs text-zinc-500">
+                              {d.reason === "sync_not_found"
+                                ? "Não encontrado na URL"
+                                : d.reason === "affiliate_expired"
+                                  ? "Link de afiliado expirado"
+                                  : d.reason}
+                            </td>
                             <td className="p-3">
                               {d.affiliate_url ? (
                                 <a
@@ -676,6 +726,74 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                               ) : (
                                 "—"
                               )}
+                            </td>
+                            <td className="p-3">
+                              <div className="flex flex-col gap-1.5">
+                                <button
+                                  type="button"
+                                  disabled={historyActionId === d.id}
+                                  className="text-left text-xs font-semibold text-zuni-primary hover:underline disabled:opacity-50"
+                                  onClick={async () => {
+                                    const u = window.prompt(
+                                      "Cole o novo link de afiliado (https://…)",
+                                      d.affiliate_url || "",
+                                    );
+                                    if (u == null) return;
+                                    const trimmed = u.trim();
+                                    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+                                      alert("URL inválida.");
+                                      return;
+                                    }
+                                    setHistoryActionId(d.id);
+                                    try {
+                                      const res = await fetch(`/api/admin/products/deleted-history/${d.id}/restore`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ affiliateUrl: trimmed }),
+                                      });
+                                      const data = await res.json().catch(() => ({}));
+                                      if (!res.ok || !data?.ok) {
+                                        throw new Error(data?.error || `Erro ${res.status}`);
+                                      }
+                                      alert(`Produto restaurado. code6: ${data.code6}`);
+                                      await fetchDeletedHistory();
+                                      setFilterVersion((v) => v + 1);
+                                    } catch (err) {
+                                      alert(err instanceof Error ? err.message : "Falha ao restaurar.");
+                                    } finally {
+                                      setHistoryActionId(null);
+                                    }
+                                  }}
+                                >
+                                  Novo link de afiliado
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={historyActionId === d.id}
+                                  className="text-left text-xs font-semibold text-red-700 hover:underline disabled:opacity-50"
+                                  onClick={async () => {
+                                    if (!window.confirm("Apagar este registo do histórico permanentemente?")) return;
+                                    setHistoryActionId(d.id);
+                                    try {
+                                      const res = await fetch(`/api/admin/products/deleted-history/${d.id}`, {
+                                        method: "DELETE",
+                                      });
+                                      const data = await res.json().catch(() => ({}));
+                                      if (!res.ok || !data?.ok) {
+                                        throw new Error(data?.error || `Erro ${res.status}`);
+                                      }
+                                      await fetchDeletedHistory();
+                                      setFilterVersion((v) => v + 1);
+                                    } catch (err) {
+                                      alert(err instanceof Error ? err.message : "Falha ao apagar.");
+                                    } finally {
+                                      setHistoryActionId(null);
+                                    }
+                                  }}
+                                >
+                                  Apagar do banco
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -715,30 +833,57 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         </div>
       ) : (
         <>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-2xl bg-white ring-1 ring-zuni-primary/20 p-3">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => replaceListingParams({ promo: null, page: "1" })}
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              listingPromo === "em_promocao"
+                ? "bg-zuni-primary text-white"
+                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+            }`}
+          >
+            No catálogo (em promoção)
+          </button>
+          <button
+            type="button"
+            onClick={() => replaceListingParams({ promo: "fora_promocao", page: "1" })}
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              listingPromo === "fora_promocao"
+                ? "bg-zuni-primary text-white"
+                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+            }`}
+          >
+            Fora da promoção
+          </button>
+        </div>
+        <p className="text-xs text-zinc-600 max-w-xl">
+          {listingPromo === "em_promocao"
+            ? "Produtos com preço promocional ativo aparecem no site. A sincronização atualiza só preços."
+            : "Sem desconto ativo no anúncio: ficam de fora do catálogo público. Sincronize aqui para detectar quando a promoção voltar."}
+        </p>
+      </div>
+
       {(expiredAffiliateCount != null && expiredAffiliateCount > 0) && (
         <div className="rounded-2xl bg-amber-50 ring-1 ring-amber-200 p-3 flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium text-amber-800">
-            ⚠️ {expiredAffiliateCount} produto(s) com link de afiliado expirado (página do link não contém o nome do produto).
+            ⚠️ {expiredAffiliateCount} registro(s) no histórico por link de afiliado expirado — abra{" "}
+            <strong>Histórico (deletados)</strong> para restaurar com novo link ou apagar.
           </span>
           <button
             type="button"
-            onClick={() => {
-              const next = !filterAffiliateExpired;
-              replaceListingParams({
-                affiliateExpired: next ? "true" : null,
-                page: "1",
-              });
-            }}
+            onClick={() => replaceListingParams({ tab: "historico", affiliateExpired: null })}
             className="rounded-full bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
           >
-            {filterAffiliateExpired ? "Exibir todos" : "Exibir apenas estes"}
+            Exibir apenas estes
           </button>
         </div>
       )}
 
       <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-3 flex flex-wrap items-center gap-3">
         <span className="text-sm text-zinc-600">
-          Validação: verificamos se o preço normal é detectado na página do link. Se não for possível detectar o preço, o link é marcado como expirado.
+          Validação: usa a mesma busca de página que o sync de preço (URL resolvida, headers e fallback mobile no Mercado Livre). Se não der para ler o preço ou o anúncio sumiu, o item vai para expirado/deletados.
         </span>
         <button
           type="button"
@@ -749,6 +894,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
             let totalChecked = 0;
             let totalValid = 0;
             let totalInvalid = 0;
+            let totalMovedToHistorico = 0;
             try {
               const countRes = await fetch("/api/admin/products?page=1&perPage=1");
               const countData = await countRes.json().catch(() => ({}));
@@ -769,6 +915,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                 totalChecked += data.checked ?? 0;
                 totalValid += data.valid ?? 0;
                 totalInvalid += data.invalid ?? 0;
+                const swept = Number(data.sweptFromExpiredFlag) || 0;
+                const inv = Number(data.invalid) || 0;
+                const movedBatch = swept + inv;
+                totalMovedToHistorico += movedBatch;
+                if (movedBatch > 0) setHistoricoTabBadgeCount((c) => c + movedBatch);
                 setValidateResult(`Validando… ${totalChecked}/${totalProducts}: ${totalValid} válido(s), ${totalInvalid} expirado(s).`);
                 const params = new URLSearchParams();
                 params.set("page", String(page));
@@ -777,6 +928,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                 if (filterCode6.trim()) params.set("code6", filterCode6.trim());
                 if (filterCategoryId) params.set("categoryId", filterCategoryId);
                 if (filterAffiliateExpired) params.set("affiliateExpired", "true");
+                if (listingPromo === "fora_promocao") params.set("promo", "fora_promocao");
                 const listRes = await fetch(`/api/admin/products?${params.toString()}`);
                 const listData = await listRes.json().catch(() => ({}));
                 setItems(Array.isArray(listData?.items) ? listData.items : []);
@@ -789,7 +941,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               setValidateResult(
                 totalChecked === 0
                   ? "Nenhum produto pendente. Todos já foram validados."
-                  : `Validados ${totalChecked}: ${totalValid} válido(s), ${totalInvalid} expirado(s).`
+                  : `Validados ${totalChecked}: ${totalValid} válido(s), ${totalInvalid} expirado(s).${
+                      totalMovedToHistorico > 0
+                        ? ` ${totalMovedToHistorico} movido(s) ao histórico nesta execução.`
+                        : ""
+                    }`
               );
             } catch {
               setValidateResult("Erro ao validar links.");
@@ -1060,7 +1216,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                   <td className="p-3">
                     <div className="relative h-12 w-12 rounded-xl overflow-hidden bg-zinc-50 ring-1 ring-zinc-200">
                       {img ? (
-                        <Image src={img} alt={p.title} fill className="object-contain p-1" />
+                        <Image src={img} alt={p.title} fill sizes="48px" className="object-contain p-1" />
                       ) : null}
                     </div>
                   </td>

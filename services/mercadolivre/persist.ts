@@ -18,12 +18,63 @@ function compareCode6(a: string, b: string): number {
   return String(a).localeCompare(String(b), undefined, { numeric: true });
 }
 
+/**
+ * Remove `product_external_listings` de **outros** produtos com o mesmo `external_permalink` ou `external_id`
+ * (unique `(origin, external_permalink)` e `(origin, external_id)`). Assim o produto atual pode assumir o vínculo
+ * sem 409 ao sincronizar (duplicata antiga no catálogo).
+ */
+export async function deleteConflictingExternalListingsForOtherProducts(opts: {
+  keepProductId: string;
+  origin: string;
+  externalId: string;
+  externalPermalink: string;
+}) {
+  const pid = String(opts.keepProductId);
+  const origin = String(opts.origin || "mercadolivre");
+  const eid = String(opts.externalId || "").trim().toUpperCase();
+  const perm = String(opts.externalPermalink || "").trim();
+
+  // Valores `eq.*` sem encodeURIComponent: buildUrl usa URLSearchParams, que já codifica uma vez
+  // (encode antes gera %253A… e o DELETE não encontra a linha → 409 no INSERT).
+  if (perm) {
+    await postgrestDelete(
+      "product_external_listings",
+      {
+        origin: `eq.${origin}`,
+        external_permalink: `eq.${perm}`,
+        product_id: `neq.${pid}`,
+      },
+      "service",
+    );
+  }
+  if (eid) {
+    await postgrestDelete(
+      "product_external_listings",
+      {
+        origin: `eq.${origin}`,
+        external_id: `eq.${eid}`,
+        product_id: `neq.${pid}`,
+      },
+      "service",
+    );
+  }
+}
+
 /** Substitui o vínculo ML do produto (uma linha) para evitar conflito unique(product_id) ao mudar external_id. */
-async function replaceProductExternalListing(productId: string, externalDraft: object) {
+async function replaceProductExternalListing(productId: string, externalDraft: Record<string, unknown>) {
+  const origin = String(externalDraft.origin ?? "mercadolivre");
+  const eid = String(externalDraft.external_id ?? "");
+  const perm = String(externalDraft.external_permalink ?? "");
+  await deleteConflictingExternalListingsForOtherProducts({
+    keepProductId: productId,
+    origin,
+    externalId: eid,
+    externalPermalink: perm,
+  });
   await postgrestDelete("product_external_listings", { product_id: `eq.${productId}` });
   await postgrestPost(
     "product_external_listings",
-    { product_id: productId, ...(externalDraft as Record<string, unknown>) },
+    { product_id: productId, ...externalDraft },
     "service",
     { returning: false },
   );
@@ -34,7 +85,7 @@ async function findExistingByTitleNorm(titleNorm: string, listingOrigin: string)
   try {
     const rows = await postgrestGet<any[]>("products", {
       select: "id,code6",
-      title_norm: `eq.${encodeURIComponent(titleNorm)}`,
+      title_norm: `eq.${titleNorm}`,
       limit: "40",
     });
     const list = Array.isArray(rows) ? rows : [];
@@ -77,7 +128,7 @@ async function findExistingByExternalId(origin: string, externalId: string): Pro
   const rows = await postgrestGet<any[]>("product_external_listings", {
     select: "id,product_id",
     origin: `eq.${origin}`,
-    external_id: `eq.${encodeURIComponent(externalId)}`,
+    external_id: `eq.${externalId}`,
     limit: "1",
   });
   const row = Array.isArray(rows) ? rows[0] : null;
@@ -88,7 +139,7 @@ async function findExistingByPermalink(origin: string, permalink: string): Promi
   const rows = await postgrestGet<any[]>("product_external_listings", {
     select: "id,product_id",
     origin: `eq.${origin}`,
-    external_permalink: `eq.${encodeURIComponent(permalink)}`,
+    external_permalink: `eq.${permalink}`,
     limit: "1",
   });
   const row = Array.isArray(rows) ? rows[0] : null;
@@ -151,9 +202,10 @@ export async function mlImportOrUpdateProduct(opts: {
   } else if (n.external_category_id) {
     try {
       const cat = await mlGetCategoryAuth(n.external_category_id);
-      externalCategoryName = (cat.name ?? null) ? String(cat.name) : null;
+      externalCategoryName = cat.name ? String(cat.name).trim() : null;
+      // Hierarquia completa ML: path_from_root = raiz → pai; o nome da folha vem em `name`.
       externalCategoryPath = Array.isArray(cat.path_from_root)
-        ? cat.path_from_root.map((c) => c.name).filter(Boolean)
+        ? cat.path_from_root.map((c) => (c?.name ? String(c.name).trim() : "")).filter(Boolean)
         : [];
     } catch (e) {
       console.warn("[mercadolivre] falha ao carregar categoria; continuando", e);
@@ -251,7 +303,7 @@ export async function mlImportOrUpdateProduct(opts: {
     );
 
     // Troca de MLB na URL: unique(product_id) impede dois listings; substitui a linha inteira.
-    await replaceProductExternalListing(match.product_id, externalDraft);
+    await replaceProductExternalListing(match.product_id, externalDraft as Record<string, unknown>);
 
     const rows = await postgrestGet<any[]>("products", {
       select: "id,code6,slug",
@@ -308,6 +360,12 @@ export async function mlImportOrUpdateProduct(opts: {
   if (!p?.id) throw new Error("Falha ao salvar produto.");
 
   try {
+    await deleteConflictingExternalListingsForOtherProducts({
+      keepProductId: p.id,
+      origin: String((externalDraft as { origin?: string }).origin ?? "mercadolivre"),
+      externalId: String((externalDraft as { external_id?: string }).external_id ?? ""),
+      externalPermalink: String((externalDraft as { external_permalink?: string }).external_permalink ?? ""),
+    });
     await postgrestPost(
       "product_external_listings",
       {

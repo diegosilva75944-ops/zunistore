@@ -8,6 +8,7 @@ const updateSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   slug: z.string().max(200).optional(),
   show_in_header: z.boolean().optional(),
+  parent_id: z.union([z.string().uuid(), z.null()]).optional(),
 });
 
 export async function GET(

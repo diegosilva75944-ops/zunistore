@@ -3,7 +3,7 @@ import "server-only";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
-import { isMlBlockedOrLoginHtml } from "./fetchHtml";
+import { hasMlProductPageSignals, isMlBlockedOrLoginHtml } from "./fetchHtml";
 
 export type PlaywrightFetchResult =
   | { ok: true; html: string; finalUrl: string }
@@ -21,17 +21,22 @@ function shouldRunHeadless(): boolean {
   return true;
 }
 
-/** Se 1: após falha headless ou HTML de login, abre Chromium visível e aguarda o utilizador. */
+/**
+ * Por defeito: só com `next dev` (NODE_ENV=development) abre janela no bloqueio.
+ * Em `next start` ou produção use `ML_PLAYWRIGHT_HEADED_ON_BLOCK=1`.
+ */
 function shouldOpenHeadedOnBlock(): boolean {
   const v = String(process.env.ML_PLAYWRIGHT_HEADED_ON_BLOCK ?? "").trim().toLowerCase();
-  return ["1", "true", "yes", "on"].includes(v);
+  if (["0", "false", "no", "off"].includes(v)) return false;
+  if (["1", "true", "yes", "on"].includes(v)) return true;
+  return process.env.NODE_ENV === "development";
 }
 
 function interactiveTimeoutMs(): number {
   const raw = String(process.env.ML_PLAYWRIGHT_INTERACTIVE_TIMEOUT_MS ?? "").trim();
   const n = Number(raw);
   if (Number.isFinite(n) && n >= 10_000) return Math.min(n, 1_800_000);
-  return 300_000;
+  return 600_000;
 }
 
 function isBlockedUrl(url: string): boolean {
@@ -125,9 +130,16 @@ async function runPlaywrightFetch(url: string, headless: boolean): Promise<Playw
   }
 }
 
+function snapshotLooksLikeProduct(lastUrl: string, lastHtml: string): boolean {
+  if (!lastUrl || !lastHtml) return false;
+  if (isBlockedUrl(lastUrl)) return false;
+  if (isMlBlockedOrLoginHtml(lastHtml)) return false;
+  return hasMlProductPageSignals(lastHtml);
+}
+
 /**
- * Chromium visível + polling até o HTML deixar de ser parede de login/captcha (ou timeout).
- * Reutiliza o mesmo userDataDir para persistir cookies após login.
+ * Chromium visível: o utilizador conclui login/verificação ML; ao carregar a PDP ou ao fechar a janela
+ * após o produto visível, devolvemos o HTML (último snapshot válido).
  */
 async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFetchResult> {
   try {
@@ -140,7 +152,8 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
     const deadline = Date.now() + maxWait;
 
     console.warn(
-      `[ml-playwright] Abrindo navegador visível (até ${Math.round(maxWait / 1000)}s). Conclua login ou captcha na janela.`,
+      `[ml-playwright] Abrindo janela para login/verificação do Mercado Livre. ` +
+        `Aguarde o anúncio carregar; pode fechar a janela quando o produto estiver visível (até ${Math.round(maxWait / 1000)}s).`,
     );
 
     const context = await chromium.launchPersistentContext(absDir, {
@@ -150,47 +163,111 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     });
+
+    let lastHtml = "";
+    let lastUrl = "";
+
     try {
       const page = await context.newPage();
+
+      const capture = async () => {
+        try {
+          if (page.isClosed()) return;
+          lastUrl = page.url();
+          lastHtml = await page.content();
+        } catch {
+          /* navegação em curso */
+        }
+      };
+
+      page.on("load", () => {
+        void capture();
+      });
+      page.on("framenavigated", () => {
+        void capture();
+      });
+
       await page.goto(url, {
         waitUntil: "domcontentloaded",
         timeout: PLAYWRIGHT_TIMEOUT_MS,
       });
       await new Promise((r) => setTimeout(r, 1500));
+      await capture();
 
       while (Date.now() < deadline) {
-        const finalUrl = page.url();
-        const html = await page.content();
-        if (!isBlockedUrl(finalUrl) && !isMlBlockedOrLoginHtml(html)) {
-          await new Promise((r) => setTimeout(r, 1200));
-          const html2 = await page.content();
-          const finalUrl2 = page.url();
-          if (!isBlockedUrl(finalUrl2) && !isMlBlockedOrLoginHtml(html2)) {
-            return { ok: true, html: html2, finalUrl: finalUrl2 };
+        try {
+          if (page.isClosed()) {
+            if (snapshotLooksLikeProduct(lastUrl, lastHtml)) {
+              return { ok: true, html: lastHtml, finalUrl: lastUrl };
+            }
+            return {
+              ok: false,
+              error:
+                "Playwright: janela fechada antes de carregar o anúncio. Conclua a verificação na conta, aguarde a página do produto e só então feche a janela.",
+            };
           }
+
+          const finalUrl = page.url();
+          const html = await page.content();
+          lastHtml = html;
+          lastUrl = finalUrl;
+
+          if (!isBlockedUrl(finalUrl) && !isMlBlockedOrLoginHtml(html) && hasMlProductPageSignals(html)) {
+            await new Promise((r) => setTimeout(r, 1000));
+            if (page.isClosed()) {
+              if (snapshotLooksLikeProduct(lastUrl, lastHtml)) {
+                return { ok: true, html: lastHtml, finalUrl: lastUrl };
+              }
+              break;
+            }
+            const h2 = await page.content();
+            const u2 = page.url();
+            if (
+              !isBlockedUrl(u2) &&
+              !isMlBlockedOrLoginHtml(h2) &&
+              hasMlProductPageSignals(h2)
+            ) {
+              return { ok: true, html: h2, finalUrl: u2 };
+            }
+          }
+        } catch {
+          if (snapshotLooksLikeProduct(lastUrl, lastHtml)) {
+            return { ok: true, html: lastHtml, finalUrl: lastUrl };
+          }
+          break;
         }
         await new Promise((r) => setTimeout(r, 2000));
       }
 
+      if (snapshotLooksLikeProduct(lastUrl, lastHtml)) {
+        return { ok: true, html: lastHtml, finalUrl: lastUrl };
+      }
+
       return {
         ok: false,
-        error: `Playwright: tempo esgotado (${Math.round(maxWait / 1000)}s) aguardando desbloqueio (login/captcha).`,
+        error: `Playwright: tempo esgotado (${Math.round(maxWait / 1000)}s) sem obter a página do produto. Verifique login e tente de novo.`,
       };
     } finally {
       await context.close();
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    const hint =
+      /browserType\.launch|Target page|closed|has been closed/i.test(msg) && !/DISPLAY/i.test(msg) ?
+        ""
+      : /DISPLAY|Missing X server|gtk/i.test(msg) ?
+        " (Linux: precisa de sessão gráfica, ex.: DISPLAY=:0 ou X11/Wayland)"
+      : "";
     return {
       ok: false,
-      error: `Playwright (interativo): ${msg}`,
+      error: `Playwright (interativo): ${msg}${hint}`,
     };
   }
 }
 
 /**
- * Renderiza a PDP no Playwright. Se `ML_PLAYWRIGHT_HEADED_ON_BLOCK=1` e o primeiro passo
- * (headless) falhar por bloqueio ou devolver HTML de login, abre janela visível e espera.
+ * 1) Tenta fetch rápido (headless por defeito).
+ * 2) Se bloquear e `shouldOpenHeadedOnBlock()`, abre janela interativa (também após falha com ML_PLAYWRIGHT_HEADLESS=0).
  */
 export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFetchResult> {
   const headlessFirst = shouldRunHeadless();
@@ -201,10 +278,6 @@ export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFe
   }
 
   if (!shouldOpenHeadedOnBlock()) {
-    return first;
-  }
-
-  if (!headlessFirst) {
     return first;
   }
 

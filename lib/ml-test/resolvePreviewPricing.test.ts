@@ -61,6 +61,29 @@ describe("resolvePreviewPricing", () => {
     expect(r.pricing.displayMode).toBe("single_price");
   });
 
+  it("fração colada 49937 + centavos 00 vira R$ 499,37 (não R$ 49.937) com original 799", () => {
+    const html = `
+<!DOCTYPE html><html><body>
+<div class="ui-pdp-main ui-pdp-layout__main">
+  <div class="ui-pdp-container__row--price">
+    <span class="andes-money-amount andes-money-amount--previous">
+      <span class="andes-money-amount__fraction">799</span>
+      <span class="andes-money-amount__cents">00</span>
+    </span>
+    <span class="andes-money-amount">
+      <span class="andes-money-amount__fraction">49937</span>
+      <span class="andes-money-amount__cents">00</span>
+    </span>
+  </div>
+  <button type="submit">Comprar agora</button>
+</div>
+</body></html>`;
+    const r = resolvePreviewPricing(html, [], "html");
+    expect(r.pricing.currentPrice).toBe(499.37);
+    expect(r.pricing.originalPrice).toBe(799);
+    expect(r.pricing.hasDiscount).toBe(true);
+  });
+
   it("ignora primeiro row com ‘Melhor preço’ e usa o segundo na coluna principal", () => {
     const html = `
 <!DOCTYPE html><html><body>

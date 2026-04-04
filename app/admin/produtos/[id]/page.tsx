@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { adminListCategories } from "@/lib/admin/db";
+import { categoriesForSelectByUniqueName } from "@/lib/admin/categoriesSelect";
 import { postgrestGet } from "@/lib/postgrest/server";
 import { ProductEditClient } from "@/app/admin/produtos/[id]/product-edit-client";
 
@@ -20,7 +21,9 @@ export default async function AdminProdutoEditPage(props: {
 
   if (!data) notFound();
 
-  const categories = await adminListCategories();
+  const categories = categoriesForSelectByUniqueName(await adminListCategories(), {
+    preferCategoryId: (data as { category_id?: string | null }).category_id ?? null,
+  });
 
   return (
     <div className="space-y-4">

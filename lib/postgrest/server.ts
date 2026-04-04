@@ -120,9 +120,14 @@ export async function postgrestGetWithCount<T = unknown>(
   const contentRange = res.headers.get("content-range");
   let count = 0;
   if (contentRange) {
-    const m = contentRange.match(/\/(\d+)$/);
-    if (m) count = parseInt(m[1], 10);
+    const m = contentRange.match(/\/(\d+|\*)$/);
+    if (m && m[1] !== "*") count = parseInt(m[1], 10);
   }
-  const data = text ? (JSON.parse(text) as T) : (undefined as T);
+  let data: T;
+  try {
+    data = text ? (JSON.parse(text) as T) : (undefined as T);
+  } catch {
+    throw new Error(`PostgREST: resposta JSON inválida (${table}).`);
+  }
   return { data, count };
 }

@@ -5,16 +5,26 @@ import { slugify } from "@/lib/slug";
 
 export const runtime = "nodejs";
 
+const httpUrl = z.string().trim().refine((s) => {
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}, "Informe uma URL http(s) válida.");
+
 const schema = z.object({
   title: z.string().min(1),
   description: z.string().optional().default(""),
   description_detail: z.string().optional().default(""),
-  images: z.array(z.string().url()).optional().default([]),
+  /** ML/Supabase às vezes enviam query longa; `z.url()` falha em edge cases. */
+  images: z.array(z.string().trim().min(1)).optional().default([]),
   category_id: z.string().uuid(),
   price: z.coerce.number().positive(),
   promo_price: z.coerce.number().nullable().optional(),
-  affiliate_url: z.string().url(),
-  source_url: z.string().url(),
+  affiliate_url: httpUrl,
+  source_url: httpUrl,
   rating: z.coerce.number().nullable().optional(),
   reviews_count: z.coerce.number().int().nullable().optional(),
 });
@@ -27,7 +37,14 @@ export async function PATCH(
   const json = await req.json().catch(() => null);
   const parsed = schema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: "Payload inválido." }, { status: 400 });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Payload inválido.",
+        issues: parsed.error.flatten(),
+      },
+      { status: 400 },
+    );
   }
 
   const price = parsed.data.price;

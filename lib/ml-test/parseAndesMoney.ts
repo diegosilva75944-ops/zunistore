@@ -3,6 +3,20 @@ import type { Element } from "domhandler";
 import { parseBRLFromSnippet, roundMoney } from "./normalize";
 
 /**
+ * ML às vezes cola reais+centavos num único inteiro (ex.: 49937 = R$ 499,37) quando o DOM não separa
+ * fração/centavos ou o span de centavos vem "00". Evita gravar ~R$ 50 mil no lugar de ~R$ 500.
+ * Só ajusta inteiros de 5 dígitos, não múltiplos de 100, na faixa típica de produto.
+ */
+export function normalizeSuspiciousGluedBrlInteger(n: number): number {
+  if (!Number.isFinite(n) || n !== Math.floor(n)) return n;
+  if (n < 10_000 || n > 99_999) return n;
+  if (n % 100 === 0) return n;
+  const alt = roundMoney(n / 100);
+  if (alt >= 5 && alt <= 25_000) return alt;
+  return n;
+}
+
+/**
  * Número BR no texto do ML: milhar com "." e decimal com "," (ex.: "1.589,12").
  */
 export function parseNumberLikeMlBr(raw: string): number | null {
@@ -40,7 +54,15 @@ export function parseAndesFractionCentsToNumber(rawFraction: string, cents: stri
     if (Number.isFinite(alt) && alt > 0 && alt < n / 5) n = alt;
   }
 
-  return roundMoney(n);
+  /** Fração "49937" + centavos "00" / vazio → 499,37 (não 49937,00). */
+  if (!frac.includes(",") && /^\d{5}$/.test(fs) && (c === "" || c === "0" || c === "00")) {
+    const glued = parseFloat(`${fs.slice(0, -2)}.${fs.slice(-2)}`);
+    if (Number.isFinite(glued) && glued > 0 && glued < n && glued >= 5) {
+      n = glued;
+    }
+  }
+
+  return roundMoney(normalizeSuspiciousGluedBrlInteger(n));
 }
 
 /**
@@ -62,5 +84,6 @@ export function parseAndesMoneyCheerio($: CheerioAPI, $el: Cheerio<Element>): nu
     n = fromSnippet;
   }
 
-  return n != null && Number.isFinite(n) && n > 0 ? roundMoney(n) : null;
+  if (n == null || !Number.isFinite(n) || n <= 0) return null;
+  return roundMoney(normalizeSuspiciousGluedBrlInteger(n));
 }

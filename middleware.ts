@@ -39,6 +39,13 @@ function ensureVisitorSessionCookie(req: NextRequest, res: NextResponse) {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  /** Evita página que só faz redirect (causava TypeError em Performance.measure no React/Next 16). */
+  if (pathname === "/admin" || pathname === "/admin/") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/admin/produtos";
+    return NextResponse.redirect(url);
+  }
+
   const isAdminPage = pathname.startsWith("/admin");
   const isAdminApi = pathname.startsWith("/api/admin");
 
@@ -81,6 +88,7 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
+    "/admin",
     "/admin/:path*",
     "/api/admin/:path*",
     "/((?!_next/static|_next/image|favicon.ico).*)",

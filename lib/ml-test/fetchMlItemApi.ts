@@ -1,5 +1,7 @@
 import "server-only";
 
+import { normalizeSuspiciousGluedBrlInteger } from "@/lib/ml-test/parseAndesMoney";
+
 export type MlItemApiResult =
   | {
       ok: true;
@@ -25,7 +27,8 @@ type MlItemApiPayload = {
 
 function numOrNull(x: unknown): number | null {
   const n = typeof x === "number" ? x : x != null ? Number(x) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : null;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return normalizeSuspiciousGluedBrlInteger(n);
 }
 
 function strOrNull(x: unknown): string | null {

@@ -1,23 +1,43 @@
 import { NextResponse } from "next/server";
 import { postgrestGet, inVal } from "@/lib/postgrest/server";
 import { ilikeContainsPattern } from "@/lib/postgrest/ilike";
+import { collectDescendantCategoryIds } from "@/lib/categories-tree";
+import { applyAffiliateVisibleToProductParams } from "@/lib/store";
 
 export const runtime = "nodejs";
 
-async function getRows<T>(
-  table: string,
-  params: Record<string, string>,
-): Promise<T[]> {
-  try {
-    const data = await postgrestGet<T[]>(table, params, "anon");
-    return Array.isArray(data) ? data : [];
-  } catch {
+function isAffiliateFilterError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /42703|affiliate_valid|PGRST204|does not exist|column/i.test(msg);
+}
+
+async function getRows<T>(table: string, params: Record<string, string>): Promise<T[]> {
+  const run = async (p: Record<string, string>): Promise<T[]> => {
     try {
-      const data = await postgrestGet<T[]>(table, params, "service");
+      const data = await postgrestGet<T[]>(table, p, "anon");
       return Array.isArray(data) ? data : [];
-    } catch {
-      return [];
+    } catch (e) {
+      try {
+        const data = await postgrestGet<T[]>(table, p, "service");
+        return Array.isArray(data) ? data : [];
+      } catch {
+        throw e;
+      }
     }
+  };
+  try {
+    const p = { ...params };
+    applyAffiliateVisibleToProductParams(p);
+    return await run(p);
+  } catch (e) {
+    if (isAffiliateFilterError(e)) {
+      try {
+        return await run(params);
+      } catch {
+        return [];
+      }
+    }
+    return [];
   }
 }
 
@@ -36,6 +56,7 @@ export async function GET(req: Request) {
     getRows<{ code6: string; slug: string; title: string }>("products", {
       select: "code6,slug,title",
       is_active: "eq.true",
+      is_offer: "eq.true",
       or: `(title.ilike.${pat},description.ilike.${pat},description_detail.ilike.${pat})`,
       order: "created_at.desc",
       limit: "12",
@@ -51,13 +72,25 @@ export async function GET(req: Request) {
 
   let byCategory: { code6: string; slug: string; title: string }[] = [];
   if (categoryIds.length > 0) {
-    byCategory = await getRows("products", {
-      select: "code6,slug,title",
-      is_active: "eq.true",
-      category_id: inVal(categoryIds),
-      order: "created_at.desc",
-      limit: "12",
+    const flatCats = await getRows<{ id: string; parent_id: string | null }>("categories", {
+      select: "id,parent_id",
+      limit: "8000",
     });
+    const expanded = new Set<string>();
+    for (const cid of categoryIds) {
+      for (const x of collectDescendantCategoryIds(cid, flatCats)) expanded.add(x);
+    }
+    const allIds = [...expanded];
+    if (allIds.length > 0) {
+      byCategory = await getRows("products", {
+        select: "code6,slug,title",
+        is_active: "eq.true",
+        is_offer: "eq.true",
+        category_id: inVal(allIds),
+        order: "created_at.desc",
+        limit: "12",
+      });
+    }
   }
 
   const seen = new Set<string>();

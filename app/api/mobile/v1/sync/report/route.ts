@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { postgrestGet, postgrestPatch } from "@/lib/postgrest/server";
 import { recordProductPriceChange } from "@/lib/admin/db";
+import { offerFieldsFromPrices } from "@/lib/product-offer";
 import { assertMobileAppAuthorized, MobileAppAuthError } from "@/lib/mobile-app/auth";
 
 export const runtime = "nodejs";
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
         const oldPromo = row.promo_price != null ? Number(row.promo_price) : null;
         const newPrice = Number(r.price);
         const newPromo = r.promo_price != null && Number.isFinite(r.promo_price) ? Number(r.promo_price) : null;
+        const { is_offer, off_percent } = offerFieldsFromPrices(newPrice, newPromo);
 
         await recordProductPriceChange({
           productId: r.product_id,
@@ -73,6 +75,8 @@ export async function POST(req: Request) {
           {
             price: newPrice,
             promo_price: newPromo,
+            is_offer,
+            off_percent,
             last_seen_at: new Date().toISOString(),
           },
           { id: `eq.${r.product_id}` },

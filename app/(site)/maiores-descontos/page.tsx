@@ -7,7 +7,7 @@ import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 export const revalidate = 300;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { total } = await listProducts({ onlyOffers: true, perPage: 10, page: 1, sort: "maior-desconto" });
+  const { total } = await listProducts({ perPage: 10, page: 1, sort: "maior-desconto" });
   return {
     title: "Maiores descontos",
     description: "Produtos com maiores descontos no ZuniStore.",
@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function MaioresDescontosPage() {
-  const { items, total } = await listProducts({ onlyOffers: true, sort: "maior-desconto", perPage: 20, page: 1 });
+  const { items, total } = await listProducts({ sort: "maior-desconto", perPage: 20, page: 1 });
 
   return (
     <div className="space-y-6">

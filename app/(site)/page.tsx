@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { siteCategorySelectOptionsWithPath } from "@/lib/categoriesSelect";
 import { getSiteSettings, listCarouselProducts, listProducts, listSiteCategoriesFlat } from "@/lib/store";
 import { HomeAllProductsScroll } from "@/components/home/HomeAllProductsScroll";
+import { HomeTodosProdutosFilterForm } from "@/components/home/HomeTodosProdutosFilterForm";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { HeroSlider } from "@/components/HeroSlider";
@@ -23,15 +25,16 @@ export default async function Home(props: {
   const perPage = parseHomePerPage(searchParams.pp);
   const page = asNumber(searchParams.p) ?? 1;
 
-  const [carousel, categories, offers, siteSettings] = await Promise.all([
+  const [carousel, categoriesRaw, offers, siteSettings] = await Promise.all([
     listCarouselProducts(),
     listSiteCategoriesFlat(),
-    listProducts({ onlyOffers: true, perPage: 10, page: 1, sort: "maior-desconto" }),
+    listProducts({ perPage: 10, page: 1, sort: "maior-desconto" }),
     getSiteSettings(),
   ]);
   const offersBeforeHero = siteSettings?.offers_section_position === "before_hero";
 
-  const categoryId = categorySlug ? categoriesToId(categories, categorySlug) : null;
+  const categoryId = categorySlug ? categoriesToId(categoriesRaw, categorySlug) : null;
+  const categorySelectOptions = siteCategorySelectOptionsWithPath(categoriesRaw);
   const all = await listProducts({ categoryId, min, max, sort, perPage, page });
 
   const heroSection = (
@@ -85,7 +88,7 @@ export default async function Home(props: {
           </div>
         </div>
 
-        <form className="zuni-nested-panel grid gap-3 md:grid-cols-5 rounded-2xl p-4">
+        <HomeTodosProdutosFilterForm className="zuni-nested-panel grid gap-3 md:grid-cols-5 rounded-2xl p-4">
           <div className="md:col-span-2">
             <label className="text-xs font-semibold text-zinc-700">Categoria</label>
             <select
@@ -94,9 +97,9 @@ export default async function Home(props: {
               className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
             >
               <option value="">Todas</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.slug}>
-                  {c.name}
+              {categorySelectOptions.map((o) => (
+                <option key={o.id} value={o.slug}>
+                  {o.label}
                 </option>
               ))}
             </select>
@@ -150,11 +153,14 @@ export default async function Home(props: {
                 <option value="36">36</option>
               </select>
             </div>
-            <button className="rounded-full bg-zuni-primary px-5 py-2 text-sm font-semibold text-white hover:opacity-95">
+            <button
+              type="submit"
+              className="rounded-full bg-zuni-primary px-5 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
               Aplicar filtros
             </button>
           </div>
-        </form>
+        </HomeTodosProdutosFilterForm>
 
         {all.items.length ? (
           <div className={PRODUCT_CARD_GRID_CLASS}>

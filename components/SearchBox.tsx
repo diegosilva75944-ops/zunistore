@@ -27,6 +27,7 @@ export function SearchBox() {
     if (!q) return;
     registrarBusca(q);
     setOpen(false);
+    setTerm("");
     router.push(`/buscar?q=${encodeURIComponent(q)}`);
   }
 

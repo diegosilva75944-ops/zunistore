@@ -1,5 +1,6 @@
 import "server-only";
 
+import { normalizeSuspiciousGluedBrlInteger } from "@/lib/ml-test/parseAndesMoney";
 import type { TestMlImportResult } from "@/lib/ml-test/types";
 import type { NormalizedMlListing } from "@/services/mercadolivre/normalizer";
 
@@ -13,14 +14,16 @@ export function buildNormalizedFromTestImport(
   canonicalPermalink: string,
 ): NormalizedMlListing {
   const p = r.pricing;
-  const current = p.currentPrice;
-  if (current == null || !Number.isFinite(current) || current <= 0) {
+  const currentRaw = p.currentPrice;
+  if (currentRaw == null || !Number.isFinite(currentRaw) || currentRaw <= 0) {
     throw new Error("Não foi possível obter o preço principal na página do Mercado Livre.");
   }
-  const original =
-    p.originalPrice != null && Number.isFinite(p.originalPrice) && p.originalPrice > current
-      ? p.originalPrice
-      : null;
+  const current = normalizeSuspiciousGluedBrlInteger(currentRaw);
+  const origRaw =
+    p.originalPrice != null && Number.isFinite(p.originalPrice) ?
+      normalizeSuspiciousGluedBrlInteger(p.originalPrice)
+    : null;
+  const original = origRaw != null && origRaw > current ? origRaw : null;
   const isPromo = original != null;
   const discountPercent =
     isPromo && original != null && original > 0

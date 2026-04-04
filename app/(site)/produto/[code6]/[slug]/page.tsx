@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getBaseUrl } from "@/lib/site-url";
-import { getCategoryById, getProductByCode6, listRelatedProducts } from "@/lib/store";
+import { getCategoryBreadcrumbTrail } from "@/lib/categories-tree";
+import { getCategoryById, getProductByCode6, getSiteCategoriesFlatCached, listRelatedProducts } from "@/lib/store";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { ProductPageTracker } from "@/components/tracking/ProductPageTracker";
@@ -66,6 +67,8 @@ export default async function ProdutoPage(props: {
   if (!product) notFound();
 
   const category = await getCategoryById(product.category_id);
+  const categoriesFlat = await getSiteCategoriesFlatCached();
+  const categoryTrail = category ? getCategoryBreadcrumbTrail(category.id, categoriesFlat) : [];
   const related = await listRelatedProducts({
     categoryId: product.category_id?.trim() || null,
     title: product.title,
@@ -107,19 +110,34 @@ export default async function ProdutoPage(props: {
           reviews_count: product.reviews_count,
         }}
       />
-      <nav className="text-xs text-zinc-600">
+      <nav className="text-xs text-zinc-600 flex flex-wrap items-center gap-x-1 gap-y-0.5">
         <Link href="/" className="hover:underline">
           Início
-        </Link>{" "}
-        <span className="text-zinc-400">/</span>{" "}
-        {category ? (
-          <Link href={`/categoria/${category.slug}`} className="hover:underline">
-            {category.name}
-          </Link>
-        ) : (
-          <span>Produto</span>
-        )}{" "}
-        <span className="text-zinc-400">/</span> <span>{product.code6}</span>
+        </Link>
+        {categoryTrail.map((c) => (
+          <span key={c.id} className="contents">
+            <span className="text-zinc-400">/</span>
+            <Link href={`/categoria/${c.slug}`} className="hover:underline">
+              {c.name}
+            </Link>
+          </span>
+        ))}
+        {categoryTrail.length === 0 && category ? (
+          <>
+            <span className="text-zinc-400">/</span>
+            <Link href={`/categoria/${category.slug}`} className="hover:underline">
+              {category.name}
+            </Link>
+          </>
+        ) : null}
+        {!category ? (
+          <>
+            <span className="text-zinc-400">/</span>
+            <span>Produto</span>
+          </>
+        ) : null}
+        <span className="text-zinc-400">/</span>
+        <span>{product.code6}</span>
       </nav>
 
       <section className="zuni-site-section grid gap-6 md:grid-cols-2 md:gap-8">

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { normalizeSuspiciousGluedBrlInteger } from "@/lib/ml-test/parseAndesMoney";
+
 export type MlItemLike = {
   id: string;
   title?: string | null;
@@ -86,19 +88,21 @@ export function normalizeMlPublicListing(input: {
 
   const currency = item.currency_id != null ? String(item.currency_id).trim() : null;
 
-  // Preços públicos
+  // Preços públicos (corrige inteiros colados tipo 49937 → 499,37)
   const current =
     item.price != null && Number.isFinite(item.price) && item.price > 0
-      ? Number(item.price)
+      ? normalizeSuspiciousGluedBrlInteger(Number(item.price))
       : null;
 
   // Alguns anúncios expõem `original_price`; outros expõem `base_price`.
-  const originalCandidate =
+  const originalCandidateRaw =
     item.original_price != null && Number.isFinite(item.original_price) && item.original_price > 0
       ? Number(item.original_price)
       : item.base_price != null && Number.isFinite(item.base_price) && item.base_price > 0
         ? Number(item.base_price)
         : null;
+  const originalCandidate =
+    originalCandidateRaw != null ? normalizeSuspiciousGluedBrlInteger(originalCandidateRaw) : null;
 
   const priceOriginal =
     current != null && originalCandidate != null && originalCandidate > current

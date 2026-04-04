@@ -1,7 +1,9 @@
 import "server-only";
 
+import { cache } from "react";
 import { postgrestGet, postgrestGetWithCount, inVal } from "@/lib/postgrest/server";
 import { ilikeContainsPattern } from "@/lib/postgrest/ilike";
+import { collectDescendantCategoryIds } from "@/lib/categories-tree";
 
 export type Category = {
   id: string;
@@ -163,6 +165,36 @@ export type ProductSort =
   | "maior-desconto"
   | "mais-avaliados";
 
+/**
+ * Catálogo: mostrar `affiliate_valid` null (não verificado) ou true.
+ * Não usar `not.eq.false`: em SQL, `NOT (NULL = false)` é NULL e a linha some do resultado.
+ */
+const AFFILIATE_VISIBLE_OR = "or(affiliate_valid.is.null,affiliate_valid.eq.true)";
+
+export function applyAffiliateVisibleToProductParams(params: Record<string, string>) {
+  const aff = AFFILIATE_VISIBLE_OR;
+  if (params.or && params.and) {
+    const searchOr = params.or.startsWith("(") ? `or${params.or}` : `or(${params.or})`;
+    const priceInner = params.and.startsWith("(") ? params.and.slice(1, -1) : params.and;
+    params.and = `(${searchOr},${priceInner},${aff})`;
+    delete params.or;
+  } else if (params.or) {
+    const searchOr = params.or.startsWith("(") ? `or${params.or}` : `or(${params.or})`;
+    params.and = `(${searchOr},${aff})`;
+    delete params.or;
+  } else if (params.and) {
+    const inner = params.and.startsWith("(") ? params.and.slice(1, -1) : params.and;
+    params.and = `(${inner},${aff})`;
+  } else {
+    params.or = "(affiliate_valid.is.null,affiliate_valid.eq.true)";
+  }
+}
+
+function isStoreAffiliateColumnError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return /42703|affiliate_valid|PGRST204|does not exist|column/i.test(msg);
+}
+
 function sortToOrder(sort: ProductSort): string {
   switch (sort) {
     case "recentes": return "created_at.desc";
@@ -192,10 +224,23 @@ export async function searchProductsByTerms(opts: {
     };
     // Só exibir itens ativos no site.
     params.is_active = "eq.true";
-    if (categoryId) params.category_id = `eq.${categoryId}`;
+    if (categoryId) await applyCategorySubtreeToParams(params, categoryId);
     if (terms.length) params.search_tsv = `wfts.portuguese.${encodeURIComponent(terms.join(" "))}`;
 
-    const { data, count } = await getWithCountPublicFallback<any[]>("products", params);
+    let data: any[];
+    let count: number;
+    try {
+      const p = { ...params };
+      applyAffiliateVisibleToProductParams(p);
+      const r = await getWithCountPublicFallback<any[]>("products", p);
+      data = r.data;
+      count = r.count ?? 0;
+    } catch (e) {
+      if (!isStoreAffiliateColumnError(e)) throw e;
+      const r = await getWithCountPublicFallback<any[]>("products", params);
+      data = r.data;
+      count = r.count ?? 0;
+    }
     return { items: (Array.isArray(data) ? data : []).map(normalizeProduct), total: count ?? 0 };
   } catch {
     return { items: [], total: 0 };
@@ -239,6 +284,22 @@ export async function listSiteCategoriesFlat(): Promise<Category[]> {
   }
 }
 
+/** Deduplica chamadas à listagem plana na mesma requisição (árvore / subcategorias). */
+export const getSiteCategoriesFlatCached = cache(listSiteCategoriesFlat);
+
+async function applyCategorySubtreeToParams(params: Record<string, string>, categoryId: string) {
+  const flat = await getSiteCategoriesFlatCached();
+  const ids = collectDescendantCategoryIds(categoryId, flat);
+  const valid = ids.filter(Boolean);
+  if (valid.length === 0) {
+    params.category_id = `eq.${categoryId}`;
+  } else if (valid.length === 1) {
+    params.category_id = `eq.${valid[0]}`;
+  } else {
+    params.category_id = inVal(valid);
+  }
+}
+
 export async function getCategoryBySlug(slug: string): Promise<Category | null> {
   try {
     const rows = await getWithPublicFallback<any[]>("categories", {
@@ -273,9 +334,8 @@ export async function listProducts(opts: {
   sort?: ProductSort;
   page?: number;
   perPage?: 10 | 12 | 20 | 24 | 36 | 50;
-  onlyOffers?: boolean;
 }) {
-  const { categoryId, q, min, max, sort = "recentes", page = 1, perPage = 20, onlyOffers } = opts;
+  const { categoryId, q, min, max, sort = "recentes", page = 1, perPage = 20 } = opts;
   try {
     const from = (page - 1) * perPage;
     const params: Record<string, string> = {
@@ -284,10 +344,10 @@ export async function listProducts(opts: {
       offset: String(from),
       limit: String(perPage),
     };
-    // Só exibir itens ativos no site.
+    // Só exibir itens ativos no site; vitrine só com preço promocional ativo (is_offer).
     params.is_active = "eq.true";
-    if (categoryId) params.category_id = `eq.${categoryId}`;
-    if (onlyOffers) params.is_offer = "eq.true";
+    params.is_offer = "eq.true";
+    if (categoryId) await applyCategorySubtreeToParams(params, categoryId);
     if (typeof min === "number" && typeof max === "number") {
       params.and = `(effective_price.gte.${min},effective_price.lte.${max})`;
     } else if (typeof min === "number") {
@@ -310,7 +370,12 @@ export async function listProducts(opts: {
         });
         const catIds = (Array.isArray(catRows) ? catRows : []).map((c) => c.id);
         if (catIds.length > 0) {
-          orParts.push(`category_id.${inVal(catIds)}`);
+          const flat = await getSiteCategoriesFlatCached();
+          const expanded = new Set<string>();
+          for (const cid of catIds) {
+            for (const x of collectDescendantCategoryIds(cid, flat)) expanded.add(x);
+          }
+          orParts.push(`category_id.${inVal([...expanded])}`);
         }
       } catch {
         /* categorias indisponíveis: segue só texto */
@@ -318,7 +383,20 @@ export async function listProducts(opts: {
       params.or = `(${orParts.join(",")})`;
     }
 
-    const { data, count } = await getWithCountPublicFallback<any[]>("products", params);
+    let data: any[];
+    let count: number;
+    try {
+      const p = { ...params };
+      applyAffiliateVisibleToProductParams(p);
+      const r = await getWithCountPublicFallback<any[]>("products", p);
+      data = r.data;
+      count = r.count ?? 0;
+    } catch (e) {
+      if (!isStoreAffiliateColumnError(e)) throw e;
+      const r = await getWithCountPublicFallback<any[]>("products", params);
+      data = r.data;
+      count = r.count ?? 0;
+    }
     return { items: (Array.isArray(data) ? data : []).map(normalizeProduct), total: count ?? 0 };
   } catch {
     return { items: [], total: 0 };
@@ -330,12 +408,28 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
   const uniq = [...new Set(ids.filter(Boolean))];
   if (!uniq.length) return [];
   try {
-    const rows = await getWithPublicFallback<any[]>("products", {
-      select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
-      id: inVal(uniq),
-      is_active: "eq.true",
-      limit: String(uniq.length),
-    });
+    let rows: any[];
+    try {
+      const p: Record<string, string> = {
+        select:
+          "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
+        id: inVal(uniq),
+        is_active: "eq.true",
+        is_offer: "eq.true",
+        limit: String(uniq.length),
+      };
+      applyAffiliateVisibleToProductParams(p);
+      rows = await getWithPublicFallback<any[]>("products", p);
+    } catch (e) {
+      if (!isStoreAffiliateColumnError(e)) throw e;
+      rows = await getWithPublicFallback<any[]>("products", {
+        select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
+        id: inVal(uniq),
+        is_active: "eq.true",
+        is_offer: "eq.true",
+        limit: String(uniq.length),
+      });
+    }
     const list = (Array.isArray(rows) ? rows : []).map(normalizeProduct);
     const order = new Map(uniq.map((id, i) => [id, i]));
     list.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
@@ -347,12 +441,28 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
 
 export async function getProductByCode6(code6: string): Promise<Product | null> {
   try {
-    const rows = await getWithPublicFallback<any[]>("products", {
-      select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
-      code6: `eq.${encodeURIComponent(code6)}`,
-      is_active: "eq.true",
-      limit: "1",
-    });
+    let rows: any[];
+    try {
+      const p: Record<string, string> = {
+        select:
+          "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
+        code6: `eq.${encodeURIComponent(code6)}`,
+        is_active: "eq.true",
+        is_offer: "eq.true",
+        limit: "1",
+      };
+      applyAffiliateVisibleToProductParams(p);
+      rows = await getWithPublicFallback<any[]>("products", p);
+    } catch (e) {
+      if (!isStoreAffiliateColumnError(e)) throw e;
+      rows = await getWithPublicFallback<any[]>("products", {
+        select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
+        code6: `eq.${encodeURIComponent(code6)}`,
+        is_active: "eq.true",
+        is_offer: "eq.true",
+        limit: "1",
+      });
+    }
     const data = Array.isArray(rows) ? rows[0] : null;
     return data ? normalizeProduct(data) : null;
   } catch {
@@ -363,13 +473,14 @@ export async function getProductByCode6(code6: string): Promise<Product | null> 
 export async function listCarouselProducts() {
   try {
     const data = await getWithPublicFallback<any[]>("carousel_items", {
-      select: "id,product_id,sort_order,size,products:product_id(code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url,rating,reviews_count)",
+      select: "id,product_id,sort_order,size,products:product_id(code6,slug,title,images,price,promo_price,is_offer,off_percent,affiliate_url,rating,reviews_count,affiliate_valid)",
       "products.is_active": "eq.true",
+      "products.is_offer": "eq.true",
       order: "sort_order.asc",
     });
     const items = Array.isArray(data) ? data : [];
     return items
-      .filter((x) => x.products)
+      .filter((x) => x.products && x.products.affiliate_valid !== false)
       .map((x) => ({
         id: x.id as string,
         sort_order: x.sort_order as number,

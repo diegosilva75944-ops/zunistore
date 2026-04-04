@@ -185,7 +185,48 @@ body {
   border: 1px solid var(--home-offers-marquee-border, rgba(241, 245, 249, 0.9));
 }
 
+/* Faixa de categorias no header — entrada suave */
+@keyframes header-category-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.header-category-strip-item {
+  animation: header-category-fade-up 0.35s ease-out both;
+  animation-delay: var(--header-category-enter-delay, 0ms);
+}
+
+/* Scroll horizontal da faixa de categorias (mobile) */
+.header-category-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-inline: 0.25rem;
+}
+
+.header-category-scroll::-webkit-scrollbar {
+  height: 5px;
+}
+
+.header-category-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.header-category-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 9999px;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .header-category-strip-item {
+    animation: none !important;
+    opacity: 1 !important;
+  }
+
   .offers-marquee-track {
     animation: none !important;
   }

@@ -10,7 +10,8 @@ export default function AdminCategoriasPage() {
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Categorias</h1>
       <p className="text-sm text-zinc-600">
-        Categorias aparecem no menu do site. Categorias de seed vêm do banco; você pode criar novas aqui.
+        Árvore hierárquica: crie subcategorias escolhendo o pai ou use «+ Sub». No site, o cabeçalho mostra ícones e, ao
+        passar o mouse, as subcategorias reais de cada item.
       </p>
       <CategoriesClient />
     </div>

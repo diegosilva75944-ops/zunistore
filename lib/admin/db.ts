@@ -20,6 +20,7 @@ import { randomToken, sha256Hex } from "@/lib/crypto";
 import { slugify } from "@/lib/slug";
 import { ilikeContainsPattern } from "@/lib/postgrest/ilike";
 import { checkAffiliatePageContainsProduct } from "@/lib/affiliate-validate";
+import { collectDescendantCategoryIds } from "@/lib/categories-tree";
 
 function enc(v: string | number | boolean): string {
   return encodeURIComponent(String(v));
@@ -41,6 +42,57 @@ export async function adminListCategories() {
     const rows = Array.isArray(data) ? data : [];
     return rows.map((r: any) => ({ ...r, show_in_header: false }));
   }
+}
+
+/** Contagem de produtos ativos por `category_id` (para admin / categorias). */
+export async function adminCategoryProductCounts(): Promise<Record<string, number>> {
+  const parseCount = (raw: unknown): number => {
+    if (raw === undefined || raw === null) return 0;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    const n = parseInt(String(raw), 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const rowsToMap = (rows: { category_id?: string | null; count?: unknown }[]): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const r of rows) {
+      const cid = r?.category_id;
+      if (cid == null || cid === "") continue;
+      out[String(cid)] = parseCount(r.count);
+    }
+    return out;
+  };
+
+  try {
+    const rows = await postgrestGet<any[]>("products", {
+      select: "category_id,count()",
+      group: "category_id",
+    });
+    return rowsToMap(Array.isArray(rows) ? rows : []);
+  } catch (e) {
+    console.warn("[adminCategoryProductCounts] aggregate falhou, usando paginação", e);
+  }
+
+  const out: Record<string, number> = {};
+  let offset = 0;
+  const pageSize = 1000;
+  for (;;) {
+    const batch = await postgrestGet<{ category_id: string | null }[]>("products", {
+      select: "category_id",
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    const rows = Array.isArray(batch) ? batch : [];
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      if (r.category_id == null) continue;
+      const id = String(r.category_id);
+      out[id] = (out[id] ?? 0) + 1;
+    }
+    if (rows.length < pageSize) break;
+    offset += pageSize;
+  }
+  return out;
 }
 
 export async function adminCreateCategory(input: {
@@ -86,8 +138,38 @@ export async function adminCreateCategory(input: {
 
 export async function adminUpdateCategory(
   id: string,
-  input: { name?: string; slug?: string; show_in_header?: boolean },
+  input: { name?: string; slug?: string; show_in_header?: boolean; parent_id?: string | null },
 ) {
+  if (input.parent_id !== undefined) {
+    const selfRows = await postgrestGet<any[]>("categories", {
+      select: "id,is_seed",
+      id: `eq.${id}`,
+      limit: "1",
+    });
+    const self = Array.isArray(selfRows) ? selfRows[0] : null;
+    if (self?.is_seed) {
+      throw new Error("Categorias seed não podem ter o pai alterado.");
+    }
+    const newPid =
+      input.parent_id === null || input.parent_id === ""
+        ? null
+        : String(input.parent_id).trim() || null;
+    if (newPid === id) {
+      throw new Error("Uma categoria não pode ser pai dela mesma.");
+    }
+    if (newPid) {
+      const all = await adminListCategories();
+      const flat = (Array.isArray(all) ? all : []).map((c: any) => ({
+        id: String(c.id),
+        parent_id: c.parent_id == null ? null : String(c.parent_id),
+      }));
+      const desc = new Set(collectDescendantCategoryIds(id, flat));
+      if (desc.has(newPid)) {
+        throw new Error("Não é possível mover para dentro da própria subárvore.");
+      }
+    }
+  }
+
   const updates: Record<string, unknown> = {};
   if (input.name !== undefined) updates.name = input.name.trim();
   if (input.slug !== undefined) {
@@ -96,6 +178,10 @@ export async function adminUpdateCategory(
     if (slug) updates.slug = slug;
   }
   if (input.show_in_header !== undefined) updates.show_in_header = input.show_in_header;
+  if (input.parent_id !== undefined) {
+    updates.parent_id =
+      input.parent_id === null || input.parent_id === "" ? null : String(input.parent_id).trim();
+  }
   if (Object.keys(updates).length === 0) return;
   try {
     await postgrestPatch("categories", updates, { id: `eq.${id}` });
@@ -119,19 +205,84 @@ export async function adminDeleteCategory(id: string) {
   await postgrestDelete("categories", { id: `eq.${id}` });
 }
 
+export async function adminBulkDeleteCategories(ids: string[]): Promise<{
+  deleted: string[];
+  failed: { id: string; error: string }[];
+}> {
+  const unique = [...new Set(ids.map((x) => String(x).trim()).filter(Boolean))];
+  if (unique.length === 0) return { deleted: [], failed: [] };
+
+  const allCats = await adminListCategories();
+  const byId = Object.fromEntries((Array.isArray(allCats) ? allCats : []).map((c: any) => [c.id, c]));
+  const seedIds = new Set(
+    (Array.isArray(allCats) ? allCats : []).filter((c: any) => c.is_seed).map((c: any) => c.id),
+  );
+
+  const deleted: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+
+  for (const id of unique) {
+    if (!byId[id]) {
+      failed.push({ id, error: "Categoria não encontrada." });
+      continue;
+    }
+    if (seedIds.has(id)) {
+      failed.push({ id, error: "Categorias seed não podem ser excluídas." });
+      continue;
+    }
+    try {
+      await adminDeleteCategory(id);
+      deleted.push(id);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Falha ao excluir.";
+      failed.push({ id, error: msg });
+    }
+  }
+
+  return { deleted, failed };
+}
+
 export const AFFILIATE_VALID_PARAM = "matt_tool=40141155";
 
+/** Registros no histórico com link expirado (aguardam novo link ou exclusão). */
 export async function adminCountExpiredAffiliateProducts(): Promise<number> {
   try {
-    const { count } = await postgrestGetWithCount<unknown[]>("products", {
+    const { count } = await postgrestGetWithCount<unknown[]>("deleted_products_history", {
       select: "id",
-      affiliate_valid: "eq.false",
+      reason: "eq.affiliate_expired",
       limit: "1",
     });
     return count ?? 0;
   } catch {
     return 0;
   }
+}
+
+/** Prioriza IDs (ex.: `affiliate_valid = false` ainda em `products`), depois a fila geral, sem duplicar. */
+export function mergeProductIdsForAffiliateValidation(
+  prioritizedIds: string[],
+  fallbackRows: { id?: string | null }[],
+  limit: number,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of prioritizedIds) {
+    if (!id || out.length >= limit) continue;
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  const rows = Array.isArray(fallbackRows) ? fallbackRows : [];
+  for (const row of rows) {
+    const id = row?.id;
+    if (!id || out.length >= limit) continue;
+    if (!seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
 }
 
 const PRODUCTS_SELECT_FULL =
@@ -147,10 +298,23 @@ function buildProductsParams(opts: {
   code6?: string | null;
   categoryId?: string | null;
   affiliateExpired?: boolean | null;
+  /** `em_promocao` = no catálogo do site (`is_offer`); `fora_promocao` = só preço de lista. */
+  promoScope?: "em_promocao" | "fora_promocao" | null;
   includeAffiliateExpired: boolean;
   select: string;
 }) {
-  const { page, perPage, needsUpdate, q, code6, categoryId, affiliateExpired, includeAffiliateExpired, select } = opts;
+  const {
+    page,
+    perPage,
+    needsUpdate,
+    q,
+    code6,
+    categoryId,
+    affiliateExpired,
+    promoScope,
+    includeAffiliateExpired,
+    select,
+  } = opts;
   const from = (page - 1) * perPage;
   const to = from + perPage - 1;
   const params: Record<string, string> = {
@@ -169,6 +333,8 @@ function buildProductsParams(opts: {
     params.or = `(title.ilike.${pat},description.ilike.${pat},description_detail.ilike.${pat})`;
   }
   if (includeAffiliateExpired && affiliateExpired === true) params.affiliate_valid = "eq.false";
+  if (promoScope === "em_promocao") params.is_offer = "eq.true";
+  if (promoScope === "fora_promocao") params.is_offer = "eq.false";
   return params;
 }
 
@@ -180,8 +346,18 @@ export async function adminListProducts(opts: {
   code6?: string | null;
   categoryId?: string | null;
   affiliateExpired?: boolean | null;
+  promoScope?: "em_promocao" | "fora_promocao" | null;
 }) {
-  const { page = 1, perPage = 20, needsUpdate = null, q, code6, categoryId, affiliateExpired } = opts;
+  const {
+    page = 1,
+    perPage = 20,
+    needsUpdate = null,
+    q,
+    code6,
+    categoryId,
+    affiliateExpired,
+    promoScope = "em_promocao",
+  } = opts;
   const from = (page - 1) * perPage;
 
   const params = buildProductsParams({
@@ -192,6 +368,7 @@ export async function adminListProducts(opts: {
     code6,
     categoryId,
     affiliateExpired,
+    promoScope: promoScope ?? null,
     includeAffiliateExpired: true,
     select: PRODUCTS_SELECT_FULL,
   });
@@ -212,6 +389,7 @@ export async function adminListProducts(opts: {
       code6,
       categoryId,
       affiliateExpired,
+      promoScope: promoScope ?? null,
       includeAffiliateExpired: false,
       select: PRODUCTS_SELECT_FALLBACK,
     });
@@ -229,14 +407,29 @@ export async function adminValidateProductAffiliateLink(productId: string): Prom
   valid: boolean;
   error?: string;
 }> {
-  const rows = await postgrestGet<any[]>("products", {
-    select: "id,affiliate_url,title",
-    id: `eq.${productId}`,
-    limit: "1",
-  });
-  const row = Array.isArray(rows) ? rows[0] : null;
+  let row: any;
+  try {
+    const rows = await postgrestGet<any[]>("products", {
+      select: "id,affiliate_url,title,affiliate_valid",
+      id: `eq.${productId}`,
+      limit: "1",
+    });
+    row = Array.isArray(rows) ? rows[0] : null;
+  } catch {
+    const rows = await postgrestGet<any[]>("products", {
+      select: "id,affiliate_url,title",
+      id: `eq.${productId}`,
+      limit: "1",
+    });
+    row = Array.isArray(rows) ? rows[0] : null;
+  }
   if (!row?.affiliate_url) {
     return { valid: false, error: "Produto ou URL não encontrado." };
+  }
+  /** Já marcado como expirado no banco → envia ao histórico sem novo fetch HTTP. */
+  if (row.affiliate_valid === false || row.affiliate_valid === "false") {
+    await moveProductToDeletedHistoryAndDelete(productId, "affiliate_expired");
+    return { valid: false };
   }
   const title = row.title ? String(row.title).trim() : "";
   const { valid } = await checkAffiliatePageContainsProduct(
@@ -244,28 +437,107 @@ export async function adminValidateProductAffiliateLink(productId: string): Prom
     title || "Produto",
   );
   const now = new Date().toISOString();
+  if (!valid) {
+    await moveProductToDeletedHistoryAndDelete(productId, "affiliate_expired");
+    return { valid: false };
+  }
   await postgrestPatch(
     "products",
-    { affiliate_valid: valid, affiliate_valid_checked_at: now },
+    { affiliate_valid: true, affiliate_valid_checked_at: now },
     { id: `eq.${productId}` },
   );
-  return { valid };
+  return { valid: true };
+}
+
+/**
+ * Move todos os produtos com `affiliate_valid = false` para `deleted_products_history`
+ * (motivo `affiliate_expired`). Útil porque a validação HTTP às vezes ainda vê preço na página
+ * e não marcaria expirado; o admin já pode ter `false` no banco.
+ */
+export async function adminMoveAllAffiliateExpiredProductsToHistory(): Promise<{ moved: number }> {
+  let moved = 0;
+  for (;;) {
+    let rows: any[];
+    try {
+      rows = await postgrestGet<any[]>("products", {
+        select: "id",
+        affiliate_valid: "eq.false",
+        limit: "100",
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      /** Não use o nome da coluna na regex: mensagens de "parse filter" também o citam e engoliam o erro real. */
+      const columnMissing =
+        /42703|undefined_column/i.test(msg) ||
+        /PGRST204/i.test(msg) ||
+        /column .* does not exist|does not exist.*column/i.test(msg);
+      if (columnMissing) {
+        console.warn("[admin] adminMoveAllAffiliateExpiredProductsToHistory: coluna indisponível", msg);
+        return { moved: 0 };
+      }
+      throw e;
+    }
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) break;
+    for (const r of list) {
+      try {
+        await moveProductToDeletedHistoryAndDelete(String(r.id), "affiliate_expired");
+        moved += 1;
+      } catch (err) {
+        console.error("[admin] adminMoveAllAffiliateExpiredProductsToHistory move failed", r.id, err);
+      }
+    }
+    if (list.length < 100) break;
+  }
+  return { moved };
+}
+
+/**
+ * Move um produto pelo `code6` quando `affiliate_valid = false` (ex.: corrigir casos presos após falha no sweep).
+ */
+export async function adminMoveAffiliateExpiredToHistoryByCode6(code6: string): Promise<{
+  ok: boolean;
+  reason?: string;
+}> {
+  const trimmed = String(code6 || "").trim();
+  if (!trimmed) return { ok: false, reason: "code6_vazio" };
+  const rows = await postgrestGet<any[]>("products", {
+    select: "id,affiliate_valid",
+    code6: `eq.${trimmed}`,
+    limit: "1",
+  });
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row) return { ok: false, reason: "nao_encontrado" };
+  const isExpired =
+    row.affiliate_valid === false ||
+    row.affiliate_valid === "false" ||
+    String(row.affiliate_valid).toLowerCase() === "false";
+  if (!isExpired) return { ok: false, reason: "nao_expirado" };
+  await moveProductToDeletedHistoryAndDelete(String(row.id), "affiliate_expired");
+  return { ok: true };
 }
 
 export async function adminValidateAffiliateLinksBatch(productIds: string[]): Promise<{
   checked: number;
   valid: number;
   invalid: number;
+  errors: number;
 }> {
   let valid = 0;
   let invalid = 0;
+  let errors = 0;
   for (const id of productIds) {
-    const result = await adminValidateProductAffiliateLink(id);
-    if (result.valid) valid += 1;
-    else invalid += 1;
+    try {
+      const result = await adminValidateProductAffiliateLink(id);
+      if (result.valid) valid += 1;
+      else invalid += 1;
+    } catch (err) {
+      errors += 1;
+      console.error("[admin] adminValidateProductAffiliateLink failed", id, err);
+    }
     await new Promise((r) => setTimeout(r, 400));
   }
-  return { checked: productIds.length, valid, invalid };
+  return { checked: productIds.length, valid, invalid, errors };
 }
 
 export async function adminBulkUpdateCategory(productIds: string[], categoryId: string) {
@@ -288,30 +560,43 @@ export async function moveProductToDeletedHistoryAndDelete(
   reason: string = "sync_not_found",
 ): Promise<void> {
   const rows = await postgrestGet<any[]>("products", {
-    select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,affiliate_url,source_url,categories:category_id(name)",
+    select: "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,affiliate_url,source_url",
     id: `eq.${productId}`,
     limit: "1",
   });
   const row = Array.isArray(rows) ? rows[0] : null;
   if (!row) return;
 
-  const categoryName = row.categories?.name ?? null;
   const categoryId = row.category_id ?? null;
+  let categoryName: string | null = null;
+  if (categoryId) {
+    try {
+      const cats = await postgrestGet<any[]>("categories", {
+        select: "name",
+        id: `eq.${categoryId}`,
+        limit: "1",
+      });
+      const c = Array.isArray(cats) ? cats[0] : null;
+      categoryName = c?.name != null ? String(c.name) : null;
+    } catch {
+      /* nome da categoria é opcional no histórico */
+    }
+  }
 
   await postgrestPost("deleted_products_history", {
     product_id: row.id,
-    code6: row.code6,
-    slug: row.slug,
-    title: row.title,
+    code6: row.code6 ?? "",
+    slug: row.slug ?? "",
+    title: row.title ?? "",
     description: row.description ?? "",
     images: row.images ?? [],
     category_id: categoryId,
     category_name: categoryName,
-    price: row.price,
+    price: row.price ?? 0,
     promo_price: row.promo_price,
     is_offer: row.is_offer ?? false,
     off_percent: row.off_percent ?? 0,
-    affiliate_url: row.affiliate_url,
+    affiliate_url: row.affiliate_url ?? "",
     source_url: row.source_url ?? null,
     reason,
   });
@@ -322,13 +607,132 @@ export async function moveProductToDeletedHistoryAndDelete(
 export async function adminListDeletedProductsHistory(opts: { page?: number; perPage?: number }) {
   const { page = 1, perPage = 20 } = opts;
   const from = (page - 1) * perPage;
-  const { data, count } = await postgrestGetWithCount<any[]>("deleted_products_history", {
+  const listParams: Record<string, string> = {
     select: "id,product_id,code6,title,images,price,promo_price,category_name,affiliate_url,deleted_at,reason",
     order: "deleted_at.desc",
     offset: String(from),
     limit: String(perPage),
+  };
+
+  /**
+   * Listagem sem `Prefer: count=exact` na mesma requisição (alguns proxies/versões do PostgREST falham).
+   * Total vem de `limit=0` + count=exact, só no `id`.
+   */
+  let items: any[];
+  try {
+    items = await postgrestGet<any[]>("deleted_products_history", listParams);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/PGRST204|column|does not exist|42703/i.test(msg)) throw e;
+    console.warn("[admin] adminListDeletedProductsHistory: select completo falhou, tentando sem images", msg);
+    items = await postgrestGet<any[]>("deleted_products_history", {
+      ...listParams,
+      select: "id,product_id,code6,title,price,promo_price,category_name,affiliate_url,deleted_at,reason",
+    });
+  }
+  const list = Array.isArray(items) ? items : [];
+
+  let total = from + list.length;
+  try {
+    const { count } = await postgrestGetWithCount<unknown[]>("deleted_products_history", {
+      select: "id",
+      limit: "0",
+    });
+    total = count;
+  } catch (e0) {
+    try {
+      const { count } = await postgrestGetWithCount<unknown[]>("deleted_products_history", {
+        select: "id",
+        limit: "1",
+      });
+      total = count;
+    } catch (e) {
+      console.warn("[admin] adminListDeletedProductsHistory: count exact falhou, estimativa local", e0, e);
+      if (list.length < perPage) total = from + list.length;
+      else total = from + list.length + 1;
+    }
+  }
+
+  return { items: list, total };
+}
+
+export async function adminDeleteDeletedHistoryEntry(historyId: string): Promise<void> {
+  await postgrestDelete("deleted_products_history", { id: `eq.${historyId}` });
+}
+
+/**
+ * Recria o produto no catálogo com novo link de afiliado e remove o registo do histórico.
+ */
+export async function adminRestoreProductFromDeletedHistory(
+  historyId: string,
+  newAffiliateUrl: string,
+): Promise<{ productId: string; code6: string; slug: string }> {
+  const url = String(newAffiliateUrl || "").trim();
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    throw new Error("Informe uma URL de afiliado válida (http ou https).");
+  }
+
+  const rows = await postgrestGet<any[]>("deleted_products_history", {
+    select:
+      "id,code6,slug,title,description,images,category_id,price,promo_price,is_offer,off_percent,affiliate_url,source_url",
+    id: `eq.${historyId}`,
+    limit: "1",
   });
-  return { items: Array.isArray(data) ? data : [], total: count ?? 0 };
+  const row = Array.isArray(rows) ? rows[0] : null;
+  if (!row) throw new Error("Registro não encontrado no histórico.");
+
+  let categoryId = row.category_id as string | null;
+  if (!categoryId) {
+    const cats = await postgrestGet<any[]>("categories", {
+      select: "id",
+      order: "created_at.asc",
+      limit: "1",
+    });
+    const c = Array.isArray(cats) ? cats[0] : null;
+    if (!c?.id) {
+      throw new Error("Não há categoria cadastrada. Crie uma categoria antes de restaurar o produto.");
+    }
+    categoryId = c.id;
+  }
+
+  const now = new Date().toISOString();
+  const sourceUrl =
+    row.source_url && String(row.source_url).startsWith("http") ? String(row.source_url) : url;
+
+  const inserted = await postgrestPost<any[]>(
+    "products",
+    {
+      code6: row.code6,
+      slug: row.slug,
+      title: row.title,
+      description: row.description ?? "",
+      description_detail: "",
+      images: row.images ?? [],
+      category_id: categoryId,
+      price: row.price,
+      promo_price: row.promo_price,
+      is_offer: row.is_offer ?? false,
+      off_percent: row.off_percent ?? 0,
+      rating: null,
+      reviews_count: null,
+      affiliate_code: "ml",
+      affiliate_url: url,
+      source_url: sourceUrl,
+      needs_update: false,
+      last_seen_at: now,
+      affiliate_valid: null,
+      affiliate_valid_checked_at: null,
+      is_active: true,
+    },
+    "service",
+    { select: "id,code6,slug", returning: true },
+  );
+  const p = Array.isArray(inserted) ? inserted[0] : null;
+  if (!p?.id) throw new Error("Falha ao restaurar produto.");
+
+  await postgrestDelete("deleted_products_history", { id: `eq.${historyId}` });
+
+  return { productId: p.id, code6: p.code6, slug: p.slug };
 }
 
 export async function recordProductPriceChange(opts: {
