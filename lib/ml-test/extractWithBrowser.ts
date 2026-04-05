@@ -82,14 +82,67 @@ function isPlaywrightResultUsable(r: PlaywrightFetchResult): boolean {
   return true;
 }
 
-/** Binário Chromium/Chrome no servidor (ex.: /usr/bin/chromium). */
-function playwrightExecutableOrChannel(): { executablePath?: string; channel?: "chrome" | "chromium" | "msedge" } {
-  const exe = String(
+/** Ordem: variável de ambiente (se existir no disco) → caminhos típicos Linux (Snap antes de /usr). */
+const LINUX_CHROMIUM_FALLBACKS = [
+  "/snap/bin/chromium",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/google-chrome",
+] as const;
+
+function chromiumExecutableCandidates(preferred: string): string[] {
+  const out: string[] = [];
+  const p = preferred.trim();
+  if (p) out.push(p);
+  if (process.platform === "linux") {
+    for (const f of LINUX_CHROMIUM_FALLBACKS) {
+      if (!out.includes(f)) out.push(f);
+    }
+  }
+  return out;
+}
+
+/**
+ * Resolve o binário real; se `ML_PLAYWRIGHT_EXECUTABLE_PATH` apontar para ficheiro inexistente,
+ * tenta fallbacks (ex. Ubuntu Snap em `/snap/bin/chromium`).
+ */
+function resolveSystemChromiumExecutablePath(): string | undefined {
+  const preferred = String(
     process.env.ML_PLAYWRIGHT_EXECUTABLE_PATH ||
       process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
       "",
   ).trim();
-  if (exe) return { executablePath: exe };
+
+  for (const candidate of chromiumExecutableCandidates(preferred)) {
+    if (!candidate) continue;
+    try {
+      if (existsSync(candidate)) {
+        if (preferred && candidate !== preferred) {
+          console.warn(
+            `[ml-playwright] Chromium: ${JSON.stringify(preferred)} não existe; a usar ${candidate}. ` +
+              `Atualize ML_PLAYWRIGHT_EXECUTABLE_PATH se quiser fixar o caminho.`,
+          );
+        }
+        return candidate;
+      }
+    } catch {
+      /* */
+    }
+  }
+
+  if (preferred) {
+    console.warn(
+      `[ml-playwright] Chromium não encontrado em ${JSON.stringify(preferred)} nem nos fallbacks; ` +
+        `a usar o Chromium empacotado pelo Playwright (instale snap ou ajuste o caminho).`,
+    );
+  }
+  return undefined;
+}
+
+function playwrightExecutableOrChannel(): { executablePath?: string; channel?: "chrome" | "chromium" | "msedge" } {
+  const resolved = resolveSystemChromiumExecutablePath();
+  if (resolved) return { executablePath: resolved };
   const ch = String(process.env.ML_PLAYWRIGHT_CHANNEL ?? "").trim().toLowerCase();
   if (ch === "chrome" || ch === "chromium" || ch === "msedge") return { channel: ch };
   return {};
