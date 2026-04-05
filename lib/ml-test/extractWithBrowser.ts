@@ -1,9 +1,10 @@
 import "server-only";
 
+import type { BrowserContext, Page } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
-import { hasMlProductPageSignals, isMlBlockedOrLoginHtml } from "./fetchHtml";
+import { hasMlProductPageSignals, isMlBlockedOrLoginHtml, ML_FETCH_HEADERS } from "./fetchHtml";
 
 export type PlaywrightFetchResult =
   | { ok: true; html: string; finalUrl: string }
@@ -18,7 +19,11 @@ const CHROMIUM_SERVER_ARGS = [
   "--disable-setuid-sandbox",
   "--disable-dev-shm-usage",
   "--disable-gpu",
+  /** Reduz fingerprint de automação (Chromium / Playwright). */
+  "--disable-blink-features=AutomationControlled",
 ] as const;
+
+const PLAYWRIGHT_IGNORE_DEFAULT_ARGS = ["--enable-automation"] as const;
 
 /**
  * Chromium com janela (headed) exige X11 ou Wayland no Linux. Em Docker/servidor típico não há DISPLAY —
@@ -47,10 +52,6 @@ function shouldRunHeadless(): boolean {
   return true;
 }
 
-/**
- * Por defeito: só com `next dev` (NODE_ENV=development) abre janela no bloqueio.
- * Em `next start` ou produção use `ML_PLAYWRIGHT_HEADED_ON_BLOCK=1`.
- */
 function shouldOpenHeadedOnBlock(): boolean {
   if (!hasDisplayForHeadedChromium()) return false;
   const v = String(process.env.ML_PLAYWRIGHT_HEADED_ON_BLOCK ?? "").trim().toLowerCase();
@@ -81,6 +82,133 @@ function isPlaywrightResultUsable(r: PlaywrightFetchResult): boolean {
   return true;
 }
 
+/** Binário Chromium/Chrome no servidor (ex.: /usr/bin/chromium). */
+function playwrightExecutableOrChannel(): { executablePath?: string; channel?: "chrome" | "chromium" | "msedge" } {
+  const exe = String(
+    process.env.ML_PLAYWRIGHT_EXECUTABLE_PATH ||
+      process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
+      "",
+  ).trim();
+  if (exe) return { executablePath: exe };
+  const ch = String(process.env.ML_PLAYWRIGHT_CHANNEL ?? "").trim().toLowerCase();
+  if (ch === "chrome" || ch === "chromium" || ch === "msedge") return { channel: ch };
+  return {};
+}
+
+function mlPlaywrightUserAgentAndPlatform(): { userAgent: string; secChUaPlatform: string } {
+  const custom = String(process.env.ML_PLAYWRIGHT_USER_AGENT ?? "").trim();
+  if (custom) {
+    return {
+      userAgent: custom,
+      secChUaPlatform: process.platform === "linux" ? '"Linux"' : '"Windows"',
+    };
+  }
+  if (process.platform === "linux") {
+    return {
+      userAgent:
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      secChUaPlatform: '"Linux"',
+    };
+  }
+  return {
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    secChUaPlatform: '"Windows"',
+  };
+}
+
+function mlExtraHttpHeaders(): Record<string, string> {
+  const { userAgent, secChUaPlatform } = mlPlaywrightUserAgentAndPlatform();
+  return {
+    ...ML_FETCH_HEADERS,
+    "User-Agent": userAgent,
+    "sec-ch-ua-platform": secChUaPlatform,
+  };
+}
+
+function mlViewport() {
+  return { width: 1365, height: 900 };
+}
+
+function mlSkipWarmup(): boolean {
+  return ["1", "true", "yes", "on"].includes(String(process.env.ML_PLAYWRIGHT_SKIP_WARMUP ?? "").trim().toLowerCase());
+}
+
+function isMercadoLivreHost(url: string): boolean {
+  return /mercadolivre\.com|mercadolibre\.com|meli\.la/i.test(url);
+}
+
+/**
+ * Mesma sessão: home ML primeiro (cookies/contexto), depois PDP — reduz redirecionamentos para account-verification.
+ */
+async function warmMercadoLivreHome(page: Page, settleMs: number): Promise<void> {
+  try {
+    await page.goto("https://www.mercadolivre.com.br/", {
+      waitUntil: "domcontentloaded",
+      timeout: 35_000,
+    });
+    const w = Math.min(2500, Math.max(600, settleMs));
+    await new Promise((r) => setTimeout(r, w));
+  } catch {
+    /* continua para a PDP */
+  }
+}
+
+/** Ordem: URL original → sem query → permalink curto produto.mercadolivre.com.br/MLB-dígitos */
+function mlPdpUrlVariants(url: string): string[] {
+  const seen = new Set<string>();
+  const add = (u: string) => {
+    const t = String(u || "").trim();
+    if (t) seen.add(t);
+  };
+  add(url);
+  try {
+    const u = new URL(url);
+    if (!isMercadoLivreHost(u.href)) return [...seen];
+    const noQuery = `${u.origin}${u.pathname}`;
+    add(noQuery);
+    const m = u.pathname.match(/MLB[_-](\d{6,})/i);
+    if (m) {
+      add(`https://produto.mercadolivre.com.br/MLB-${m[1]}`);
+    }
+  } catch {
+    /* */
+  }
+  return [...seen];
+}
+
+async function attachMlStealth(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+  });
+}
+
+async function snapshotAfterGoto(
+  page: Page,
+  targetUrl: string,
+  waitUntil: "domcontentloaded" | "load",
+  settleMs: number,
+  withWarmup: boolean,
+): Promise<PlaywrightFetchResult> {
+  if (withWarmup && isMercadoLivreHost(targetUrl) && !mlSkipWarmup()) {
+    await warmMercadoLivreHome(page, settleMs);
+  }
+  await page.goto(targetUrl, {
+    waitUntil,
+    timeout: PLAYWRIGHT_TIMEOUT_MS,
+  });
+  await new Promise((r) => setTimeout(r, settleMs));
+  const html = await page.content();
+  const finalUrl = page.url();
+  if (isBlockedUrl(finalUrl)) {
+    return {
+      ok: false,
+      error: `Playwright: bloqueado (finalUrl=${finalUrl})`,
+    };
+  }
+  return { ok: true, html, finalUrl };
+}
+
 type PlaywrightFetchOpts = {
   waitUntil?: "domcontentloaded" | "load";
   settleMs?: number;
@@ -97,36 +225,40 @@ async function runPlaywrightFetch(
     const headless = !hasDisplayForHeadedChromium() ? true : headlessRequested;
     const waitUntil = opts?.waitUntil ?? "domcontentloaded";
     const settleMs = opts?.settleMs ?? postGotoSettleMs();
+    const launchExtra = playwrightExecutableOrChannel();
 
     const storageStatePath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || DEFAULT_STORAGE_STATE_PATH;
     const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
 
+    const contextBase = {
+      ...launchExtra,
+      headless,
+      args: [...CHROMIUM_SERVER_ARGS],
+      ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
+      locale: "pt-BR" as const,
+      viewport: mlViewport(),
+      userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
+      extraHTTPHeaders: mlExtraHttpHeaders(),
+      timezoneId: "America/Sao_Paulo",
+    };
+
     if (userDataDir) {
       const absDir = path.resolve(process.cwd(), userDataDir);
       mkdirSync(absDir, { recursive: true });
-      const context = await chromium.launchPersistentContext(absDir, {
-        headless,
-        args: [...CHROMIUM_SERVER_ARGS],
-        locale: "pt-BR",
-        userAgent:
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      });
+      const context = await chromium.launchPersistentContext(absDir, contextBase);
       try {
-        const page = await context.newPage();
-        await page.goto(url, {
-          waitUntil,
-          timeout: PLAYWRIGHT_TIMEOUT_MS,
-        });
-        await new Promise((r) => setTimeout(r, settleMs));
-        const html = await page.content();
-        const finalUrl = page.url();
-        if (isBlockedUrl(finalUrl)) {
-          return {
-            ok: false,
-            error: `Playwright: bloqueado (finalUrl=${finalUrl})`,
-          };
+        await attachMlStealth(context);
+        let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
+        for (const tryUrl of mlPdpUrlVariants(url)) {
+          const page = await context.newPage();
+          try {
+            last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
+            if (isPlaywrightResultUsable(last)) return last;
+          } finally {
+            await page.close().catch(() => {});
+          }
         }
-        return { ok: true, html, finalUrl };
+        return last;
       } finally {
         await context.close();
       }
@@ -134,30 +266,31 @@ async function runPlaywrightFetch(
 
     const browser = await chromium.launch({
       headless,
+      ...launchExtra,
       args: [...CHROMIUM_SERVER_ARGS],
+      ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
     });
     try {
       const context = await browser.newContext({
-        userAgent:
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
         locale: "pt-BR",
+        viewport: mlViewport(),
+        extraHTTPHeaders: mlExtraHttpHeaders(),
+        timezoneId: "America/Sao_Paulo",
         storageState: existsSync(storageStatePath) ? storageStatePath : undefined,
       });
-      const page = await context.newPage();
-      await page.goto(url, {
-        waitUntil,
-        timeout: PLAYWRIGHT_TIMEOUT_MS,
-      });
-      await new Promise((r) => setTimeout(r, settleMs));
-      const html = await page.content();
-      const finalUrl = page.url();
-      if (isBlockedUrl(finalUrl)) {
-        return {
-          ok: false,
-          error: `Playwright: bloqueado (finalUrl=${finalUrl})`,
-        };
+      await attachMlStealth(context);
+      let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
+      for (const tryUrl of mlPdpUrlVariants(url)) {
+        const page = await context.newPage();
+        try {
+          last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
+          if (isPlaywrightResultUsable(last)) return last;
+        } finally {
+          await page.close().catch(() => {});
+        }
       }
-      return { ok: true, html, finalUrl };
+      return last;
     } finally {
       await browser.close();
     }
@@ -177,10 +310,6 @@ function snapshotLooksLikeProduct(lastUrl: string, lastHtml: string): boolean {
   return hasMlProductPageSignals(lastHtml);
 }
 
-/**
- * Chromium visível: o utilizador conclui login/verificação ML; ao carregar a PDP ou ao fechar a janela
- * após o produto visível, devolvemos o HTML (último snapshot válido).
- */
 async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFetchResult> {
   if (!hasDisplayForHeadedChromium()) {
     return {
@@ -188,7 +317,7 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
       error:
         "Playwright (interativo): Linux sem DISPLAY/Wayland — não é possível abrir janela. " +
         "Use headless com perfil já logado (ML_PLAYWRIGHT_USER_DATA_DIR ou ML_PLAYWRIGHT_STORAGE_STATE). " +
-        "Em servidor, não defina ML_PLAYWRIGHT_HEADED_ON_BLOCK=1 nem ML_PLAYWRIGHT_HEADLESS=0 sem Xvfb.",
+        "Defina ML_PLAYWRIGHT_EXECUTABLE_PATH para o Chromium do sistema se o bundle Playwright for bloqueado.",
     };
   }
   try {
@@ -199,6 +328,7 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
 
     const maxWait = interactiveTimeoutMs();
     const deadline = Date.now() + maxWait;
+    const launchExtra = playwrightExecutableOrChannel();
 
     console.warn(
       `[ml-playwright] Abrindo janela para login/verificação do Mercado Livre. ` +
@@ -206,12 +336,17 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
     );
 
     const context = await chromium.launchPersistentContext(absDir, {
+      ...launchExtra,
       headless: false,
       args: [...CHROMIUM_SERVER_ARGS],
+      ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
       locale: "pt-BR",
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+      viewport: mlViewport(),
+      userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
+      extraHTTPHeaders: mlExtraHttpHeaders(),
+      timezoneId: "America/Sao_Paulo",
     });
+    await attachMlStealth(context);
 
     let lastHtml = "";
     let lastUrl = "";
@@ -236,12 +371,17 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
         void capture();
       });
 
-      await page.goto(url, {
-        waitUntil: "domcontentloaded",
-        timeout: PLAYWRIGHT_TIMEOUT_MS,
-      });
-      await new Promise((r) => setTimeout(r, 1500));
-      await capture();
+      const tryUrls = mlPdpUrlVariants(url);
+      for (const u of tryUrls) {
+        const snap = await snapshotAfterGoto(page, u, "domcontentloaded", Math.max(postGotoSettleMs(), 1500), true);
+        if (snap.ok && isPlaywrightResultUsable(snap)) {
+          return snap;
+        }
+        await capture();
+        if (snapshotLooksLikeProduct(lastUrl, lastHtml)) {
+          return { ok: true, html: lastHtml, finalUrl: lastUrl };
+        }
+      }
 
       while (Date.now() < deadline) {
         try {
@@ -314,10 +454,6 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
   }
 }
 
-/**
- * 1) Tenta fetch rápido (headless por defeito).
- * 2) Se bloquear e `shouldOpenHeadedOnBlock()`, abre janela interativa (também após falha com ML_PLAYWRIGHT_HEADLESS=0).
- */
 export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFetchResult> {
   const headlessFirst = shouldRunHeadless();
   let last = await runPlaywrightFetch(url, headlessFirst);
@@ -326,14 +462,16 @@ export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFe
     return last;
   }
 
-  /** Servidor sem X11: segunda passagem com load + espera maior (ML hidrata devagar; perfil logado ajuda). */
+  const blockedHtml =
+    last.ok && (isMlBlockedOrLoginHtml(last.html) || isBlockedUrl(last.finalUrl));
+  const blockedErr = !last.ok && looksLikePlaywrightBlockError(last.error);
+
   if (
     !hasDisplayForHeadedChromium() &&
     headlessFirst &&
-    last.ok &&
-    isMlBlockedOrLoginHtml(last.html)
+    (blockedHtml || blockedErr)
   ) {
-    const settle = Math.max(postGotoSettleMs(), 3500);
+    const settle = Math.max(postGotoSettleMs(), 4500);
     const second = await runPlaywrightFetch(url, true, { waitUntil: "load", settleMs: settle });
     if (isPlaywrightResultUsable(second)) {
       return second;
@@ -346,7 +484,7 @@ export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFe
   }
 
   const needsRetry =
-    (last.ok && isMlBlockedOrLoginHtml(last.html)) ||
+    (last.ok && (isMlBlockedOrLoginHtml(last.html) || isBlockedUrl(last.finalUrl))) ||
     (!last.ok && looksLikePlaywrightBlockError(last.error));
 
   if (!needsRetry) {
