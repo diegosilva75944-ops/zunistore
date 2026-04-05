@@ -13,6 +13,32 @@ const PLAYWRIGHT_TIMEOUT_MS = 75_000;
 const DEFAULT_STORAGE_STATE_PATH = ".playwright/ml-storage-state.json";
 const DEFAULT_USER_DATA_DIR = ".playwright/ml-user-data";
 
+const CHROMIUM_SERVER_ARGS = [
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+  "--disable-dev-shm-usage",
+  "--disable-gpu",
+] as const;
+
+/**
+ * Chromium com janela (headed) exige X11 ou Wayland no Linux. Em Docker/servidor típico não há DISPLAY —
+ * nesse caso forçamos sempre headless e não chamamos o modo interativo (evita "Missing X server").
+ */
+function hasDisplayForHeadedChromium(): boolean {
+  const p = process.platform;
+  if (p === "darwin" || p === "win32") return true;
+  const d = String(process.env.DISPLAY ?? "").trim();
+  const w = String(process.env.WAYLAND_DISPLAY ?? "").trim();
+  return Boolean(d || w);
+}
+
+function postGotoSettleMs(): number {
+  const raw = String(process.env.ML_PLAYWRIGHT_POST_GOTO_MS ?? "").trim();
+  const n = Number(raw);
+  if (Number.isFinite(n) && n >= 0) return Math.min(n, 60_000);
+  return 2000;
+}
+
 function shouldRunHeadless(): boolean {
   const v = String(process.env.ML_PLAYWRIGHT_HEADLESS ?? "").trim().toLowerCase();
   if (!v) return true;
@@ -26,6 +52,7 @@ function shouldRunHeadless(): boolean {
  * Em `next start` ou produção use `ML_PLAYWRIGHT_HEADED_ON_BLOCK=1`.
  */
 function shouldOpenHeadedOnBlock(): boolean {
+  if (!hasDisplayForHeadedChromium()) return false;
   const v = String(process.env.ML_PLAYWRIGHT_HEADED_ON_BLOCK ?? "").trim().toLowerCase();
   if (["0", "false", "no", "off"].includes(v)) return false;
   if (["1", "true", "yes", "on"].includes(v)) return true;
@@ -54,9 +81,22 @@ function isPlaywrightResultUsable(r: PlaywrightFetchResult): boolean {
   return true;
 }
 
-async function runPlaywrightFetch(url: string, headless: boolean): Promise<PlaywrightFetchResult> {
+type PlaywrightFetchOpts = {
+  waitUntil?: "domcontentloaded" | "load";
+  settleMs?: number;
+};
+
+async function runPlaywrightFetch(
+  url: string,
+  headlessRequested: boolean,
+  opts?: PlaywrightFetchOpts,
+): Promise<PlaywrightFetchResult> {
   try {
     const { chromium } = await import("playwright");
+
+    const headless = !hasDisplayForHeadedChromium() ? true : headlessRequested;
+    const waitUntil = opts?.waitUntil ?? "domcontentloaded";
+    const settleMs = opts?.settleMs ?? postGotoSettleMs();
 
     const storageStatePath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || DEFAULT_STORAGE_STATE_PATH;
     const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
@@ -66,7 +106,7 @@ async function runPlaywrightFetch(url: string, headless: boolean): Promise<Playw
       mkdirSync(absDir, { recursive: true });
       const context = await chromium.launchPersistentContext(absDir, {
         headless,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        args: [...CHROMIUM_SERVER_ARGS],
         locale: "pt-BR",
         userAgent:
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -74,10 +114,10 @@ async function runPlaywrightFetch(url: string, headless: boolean): Promise<Playw
       try {
         const page = await context.newPage();
         await page.goto(url, {
-          waitUntil: "domcontentloaded",
+          waitUntil,
           timeout: PLAYWRIGHT_TIMEOUT_MS,
         });
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, settleMs));
         const html = await page.content();
         const finalUrl = page.url();
         if (isBlockedUrl(finalUrl)) {
@@ -94,7 +134,7 @@ async function runPlaywrightFetch(url: string, headless: boolean): Promise<Playw
 
     const browser = await chromium.launch({
       headless,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: [...CHROMIUM_SERVER_ARGS],
     });
     try {
       const context = await browser.newContext({
@@ -105,10 +145,10 @@ async function runPlaywrightFetch(url: string, headless: boolean): Promise<Playw
       });
       const page = await context.newPage();
       await page.goto(url, {
-        waitUntil: "domcontentloaded",
+        waitUntil,
         timeout: PLAYWRIGHT_TIMEOUT_MS,
       });
-      await new Promise((r) => setTimeout(r, 1200));
+      await new Promise((r) => setTimeout(r, settleMs));
       const html = await page.content();
       const finalUrl = page.url();
       if (isBlockedUrl(finalUrl)) {
@@ -142,6 +182,15 @@ function snapshotLooksLikeProduct(lastUrl: string, lastHtml: string): boolean {
  * após o produto visível, devolvemos o HTML (último snapshot válido).
  */
 async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFetchResult> {
+  if (!hasDisplayForHeadedChromium()) {
+    return {
+      ok: false,
+      error:
+        "Playwright (interativo): Linux sem DISPLAY/Wayland — não é possível abrir janela. " +
+        "Use headless com perfil já logado (ML_PLAYWRIGHT_USER_DATA_DIR ou ML_PLAYWRIGHT_STORAGE_STATE). " +
+        "Em servidor, não defina ML_PLAYWRIGHT_HEADED_ON_BLOCK=1 nem ML_PLAYWRIGHT_HEADLESS=0 sem Xvfb.",
+    };
+  }
   try {
     const { chromium } = await import("playwright");
     const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
@@ -158,7 +207,7 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
 
     const context = await chromium.launchPersistentContext(absDir, {
       headless: false,
-      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+      args: [...CHROMIUM_SERVER_ARGS],
       locale: "pt-BR",
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -271,22 +320,37 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
  */
 export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFetchResult> {
   const headlessFirst = shouldRunHeadless();
-  const first = await runPlaywrightFetch(url, headlessFirst);
+  let last = await runPlaywrightFetch(url, headlessFirst);
 
-  if (isPlaywrightResultUsable(first)) {
-    return first;
+  if (isPlaywrightResultUsable(last)) {
+    return last;
+  }
+
+  /** Servidor sem X11: segunda passagem com load + espera maior (ML hidrata devagar; perfil logado ajuda). */
+  if (
+    !hasDisplayForHeadedChromium() &&
+    headlessFirst &&
+    last.ok &&
+    isMlBlockedOrLoginHtml(last.html)
+  ) {
+    const settle = Math.max(postGotoSettleMs(), 3500);
+    const second = await runPlaywrightFetch(url, true, { waitUntil: "load", settleMs: settle });
+    if (isPlaywrightResultUsable(second)) {
+      return second;
+    }
+    last = second;
   }
 
   if (!shouldOpenHeadedOnBlock()) {
-    return first;
+    return last;
   }
 
   const needsRetry =
-    (first.ok && isMlBlockedOrLoginHtml(first.html)) ||
-    (!first.ok && looksLikePlaywrightBlockError(first.error));
+    (last.ok && isMlBlockedOrLoginHtml(last.html)) ||
+    (!last.ok && looksLikePlaywrightBlockError(last.error));
 
   if (!needsRetry) {
-    return first;
+    return last;
   }
 
   return runPlaywrightHeadedInteractive(url);
