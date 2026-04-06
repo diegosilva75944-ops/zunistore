@@ -2,6 +2,7 @@ import "server-only";
 
 import type { BrowserContext, Page } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { hasMlProductPageSignals, isMlBlockedOrLoginHtml, ML_FETCH_HEADERS } from "./fetchHtml";
@@ -36,10 +37,31 @@ function normalizeX11DisplayValue(raw: string): string {
   return s;
 }
 
+function linuxAutoX11DefaultsEnabled(): boolean {
+  const v = String(process.env.ML_PLAYWRIGHT_AUTO_X11 ?? "").trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "no") return false;
+  return true;
+}
+
+/** Caminho típico do cookie X11 (utilizador atual ou root). */
+function resolveDefaultXauthorityPath(): string {
+  const fromEnv = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
+  if (fromEnv) return fromEnv;
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, ".Xauthority"),
+    ...(typeof process.getuid === "function" && process.getuid() === 0 ? ["/root/.Xauthority"] : []),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return path.join(home, ".Xauthority");
+}
+
 /**
- * Se `DISPLAY` não estiver definido no processo Node, aplica `ML_PLAYWRIGHT_X11_DISPLAY` (ou alias
- * `ML_PLAYWRIGHT_DISPLAY`). Útil em servidores X11 onde o systemd não repassa o DISPLAY ao `next start`.
- * Opcional: `ML_PLAYWRIGHT_X11_XAUTHORITY` quando `XAUTHORITY` estiver vazio (sessão gráfica local).
+ * Sincroniza DISPLAY / XAUTHORITY: variáveis explícitas, depois ML_PLAYWRIGHT_* e, em Linux, defaults
+ * (`ML_PLAYWRIGHT_X11_DISPLAY_DEFAULT`, por defeito `:1` e `~/.Xauthority`) quando `ML_PLAYWRIGHT_AUTO_X11` ≠ 0.
+ * Não sobrescreve DISPLAY já definido (ex.: SSH X11 forwarding `localhost:10.0`).
  */
 function syncX11DisplayFromEnv(): void {
   if (process.platform !== "linux") return;
@@ -56,11 +78,32 @@ function syncX11DisplayFromEnv(): void {
       }
     }
   }
-  const xa = String(process.env.XAUTHORITY ?? "").trim();
-  if (!xa) {
-    const fromEnv = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
-    if (fromEnv) process.env.XAUTHORITY = fromEnv;
+  if (!d && linuxAutoX11DefaultsEnabled()) {
+    const raw = String(process.env.ML_PLAYWRIGHT_X11_DISPLAY_DEFAULT ?? ":1").trim();
+    const resolved = normalizeX11DisplayValue(raw || ":1");
+    if (resolved) process.env.DISPLAY = resolved;
   }
+  let xa = String(process.env.XAUTHORITY ?? "").trim();
+  if (!xa) {
+    process.env.XAUTHORITY = resolveDefaultXauthorityPath();
+    xa = String(process.env.XAUTHORITY ?? "").trim();
+  }
+}
+
+/** `env` explícito para o processo do Chromium (SSH/root/herança); só strings (Playwright). */
+function playwrightBrowserEnv(): Record<string, string> {
+  syncX11DisplayFromEnv();
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+function looksLikeX11OrDisplayError(msg: string): boolean {
+  return /Missing X server|\$DISPLAY|cannot open display|X11|BadValue|Authorization|Xauthority|Xvfb|Gtk-WARNING.*cannot open display/i.test(
+    msg,
+  );
 }
 
 /**
@@ -313,71 +356,41 @@ type PlaywrightFetchOpts = {
   settleMs?: number;
 };
 
-async function runPlaywrightFetch(
+async function runPlaywrightFetchOnce(
   url: string,
-  headlessRequested: boolean,
+  useHeadless: boolean,
   opts?: PlaywrightFetchOpts,
 ): Promise<PlaywrightFetchResult> {
-  try {
-    const { chromium } = await import("playwright");
+  const { chromium } = await import("playwright");
 
-    const headless = !hasDisplayForHeadedChromium() ? true : headlessRequested;
-    const waitUntil = opts?.waitUntil ?? "domcontentloaded";
-    const settleMs = opts?.settleMs ?? postGotoSettleMs();
-    const launchExtra = playwrightExecutableOrChannel();
+  applyPlaywrightLinuxDisplayEnv();
+  const headless = !hasDisplayForHeadedChromium() ? true : useHeadless;
+  const waitUntil = opts?.waitUntil ?? "domcontentloaded";
+  const settleMs = opts?.settleMs ?? postGotoSettleMs();
+  const launchExtra = playwrightExecutableOrChannel();
+  const browserEnv = playwrightBrowserEnv();
 
-    const storageStatePath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || DEFAULT_STORAGE_STATE_PATH;
-    const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
+  const storageStatePath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || DEFAULT_STORAGE_STATE_PATH;
+  const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
 
-    const contextBase = {
-      ...launchExtra,
-      headless,
-      args: [...CHROMIUM_SERVER_ARGS],
-      ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
-      locale: "pt-BR" as const,
-      viewport: mlViewport(),
-      userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
-      extraHTTPHeaders: mlExtraHttpHeaders(),
-      timezoneId: "America/Sao_Paulo",
-    };
+  const contextBase = {
+    ...launchExtra,
+    headless,
+    env: browserEnv,
+    args: [...CHROMIUM_SERVER_ARGS],
+    ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
+    locale: "pt-BR" as const,
+    viewport: mlViewport(),
+    userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
+    extraHTTPHeaders: mlExtraHttpHeaders(),
+    timezoneId: "America/Sao_Paulo",
+  };
 
-    if (userDataDir) {
-      const absDir = path.resolve(process.cwd(), userDataDir);
-      mkdirSync(absDir, { recursive: true });
-      const context = await chromium.launchPersistentContext(absDir, contextBase);
-      try {
-        await attachMlStealth(context);
-        let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
-        for (const tryUrl of mlPdpUrlVariants(url)) {
-          const page = await context.newPage();
-          try {
-            last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
-            if (isPlaywrightResultUsable(last)) return last;
-          } finally {
-            await page.close().catch(() => {});
-          }
-        }
-        return last;
-      } finally {
-        await context.close();
-      }
-    }
-
-    const browser = await chromium.launch({
-      headless,
-      ...launchExtra,
-      args: [...CHROMIUM_SERVER_ARGS],
-      ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
-    });
+  if (userDataDir) {
+    const absDir = path.resolve(process.cwd(), userDataDir);
+    mkdirSync(absDir, { recursive: true });
+    const context = await chromium.launchPersistentContext(absDir, contextBase);
     try {
-      const context = await browser.newContext({
-        userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
-        locale: "pt-BR",
-        viewport: mlViewport(),
-        extraHTTPHeaders: mlExtraHttpHeaders(),
-        timezoneId: "America/Sao_Paulo",
-        storageState: existsSync(storageStatePath) ? storageStatePath : undefined,
-      });
       await attachMlStealth(context);
       let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
       for (const tryUrl of mlPdpUrlVariants(url)) {
@@ -391,14 +404,75 @@ async function runPlaywrightFetch(
       }
       return last;
     } finally {
-      await browser.close();
+      await context.close().catch(() => {});
     }
+  }
+
+  const browser = await chromium.launch({
+    headless,
+    env: browserEnv,
+    ...launchExtra,
+    args: [...CHROMIUM_SERVER_ARGS],
+    ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
+  });
+  try {
+    const context = await browser.newContext({
+      userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
+      locale: "pt-BR",
+      viewport: mlViewport(),
+      extraHTTPHeaders: mlExtraHttpHeaders(),
+      timezoneId: "America/Sao_Paulo",
+      storageState: existsSync(storageStatePath) ? storageStatePath : undefined,
+    });
+    await attachMlStealth(context);
+    let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
+    for (const tryUrl of mlPdpUrlVariants(url)) {
+      const page = await context.newPage();
+      try {
+        last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
+        if (isPlaywrightResultUsable(last)) return last;
+      } finally {
+        await page.close().catch(() => {});
+      }
+    }
+    return last;
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+async function runPlaywrightFetch(
+  url: string,
+  useHeadless: boolean,
+  opts?: PlaywrightFetchOpts,
+  headedModeRequested?: boolean,
+): Promise<PlaywrightFetchResult> {
+  try {
+    let result = await runPlaywrightFetchOnce(url, useHeadless, opts);
+    const errText = result.ok ? "" : result.error;
+    if (
+      !result.ok &&
+      headedModeRequested &&
+      !useHeadless &&
+      looksLikeX11OrDisplayError(errText)
+    ) {
+      console.warn("[ml-playwright] Falha ao ligar ao servidor X11; a repetir em headless.");
+      result = await runPlaywrightFetchOnce(url, true, opts);
+    }
+    return result;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return {
-      ok: false,
-      error: `Playwright: ${msg}`,
-    };
+    let result: PlaywrightFetchResult = { ok: false, error: `Playwright: ${msg}` };
+    if (headedModeRequested && !useHeadless && looksLikeX11OrDisplayError(msg)) {
+      console.warn("[ml-playwright] Exceção X11; a repetir em headless.");
+      try {
+        result = await runPlaywrightFetchOnce(url, true, opts);
+      } catch (e2) {
+        const m2 = e2 instanceof Error ? e2.message : String(e2);
+        result = { ok: false, error: `Playwright: ${m2}` };
+      }
+    }
+    return result;
   }
 }
 
@@ -437,6 +511,7 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
     const context = await chromium.launchPersistentContext(absDir, {
       ...launchExtra,
       headless: false,
+      env: playwrightBrowserEnv(),
       args: [...CHROMIUM_SERVER_ARGS],
       ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
       locale: "pt-BR",
@@ -603,7 +678,8 @@ export async function fetchHtmlWithPlaywright(
     };
   }
   const headless = resolveFetchHeadless(opts);
-  let last = await runPlaywrightFetch(url, headless);
+  const headedModeRequested = opts?.headless === false;
+  let last = await runPlaywrightFetch(url, headless, undefined, headedModeRequested);
 
   if (isPlaywrightResultUsable(last)) {
     return last;
@@ -615,7 +691,7 @@ export async function fetchHtmlWithPlaywright(
 
   if (blockedHtml || blockedErr) {
     const settle = Math.max(postGotoSettleMs(), 4500);
-    const second = await runPlaywrightFetch(url, headless, { waitUntil: "load", settleMs: settle });
+    const second = await runPlaywrightFetch(url, headless, { waitUntil: "load", settleMs: settle }, headedModeRequested);
     if (isPlaywrightResultUsable(second)) {
       return second;
     }
