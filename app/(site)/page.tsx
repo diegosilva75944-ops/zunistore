@@ -29,7 +29,7 @@ export default async function Home(props: {
   const [carousel, categoriesRaw, offers, siteSettings] = await Promise.all([
     listCarouselProducts(),
     listSiteCategoriesFlat(),
-    listProducts({ perPage: 10, page: 1, sort: "maior-desconto" }),
+    listProducts({ perPage: 15, page: 1, sort: "maior-desconto" }),
     getSiteSettings(),
   ]);
   const offersBeforeHero = siteSettings?.offers_section_position === "before_hero";

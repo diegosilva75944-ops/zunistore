@@ -3,7 +3,7 @@
 import type { Product } from "@/lib/store";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 
-const MAX_OFFERS = 10;
+const MAX_OFFERS = 15;
 
 type Props = {
   products: Product[];
