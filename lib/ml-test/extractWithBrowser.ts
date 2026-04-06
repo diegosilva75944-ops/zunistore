@@ -1,7 +1,14 @@
 import "server-only";
 
 import type { BrowserContext, Page } from "playwright";
-import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync } from "node:fs";
+import {
+  accessSync,
+  constants as fsConstants,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -149,6 +156,68 @@ function scanGdmXauthorityPathsFromDisk(): string[] {
   });
 }
 
+/** Home em `/etc/passwd` para um UID (Linux; falha silenciosa). */
+function passwdHomeDirForUid(uidStr: string): string | null {
+  const uid = uidStr.trim();
+  if (!/^\d+$/.test(uid)) return null;
+  try {
+    const raw = readFileSync("/etc/passwd", "utf8");
+    for (const line of raw.split("\n")) {
+      const parts = line.split(":");
+      if (parts.length < 7 || parts[2] !== uid) continue;
+      const home = parts[5]?.trim();
+      return home || null;
+    }
+  } catch {
+    /* */
+  }
+  return null;
+}
+
+/**
+ * `~/.Xauthority` do utilizador gráfico (ex. UID 1000), não só do utilizador do processo Node.
+ * Com Next/PM2 como root, `os.homedir()` é /root — sem isto nunca se encontra o cookie da sessão GDM.
+ */
+function graphicalUserHomeXauthorityCandidates(): string[] {
+  const out: string[] = [];
+  const customHome = String(process.env.ML_PLAYWRIGHT_GRAPHICAL_HOME ?? "").trim();
+  if (customHome) out.push(path.join(customHome, ".Xauthority"));
+  const uid = String(process.env.ML_PLAYWRIGHT_GRAPHICAL_UID ?? "1000").trim();
+  const ph = passwdHomeDirForUid(uid);
+  if (ph) out.push(path.join(ph, ".Xauthority"));
+  return out;
+}
+
+/** Ficheiros tipo xauth sob /run/user/<uid>/ (alguns setups não usam subpasta gdm/). */
+function scanRunUserXauthLooseFiles(): string[] {
+  const out: string[] = [];
+  try {
+    const base = "/run/user";
+    if (!existsSync(base)) return out;
+    for (const ent of readdirSync(base, { withFileTypes: true })) {
+      if (!ent.isDirectory() || !/^\d+$/.test(ent.name)) continue;
+      const ud = path.join(base, ent.name);
+      try {
+        for (const f of readdirSync(ud, { withFileTypes: true })) {
+          if (!f.isFile()) continue;
+          const n = f.name.toLowerCase();
+          if (n !== "xauthority" && !n.startsWith("xauth-") && !n.startsWith("xauth_")) continue;
+          out.push(path.join(ud, f.name));
+        }
+      } catch {
+        /* */
+      }
+    }
+  } catch {
+    /* */
+  }
+  return out.sort((a, b) => {
+    const ua = Number((a.match(/\/run\/user\/(\d+)\//) ?? [])[1] ?? 0);
+    const ub = Number((b.match(/\/run\/user\/(\d+)\//) ?? [])[1] ?? 0);
+    return ub - ua;
+  });
+}
+
 /** Primeiro ficheiro de cookie X11 legível. `ML_PLAYWRIGHT_X11_XAUTHORITY` só conta se existir e for legível (evita .env com path GDM errado). */
 function pickReadableXauthorityPath(): string {
   const explicit = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
@@ -156,8 +225,10 @@ function pickReadableXauthorityPath(): string {
   const candidates = [
     ...(explicit ? [explicit] : []),
     ...scanGdmXauthorityPathsFromDisk(),
+    ...scanRunUserXauthLooseFiles(),
     ...gdmXauthorityCandidates(),
     def,
+    ...graphicalUserHomeXauthorityCandidates(),
     path.join(os.homedir(), ".Xauthority"),
     ...(typeof process.getuid === "function" && process.getuid() === 0 ? ["/root/.Xauthority"] : []),
   ];
@@ -321,7 +392,7 @@ export function getLinuxHeadedChromiumUnavailableReason(): string | null {
     return "DISPLAY não está definido no processo Node — defina ML_PLAYWRIGHT_X11_DISPLAY=:1 ou arranque com scripts/run.sh / systemd.";
   }
   if (!xa) {
-    return "XAUTHORITY vazio — defina ML_PLAYWRIGHT_X11_XAUTHORITY=/run/user/1000/gdm/Xauthority (GDM).";
+    return "nenhum cookie X11 legível (XAUTHORITY vazio). No servidor: ls /run/user/*/gdm/Xauthority; ls ~SEU_USER/.Xauthority. Defina ML_PLAYWRIGHT_GRAPHICAL_HOME=/home/… ou ML_PLAYWRIGHT_X11_XAUTHORITY=/caminho/real; ou arranque o Next como o utilizador da sessão gráfica (systemd User=).";
   }
   if (!existsSync(xa)) {
     return `XAUTHORITY não existe: ${xa}`;
