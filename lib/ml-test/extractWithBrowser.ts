@@ -218,24 +218,62 @@ function scanRunUserXauthLooseFiles(): string[] {
   });
 }
 
-/** Primeiro ficheiro de cookie X11 legível. `ML_PLAYWRIGHT_X11_XAUTHORITY` só conta se existir e for legível (evita .env com path GDM errado). */
-function pickReadableXauthorityPath(): string {
+/** `/run/user/<uid>/.Xauthority` (algumas sessões X11). */
+function runUserDotXauthorityCandidates(): string[] {
+  const out: string[] = [];
+  try {
+    const base = "/run/user";
+    if (!existsSync(base)) return out;
+    for (const ent of readdirSync(base, { withFileTypes: true })) {
+      if (!ent.isDirectory() || !/^\d+$/.test(ent.name)) continue;
+      out.push(path.join(base, ent.name, ".Xauthority"));
+    }
+  } catch {
+    /* */
+  }
+  return out.sort((a, b) => {
+    const ua = Number((a.match(/\/run\/user\/(\d+)\//) ?? [])[1] ?? 0);
+    const ub = Number((b.match(/\/run\/user\/(\d+)\//) ?? [])[1] ?? 0);
+    return ub - ua;
+  });
+}
+
+function dedupePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of paths) {
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Ordem de tentativa de cookies X11 (diagnóstico + `pickReadableXauthorityPath`).
+ * `ML_PLAYWRIGHT_XAUTHORITY_FILE` = cookie copiado para um path legível pelo processo Node (ex. root).
+ */
+function buildXauthorityCandidatesOrdered(): string[] {
   const explicit = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
+  const copiedFile = String(process.env.ML_PLAYWRIGHT_XAUTHORITY_FILE ?? "").trim();
   const def = String(process.env.ML_PLAYWRIGHT_X11_AUTHORITY_DEFAULT ?? LINUX_DEFAULT_GDM_XAUTHORITY).trim();
-  const candidates = [
+  return dedupePaths([
     ...(explicit ? [explicit] : []),
+    ...(copiedFile ? [copiedFile] : []),
     ...scanGdmXauthorityPathsFromDisk(),
     ...scanRunUserXauthLooseFiles(),
+    ...runUserDotXauthorityCandidates(),
     ...gdmXauthorityCandidates(),
     def,
     ...graphicalUserHomeXauthorityCandidates(),
     path.join(os.homedir(), ".Xauthority"),
     ...(typeof process.getuid === "function" && process.getuid() === 0 ? ["/root/.Xauthority"] : []),
-  ];
-  const seen = new Set<string>();
-  for (const p of candidates) {
-    if (!p || seen.has(p)) continue;
-    seen.add(p);
+  ]);
+}
+
+/** Primeiro ficheiro de cookie X11 legível. `ML_PLAYWRIGHT_X11_XAUTHORITY` só conta se existir e for legível (evita .env com path GDM errado). */
+function pickReadableXauthorityPath(): string {
+  for (const p of buildXauthorityCandidatesOrdered()) {
     if (!existsSync(p)) continue;
     try {
       accessSync(p, fsConstants.R_OK);
@@ -245,6 +283,24 @@ function pickReadableXauthorityPath(): string {
     }
   }
   return "";
+}
+
+/** Resumo para o debug do import: primeiros candidatos e se existem / são legíveis pelo processo atual. */
+export function getXauthorityDiscoveryDebug(): string {
+  applyPlaywrightLinuxDisplayEnv();
+  const uid = typeof process.getuid === "function" ? process.getuid() : -1;
+  const parts = buildXauthorityCandidatesOrdered()
+    .slice(0, 14)
+    .map((p) => {
+      if (!existsSync(p)) return `${p}=missing`;
+      try {
+        accessSync(p, fsConstants.R_OK);
+        return `${p}=ok`;
+      } catch {
+        return `${p}=unreadable`;
+      }
+    });
+  return `uid=${uid}; ${parts.join("; ")}`;
 }
 
 function linuxX11SessionAccessible(): boolean {
@@ -392,7 +448,7 @@ export function getLinuxHeadedChromiumUnavailableReason(): string | null {
     return "DISPLAY não está definido no processo Node — defina ML_PLAYWRIGHT_X11_DISPLAY=:1 ou arranque com scripts/run.sh / systemd.";
   }
   if (!xa) {
-    return "nenhum cookie X11 legível (XAUTHORITY vazio). No servidor: ls /run/user/*/gdm/Xauthority; ls ~SEU_USER/.Xauthority. Defina ML_PLAYWRIGHT_GRAPHICAL_HOME=/home/… ou ML_PLAYWRIGHT_X11_XAUTHORITY=/caminho/real; ou arranque o Next como o utilizador da sessão gráfica (systemd User=).";
+    return "nenhum cookie X11 legível (XAUTHORITY vazio). Copie o cookie para um ficheiro legível pelo Node (ex.: sudo cp /home/USER/.Xauthority /var/lib/zunistore/xauth && sudo chmod 644 …) e defina ML_PLAYWRIGHT_XAUTHORITY_FILE=/var/lib/zunistore/xauth; ou ML_PLAYWRIGHT_GRAPHICAL_HOME; ou systemd User= ao utilizador da sessão X11.";
   }
   if (!existsSync(xa)) {
     return `XAUTHORITY não existe: ${xa}`;

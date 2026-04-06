@@ -9,6 +9,7 @@ import {
   type FetchHtmlWithPlaywrightOptions,
   getEffectivePlaywrightHeadless,
   getLinuxHeadedChromiumUnavailableReason,
+  getXauthorityDiscoveryDebug,
   hasDisplayForHeadedChromium,
 } from "./extractWithBrowser";
 import { makeShortDescription, preferLongerText } from "./extractDescriptions";
@@ -188,6 +189,7 @@ export async function runTestMlImport(
     } else {
       const why = getLinuxHeadedChromiumUnavailableReason() ?? "sessão gráfica indisponível.";
       globalSteps.push(`AVISO: modo gráfico pedido mas ${why} Playwright corre em headless (fallback).`);
+      globalSteps.push(`Diagnóstico XAUTHORITY: ${getXauthorityDiscoveryDebug()}`);
     }
   }
   if (mode === "headless" && opts?.playwrightHeaded) {
