@@ -210,7 +210,7 @@ export async function searchProductsByTerms(opts: {
   terms: string[];
   categoryId?: string | null;
   page?: number;
-  perPage?: 10 | 12 | 20 | 24 | 36 | 50;
+  perPage?: 10 | 12 | 15 | 20 | 24 | 36 | 50;
   sort?: ProductSort;
 }) {
   const { terms, categoryId, page = 1, perPage = 20, sort = "recentes" } = opts;
@@ -333,7 +333,7 @@ export async function listProducts(opts: {
   max?: number | null;
   sort?: ProductSort;
   page?: number;
-  perPage?: 10 | 12 | 20 | 24 | 36 | 50;
+  perPage?: 10 | 12 | 15 | 20 | 24 | 36 | 50;
 }) {
   const { categoryId, q, min, max, sort = "recentes", page = 1, perPage = 20 } = opts;
   try {
