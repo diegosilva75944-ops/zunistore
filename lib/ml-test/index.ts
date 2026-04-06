@@ -21,7 +21,7 @@ export type { FetchHtmlWithPlaywrightOptions } from "./extractWithBrowser";
 export { runTestMlImportCore } from "./pipeline";
 
 /**
- * Importação ML (PDP). Se `ML_HOST_IMPORT_URL` + `ML_HOST_IMPORT_SECRET` estiverem definidos, delega ao worker no host.
+ * Importação ML (PDP). Se `ML_HOST_IMPORT_URL` estiver definido, delega ao worker no host (segredo opcional).
  */
 export async function runTestMlImport(
   rawUrl: string,

@@ -8,10 +8,10 @@ Na raiz do projeto (onde está `package.json` e o `.env` com credenciais ML/Supa
 
 ```bash
 npm install
-export ML_HOST_IMPORT_SECRET="gere_um_segredo_longo"
 # Opcional: escutar só localhost (defeito)
 export ML_HOST_IMPORT_LISTEN_HOST=127.0.0.1
 export ML_HOST_IMPORT_PORT=3847
+# Opcional: ML_HOST_IMPORT_SECRET=…  (se omitir, não há verificação Bearer)
 npm run ml-host:worker
 ```
 
@@ -23,8 +23,8 @@ No `.env` do contentor / Next:
 
 ```bash
 ML_HOST_IMPORT_URL=http://host.docker.internal:3847
-ML_HOST_IMPORT_SECRET=o_mesmo_segredo
-# Opcional: timeout em ms (30s–600s)
+# Opcional: o mesmo ML_HOST_IMPORT_SECRET que no worker, se usar autenticação
+# ML_HOST_IMPORT_SECRET=…
 # ML_HOST_IMPORT_TIMEOUT_MS=120000
 ```
 
@@ -32,13 +32,13 @@ No Linux, o Docker pode precisar de `extra_hosts: - "host.docker.internal:host-g
 
 ## Segurança
 
-- O worker deve ouvir em `127.0.0.1` se só o Docker local falar com ele, ou atrás de firewall se usar `0.0.0.0`.
-- O segredo em `Authorization: Bearer` tem de ser forte e igual nos dois lados.
-- Não exponha o worker à Internet pública.
+- O worker deve ouvir em **`127.0.0.1`** (defeito) quando não usas segredo — assim só processos na mesma máquina (ou Docker com `host.docker.internal`) alcançam o serviço.
+- Se definires **`ML_HOST_IMPORT_SECRET`**, o cliente e o worker devem usar o mesmo valor (`Authorization: Bearer`).
+- Evita **`0.0.0.0`** sem segredo: qualquer um na rede pode disparar importações.
 
 ## Endpoints
 
 - `GET /health` — estado.
-- `POST /internal/ml-import` — corpo JSON `{ "url", "mode", "opts" }`, cabeçalho `Authorization: Bearer <ML_HOST_IMPORT_SECRET>`.
+- `POST /internal/ml-import` — corpo JSON `{ "url", "mode", "opts" }`. Se `ML_HOST_IMPORT_SECRET` estiver definido no worker, envia `Authorization: Bearer <segredo>`.
 
 O admin do site continua a usar `/api/admin/test-ml-import`; quando `ML_HOST_IMPORT_URL` está definido, o servidor delega ao worker automaticamente.

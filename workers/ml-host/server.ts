@@ -33,12 +33,14 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 
 export async function createMlHostWorkerServer(): Promise<http.Server> {
   const secret = String(process.env.ML_HOST_IMPORT_SECRET ?? "").trim();
-  if (!secret) {
-    throw new Error("ML_HOST_IMPORT_SECRET é obrigatório no worker.");
-  }
-
   const listenHost = String(process.env.ML_HOST_IMPORT_LISTEN_HOST ?? "127.0.0.1").trim() || "127.0.0.1";
   const port = Number(process.env.ML_HOST_IMPORT_PORT ?? "3847") || 3847;
+
+  if (!secret && listenHost === "0.0.0.0") {
+    console.warn(
+      "[ml-host-worker] AVISO: ML_HOST_IMPORT_SECRET vazio e escuta em 0.0.0.0 — qualquer cliente na rede pode chamar o import. Use 127.0.0.1 ou defina um segredo.",
+    );
+  }
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -52,11 +54,13 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
         return;
       }
 
-      const auth = String(req.headers.authorization ?? "").trim();
-      const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-      if (token !== secret) {
-        json(res, 401, { ok: false, error: "Não autorizado." });
-        return;
+      if (secret) {
+        const auth = String(req.headers.authorization ?? "").trim();
+        const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+        if (token !== secret) {
+          json(res, 401, { ok: false, error: "Não autorizado." });
+          return;
+        }
       }
 
       const raw = await readBody(req);
@@ -84,8 +88,9 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
   });
 
   server.listen(port, listenHost, () => {
+    const authHint = secret ? "auth=Bearer" : "auth=desligado";
     console.info(
-      `[ml-host-worker] http://${listenHost}:${port}  health=GET /health  import=POST /internal/ml-import`,
+      `[ml-host-worker] http://${listenHost}:${port}  health=GET /health  import=POST /internal/ml-import  (${authHint})`,
     );
   });
 

@@ -4,8 +4,8 @@ import type { ImportMode, TestMlImportResult } from "./types";
 import type { RunTestMlImportOptions } from "./pipeline";
 
 /**
- * Se `ML_HOST_IMPORT_URL` + `ML_HOST_IMPORT_SECRET` estiverem definidos, delega o import ao worker HTTP
- * no host (fora do Docker), onde o Playwright vê X11/cookies reais.
+ * Se `ML_HOST_IMPORT_URL` estiver definido, delega o import ao worker HTTP no host (fora do Docker).
+ * `ML_HOST_IMPORT_SECRET` é opcional; se definido, envia `Authorization: Bearer`.
  */
 export async function tryHostWorkerImport(
   rawUrl: string,
@@ -13,20 +13,21 @@ export async function tryHostWorkerImport(
   opts?: RunTestMlImportOptions,
 ): Promise<TestMlImportResult | null> {
   const base = process.env.ML_HOST_IMPORT_URL?.trim();
+  if (!base) return null;
+
   const secret = process.env.ML_HOST_IMPORT_SECRET?.trim();
-  if (!base || !secret) return null;
 
   const timeoutMs = Math.min(
     Math.max(Number(process.env.ML_HOST_IMPORT_TIMEOUT_MS ?? "") || 120_000, 30_000),
     600_000,
   );
 
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (secret) headers.Authorization = `Bearer ${secret}`;
+
   const res = await fetch(`${base.replace(/\/$/, "")}/internal/ml-import`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${secret}`,
-    },
+    headers,
     body: JSON.stringify({
       url: rawUrl,
       mode,
