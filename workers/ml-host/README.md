@@ -41,4 +41,4 @@ No Linux, o Docker pode precisar de `extra_hosts: - "host.docker.internal:host-g
 - `GET /health` — estado.
 - `POST /internal/ml-import` — corpo JSON `{ "url", "mode", "opts" }`. Se `ML_HOST_IMPORT_SECRET` estiver definido no worker, envia `Authorization: Bearer <segredo>`.
 
-O admin do site continua a usar `/api/admin/test-ml-import`; quando `ML_HOST_IMPORT_URL` está definido, o servidor delega ao worker automaticamente.
+No **Next** (Docker), com `ML_HOST_IMPORT_URL` definido, **tudo** o que chama `runTestMlImport` delega ao worker: Teste ML (`/api/admin/test-ml-import`), importação ML admin e extensão (`/api/admin/import/mercadolivre*`), sync de preço e reimport (`mlSyncImportedProduct`, `fetchMlPricesLikeImport`), cron de reimportação ML.
