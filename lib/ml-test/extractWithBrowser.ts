@@ -285,10 +285,40 @@ function pickReadableXauthorityPath(): string {
   return "";
 }
 
+function detectLinuxContainerKind(): "docker" | "podman" | null {
+  if (process.platform !== "linux") return null;
+  try {
+    if (existsSync("/.dockerenv")) return "docker";
+  } catch {
+    /* */
+  }
+  try {
+    const cg = readFileSync("/proc/self/cgroup", "utf8");
+    if (/docker|containerd|kubepods/i.test(cg)) return "docker";
+    if (/podman/i.test(cg)) return "podman";
+  } catch {
+    /* */
+  }
+  return null;
+}
+
+/** Sockets X11 visíveis neste processo (útil: existir socket sem cookie ⇒ típico Docker / FS errado). */
+function x11UnixSocketsDebug(): string {
+  try {
+    const dir = "/tmp/.X11-unix";
+    if (!existsSync(dir)) return "x11_unix=absent";
+    const names = readdirSync(dir).filter((n) => /^X\d+$/.test(n));
+    return names.length ? `x11_unix=${names.join(",")}` : "x11_unix=empty_dir";
+  } catch {
+    return "x11_unix=error";
+  }
+}
+
 /** Resumo para o debug do import: primeiros candidatos e se existem / são legíveis pelo processo atual. */
 export function getXauthorityDiscoveryDebug(): string {
   applyPlaywrightLinuxDisplayEnv();
   const uid = typeof process.getuid === "function" ? process.getuid() : -1;
+  const ctr = detectLinuxContainerKind();
   const parts = buildXauthorityCandidatesOrdered()
     .slice(0, 14)
     .map((p) => {
@@ -300,7 +330,9 @@ export function getXauthorityDiscoveryDebug(): string {
         return `${p}=unreadable`;
       }
     });
-  return `uid=${uid}; ${parts.join("; ")}`;
+  const fileEnv = String(process.env.ML_PLAYWRIGHT_XAUTHORITY_FILE ?? "").trim();
+  const fileHint = fileEnv ? ` ML_PLAYWRIGHT_XAUTHORITY_FILE=${fileEnv}(${existsSync(fileEnv) ? "exists" : "missing"})` : "";
+  return `uid=${uid}; container=${ctr ?? "no"}; ${x11UnixSocketsDebug()};${fileHint} ${parts.join("; ")}`;
 }
 
 function linuxX11SessionAccessible(): boolean {
@@ -448,7 +480,18 @@ export function getLinuxHeadedChromiumUnavailableReason(): string | null {
     return "DISPLAY não está definido no processo Node — defina ML_PLAYWRIGHT_X11_DISPLAY=:1 ou arranque com scripts/run.sh / systemd.";
   }
   if (!xa) {
-    return "nenhum cookie X11 legível (XAUTHORITY vazio). Copie o cookie para um ficheiro legível pelo Node (ex.: sudo cp /home/USER/.Xauthority /var/lib/zunistore/xauth && sudo chmod 644 …) e defina ML_PLAYWRIGHT_XAUTHORITY_FILE=/var/lib/zunistore/xauth; ou ML_PLAYWRIGHT_GRAPHICAL_HOME; ou systemd User= ao utilizador da sessão X11.";
+    const ctr = detectLinuxContainerKind();
+    const sock = x11UnixSocketsDebug();
+    const dockerHint =
+      ctr === "docker" || ctr === "podman"
+        ? " Contentor: copie o cookie do host para um volume (ML_PLAYWRIGHT_XAUTHORITY_FILE) ou monte o home do utilizador gráfico; o contentor não tem ~/.Xauthority por defeito."
+        : /x11_unix=X\d+/.test(sock) && !sock.includes("absent")
+          ? " Há socket X11 neste FS mas nenhum cookie — confirme que o Next corre no mesmo ambiente que a sessão gráfica (não só DISPLAY=:1 no .env)."
+          : "";
+    return (
+      "nenhum cookie X11 legível (XAUTHORITY vazio). No host com sessão gráfica: `cp ~/.Xauthority /caminho/legível` e `ML_PLAYWRIGHT_XAUTHORITY_FILE=…`; ou `systemd User=` ao utilizador da sessão." +
+      dockerHint
+    );
   }
   if (!existsSync(xa)) {
     return `XAUTHORITY não existe: ${xa}`;
