@@ -78,6 +78,7 @@ export async function fetchMlHtml(url: string): Promise<FetchHtmlResult> {
     const finalUrl = res.url || resolvedUrl;
 
     if (!res.ok) {
+      console.warn(`[ml-fetch] Mercado Livre HTTP ${res.status} url=${finalUrl}`);
       return { ok: false, status: res.status, error: `HTTP ${res.status}` };
     }
 
@@ -93,6 +94,7 @@ export async function fetchMlHtml(url: string): Promise<FetchHtmlResult> {
       if (res2.ok && !looksBlocked(text2)) {
         return { ok: true, html: text2, finalUrl: final2, usedMobileFallback: true };
       }
+      console.warn(`[ml-fetch] ML página bloqueada/login/captcha após fallback mobile url=${final2}`);
       return { ok: false, error: "Página bloqueada ou sem conteúdo de produto (login/captcha)." };
     }
 

@@ -191,6 +191,20 @@ function syncX11DisplayFromEnv(): void {
       process.env.XAUTHORITY = fb || path.join(os.homedir(), ".Xauthority");
     }
   }
+  const pin = String(process.env.ML_PLAYWRIGHT_X11_PIN_DEFAULTS ?? "").trim().toLowerCase();
+  if (process.platform === "linux" && (pin === "1" || pin === "true" || pin === "yes")) {
+    process.env.DISPLAY = LINUX_DEFAULT_DISPLAY;
+    process.env.XAUTHORITY = LINUX_DEFAULT_GDM_XAUTHORITY;
+  }
+  if (process.platform === "linux") {
+    const d2 = String(process.env.DISPLAY ?? "").trim();
+    const xa2 = String(process.env.XAUTHORITY ?? "").trim();
+    if (d2 && xa2 && !linuxX11SessionAccessible()) {
+      console.warn(
+        `[ml-playwright] X11: cookie ilegível para este processo (uid=${typeof process.getuid === "function" ? String(process.getuid()) : "?"}). Modo gráfico falhará até ${xa2} ser legível ou o serviço correr como o utilizador da sessão GDM.`,
+      );
+    }
+  }
 }
 
 /** `env` explícito para o processo do Chromium (SSH/root/Snap); GIO/GTK reduzem erros libproxy em Ubuntu Snap. */
@@ -483,9 +497,17 @@ async function snapshotAfterGoto(
   const html = await page.content();
   const finalUrl = page.url();
   if (isBlockedUrl(finalUrl)) {
+    console.warn(`[ml-playwright] ML bloqueio/captcha (URL): ${finalUrl}`);
     return {
       ok: false,
       error: `Playwright: bloqueado (finalUrl=${finalUrl})`,
+    };
+  }
+  if (isMlBlockedOrLoginHtml(html)) {
+    console.warn(`[ml-playwright] ML bloqueio/captcha (HTML login/challenge) finalUrl=${finalUrl}`);
+    return {
+      ok: false,
+      error: `Playwright: bloqueado (HTML login/captcha) finalUrl=${finalUrl}`,
     };
   }
   return { ok: true, html, finalUrl };

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Next.js com DISPLAY/XAUTHORITY para Playwright (root, PM2, API).
-# PM2: pm2 start npm --name zuni --cwd "$(pwd)" -- run start:x11
+# Next.js + Playwright (GDM/Xorg). Root: xhost; Snap: GIO/GTK. PM2: pm2 start npm -- run start:x11
+# Docker: montar /tmp/.X11-unix e mesmo DISPLAY do host.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 export DISPLAY="${DISPLAY:-:1}"
 export XAUTHORITY="${XAUTHORITY:-/run/user/1000/gdm/Xauthority}"
+export ML_PLAYWRIGHT_X11_DISPLAY_DEFAULT="${ML_PLAYWRIGHT_X11_DISPLAY_DEFAULT:-:1}"
+export ML_PLAYWRIGHT_X11_AUTHORITY_DEFAULT="${ML_PLAYWRIGHT_X11_AUTHORITY_DEFAULT:-/run/user/1000/gdm/Xauthority}"
 export GIO_USE_PROXY="${GIO_USE_PROXY:-0}"
 export GTK_USE_PORTAL="${GTK_USE_PORTAL:-0}"
 
