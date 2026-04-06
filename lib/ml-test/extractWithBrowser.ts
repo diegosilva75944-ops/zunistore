@@ -25,11 +25,57 @@ const CHROMIUM_SERVER_ARGS = [
 
 const PLAYWRIGHT_IGNORE_DEFAULT_ARGS = ["--enable-automation"] as const;
 
+/** Normaliza valor vindo do .env (ex. `0` ou `:0`) para um DISPLAY X11 válido. */
+function normalizeX11DisplayValue(raw: string): string {
+  const s = raw.trim();
+  if (!s) return "";
+  if (/^:\d+(\.\d+)?$/.test(s)) return s;
+  if (/^\d+$/.test(s)) return `:${s}`;
+  if (/^[\w.-]+:\d+(\.\d+)?$/.test(s)) return s;
+  if (s.startsWith(":")) return s;
+  return s;
+}
+
 /**
- * Chromium com janela (headed) exige X11 ou Wayland no Linux. Em Docker/servidor típico não há DISPLAY —
- * nesse caso forçamos sempre headless e não chamamos o modo interativo (evita "Missing X server").
+ * Se `DISPLAY` não estiver definido no processo Node, aplica `ML_PLAYWRIGHT_X11_DISPLAY` (ou alias
+ * `ML_PLAYWRIGHT_DISPLAY`). Útil em servidores X11 onde o systemd não repassa o DISPLAY ao `next start`.
+ * Opcional: `ML_PLAYWRIGHT_X11_XAUTHORITY` quando `XAUTHORITY` estiver vazio (sessão gráfica local).
+ */
+function syncX11DisplayFromEnv(): void {
+  if (process.platform !== "linux") return;
+  let d = String(process.env.DISPLAY ?? "").trim();
+  if (!d) {
+    const fromEnv = String(
+      process.env.ML_PLAYWRIGHT_X11_DISPLAY ?? process.env.ML_PLAYWRIGHT_DISPLAY ?? "",
+    ).trim();
+    if (fromEnv) {
+      const resolved = normalizeX11DisplayValue(fromEnv);
+      if (resolved) {
+        process.env.DISPLAY = resolved;
+        d = resolved;
+      }
+    }
+  }
+  const xa = String(process.env.XAUTHORITY ?? "").trim();
+  if (!xa) {
+    const fromEnv = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
+    if (fromEnv) process.env.XAUTHORITY = fromEnv;
+  }
+}
+
+/**
+ * Aplica variáveis X11 do .env antes de logar `DISPLAY` ou abrir o Chromium (idempotente).
+ */
+export function applyPlaywrightLinuxDisplayEnv(): void {
+  syncX11DisplayFromEnv();
+}
+
+/**
+ * Chromium com janela (headed) no Linux: em geral **X11** (`DISPLAY`) ou Wayland (`WAYLAND_DISPLAY`).
+ * Sem ambos, forçamos headless (evita "Missing X server").
  */
 export function hasDisplayForHeadedChromium(): boolean {
+  syncX11DisplayFromEnv();
   const p = process.platform;
   if (p === "darwin" || p === "win32") return true;
   const d = String(process.env.DISPLAY ?? "").trim();
@@ -509,7 +555,7 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
 
 export type FetchHtmlWithPlaywrightOptions = {
   /**
-   * `false` = Chromium com janela (import/sync no servidor com X11/Wayland).
+   * `false` = Chromium com janela (import/sync; no Linux costuma ser **X11** com `DISPLAY=:0`).
    * `true` = forçar headless. `undefined` = `ML_PLAYWRIGHT_HEADLESS` / defeito.
    */
   headless?: boolean;
@@ -525,8 +571,9 @@ function resolveFetchHeadless(opts?: FetchHtmlWithPlaywrightOptions): boolean {
   if (opts?.headless === false) {
     if (!hasDisplayForHeadedChromium()) {
       console.warn(
-        "[ml-playwright] Modo gráfico pedido (headless=false) mas sem DISPLAY/Wayland no processo Node — a usar headless. " +
-          "Defina DISPLAY=:0 (ou WAYLAND_DISPLAY) no serviço que arranca o Next.js, ou ML_PLAYWRIGHT_STRICT_HEADED=1 para falhar em vez de fallback.",
+        "[ml-playwright] Modo gráfico pedido (headless=false) mas sem sessão gráfica no processo Node (X11: DISPLAY; Wayland: WAYLAND_DISPLAY) — a usar headless. " +
+          "Servidor X11: defina DISPLAY=:0 no systemd ou ML_PLAYWRIGHT_X11_DISPLAY=:0 no .env; opcional ML_PLAYWRIGHT_X11_XAUTHORITY. " +
+          "ML_PLAYWRIGHT_STRICT_HEADED=1 falha em vez de fallback.",
       );
       return true;
     }
@@ -552,7 +599,7 @@ export async function fetchHtmlWithPlaywright(
     return {
       ok: false,
       error:
-        "Modo gráfico pedido mas DISPLAY/Wayland não está definido no processo Node. Defina DISPLAY=:0 (ou WAYLAND_DISPLAY) no systemd/.env e reinicie o Next.js, ou remova ML_PLAYWRIGHT_STRICT_HEADED.",
+        "Modo gráfico pedido mas não há sessão gráfica visível no processo Node (X11: DISPLAY; Wayland: WAYLAND_DISPLAY). Servidor X11: DISPLAY=:0 no systemd ou ML_PLAYWRIGHT_X11_DISPLAY=:0 no .env; opcional ML_PLAYWRIGHT_X11_XAUTHORITY. Reinicie o Next.js ou remova ML_PLAYWRIGHT_STRICT_HEADED.",
     };
   }
   const headless = resolveFetchHeadless(opts);

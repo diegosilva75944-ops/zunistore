@@ -4,6 +4,7 @@ import type { ImportMode, TestMlImportResult } from "./types";
 import { extractFromHtml } from "./extractFromHtml";
 import { fetchMlHtml } from "./fetchHtml";
 import {
+  applyPlaywrightLinuxDisplayEnv,
   fetchHtmlWithPlaywright,
   type FetchHtmlWithPlaywrightOptions,
   getEffectivePlaywrightHeadless,
@@ -135,7 +136,7 @@ async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string)
 export type RunTestMlImportOptions = {
   returnPartialOnBlock?: boolean;
   /**
-   * `true` = Chromium com janela (import/sync no servidor com X11/Wayland).
+   * `true` = Chromium com janela (import/sync; em Linux servidor costuma ser **X11** com `DISPLAY` ou `ML_PLAYWRIGHT_X11_DISPLAY`).
    * `false` = forçar headless. `undefined` = `ML_PLAYWRIGHT_HEADLESS` / defeito.
    */
   playwrightHeaded?: boolean;
@@ -153,7 +154,7 @@ function playwrightFetchModeLabel(opts?: RunTestMlImportOptions): string {
   const eff = getEffectivePlaywrightHeadless(pwOpts);
   const headedRequested = opts?.playwrightHeaded === true;
   if (headedRequested && eff) {
-    return "headless (pedido gráfico; DISPLAY/Wayland ausente no processo Node)";
+    return "headless (pedido gráfico; X11 sem DISPLAY no processo Node — use DISPLAY=:0 no systemd ou ML_PLAYWRIGHT_X11_DISPLAY=:0 no .env)";
   }
   return eff ? "headless" : "graphical";
 }
@@ -167,20 +168,23 @@ export async function runTestMlImport(
     throw new Error("Informe uma URL do Mercado Livre (mercadolivre.com.br/… ou meli.la/…).");
   }
 
+  applyPlaywrightLinuxDisplayEnv();
   const fetchUrl = normalizeMlFetchUrl(rawUrl, { keepSearch: true });
+  const x11Hint =
+    String(process.env.ML_PLAYWRIGHT_X11_DISPLAY ?? process.env.ML_PLAYWRIGHT_DISPLAY ?? "").trim() || "—";
   const globalSteps: string[] = [
     `URL normalizada: ${fetchUrl}`,
     `Modo: ${mode}`,
-    `Servidor: DISPLAY=${process.env.DISPLAY ?? "—"} WAYLAND_DISPLAY=${process.env.WAYLAND_DISPLAY ?? "—"}`,
+    `Servidor X11/Wayland: DISPLAY=${process.env.DISPLAY ?? "—"} WAYLAND_DISPLAY=${process.env.WAYLAND_DISPLAY ?? "—"} XAUTHORITY=${process.env.XAUTHORITY ?? "—"} (ML_PLAYWRIGHT_X11_DISPLAY no .env=${x11Hint})`,
   ];
   if (opts?.playwrightHeaded) {
     if (hasDisplayForHeadedChromium()) {
       globalSteps.push(
-        "Playwright: modo gráfico pedido — DISPLAY/Wayland detetado no processo Node (Chromium deve abrir com janela).",
+        "Playwright: modo gráfico pedido — sessão gráfica detetada (X11: DISPLAY; ou Wayland) no processo Node; Chromium deve abrir com janela.",
       );
     } else {
       globalSteps.push(
-        "AVISO: modo gráfico pedido mas DISPLAY/Wayland não está definido no processo Node — Playwright corre em headless (fallback). Defina DISPLAY=:0 no serviço que arranca o Next.js.",
+        "AVISO: modo gráfico pedido mas sem DISPLAY (X11) nem WAYLAND_DISPLAY no processo Node — Playwright corre em headless (fallback). Servidor X11: defina DISPLAY=:0 no systemd/PM2 ou ML_PLAYWRIGHT_X11_DISPLAY=:0 no .env; opcional ML_PLAYWRIGHT_X11_XAUTHORITY.",
       );
     }
   }

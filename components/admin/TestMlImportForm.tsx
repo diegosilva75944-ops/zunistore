@@ -7,7 +7,7 @@ type Props = {
   onUrlChange: (v: string) => void;
   loading: boolean;
   onSubmit: (mode: ImportMode) => void;
-  /** Chromium com janela (requer DISPLAY/Wayland no processo do servidor Next.js). */
+  /** Chromium com janela (servidor Linux: em geral X11 com DISPLAY ou ML_PLAYWRIGHT_X11_DISPLAY no .env). */
   playwrightHeaded: boolean;
   onPlaywrightHeadedChange: (v: boolean) => void;
 };
@@ -38,10 +38,13 @@ export function TestMlImportForm({
           onChange={(e) => onPlaywrightHeadedChange(e.target.checked)}
         />
         <span>
-          Chromium com janela (modo gráfico). No servidor Linux exige{" "}
-          <code className="rounded bg-amber-100/80 px-1 text-xs">DISPLAY</code> ou{" "}
-          <code className="rounded bg-amber-100/80 px-1 text-xs">WAYLAND_DISPLAY</code> no processo do Next.js;
-          sem isso o Playwright usa headless.
+          Chromium com janela (modo gráfico). Em servidor <strong className="font-semibold">X11</strong>, o processo do
+          Next.js precisa de <code className="rounded bg-amber-100/80 px-1 text-xs">DISPLAY</code> (ex.:{" "}
+          <code className="rounded bg-amber-100/80 px-1 text-xs">:0</code>) ou defina{" "}
+          <code className="rounded bg-amber-100/80 px-1 text-xs">ML_PLAYWRIGHT_X11_DISPLAY=:0</code> no{" "}
+          <code className="rounded bg-amber-100/80 px-1 text-xs">.env</code> se o systemd não passar{" "}
+          <code className="rounded bg-amber-100/80 px-1 text-xs">DISPLAY</code>. Sem sessão gráfica o Playwright usa
+          headless.
         </span>
       </label>
       <textarea
