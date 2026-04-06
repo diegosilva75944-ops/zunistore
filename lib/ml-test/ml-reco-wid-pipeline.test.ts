@@ -1,7 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runTestMlImport } from "./pipeline";
 
 const networkOk = process.env.CI !== "true" && process.env.SKIP_ML_NETWORK !== "1";
+
+let prevUserDataDir: string | undefined;
+
+beforeAll(() => {
+  prevUserDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR;
+  process.env.ML_PLAYWRIGHT_USER_DATA_DIR = mkdtempSync(join(tmpdir(), "zuni-ml-test-"));
+});
+
+afterAll(() => {
+  if (prevUserDataDir !== undefined) process.env.ML_PLAYWRIGHT_USER_DATA_DIR = prevUserDataDir;
+  else delete process.env.ML_PLAYWRIGHT_USER_DATA_DIR;
+});
 
 /** Link real: path /p/MLB32068338 (catálogo) + #wid=MLB4519212879 (anúncio em reco). */
 const RECO_URL =
@@ -9,9 +24,9 @@ const RECO_URL =
 
 describe("runTestMlImport — URL reco wid ≠ MLB do path", () => {
   it.skipIf(!networkOk)("importa título e preço (não vazio)", async () => {
-    const r = await runTestMlImport(RECO_URL, "auto");
+    const r = await runTestMlImport(RECO_URL, "auto", { playwrightHeaded: false });
     expect(r.title?.trim().length).toBeGreaterThan(5);
     expect(r.pricing.currentPrice).not.toBeNull();
     expect(r.pricing.currentPrice).toBeGreaterThan(0);
-  });
+  }, 90_000);
 });

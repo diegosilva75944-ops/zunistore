@@ -27,7 +27,7 @@ export async function importMercadoLivreFromPdp(
 ): Promise<MercadoLivrePdpImportResponse> {
   const affiliateCode = input.affiliateCode?.trim() || "ml_ext";
   const fetchUrl = normalizeMlFetchUrl(input.sourceUrl, { keepSearch: true });
-  const result = await runTestMlImport(fetchUrl, "auto");
+  const result = await runTestMlImport(fetchUrl, "auto", { playwrightHeaded: true });
   const externalId = await extractMlItemIdFromUrlWithRedirects(input.sourceUrl.trim());
   const normalized = buildNormalizedFromTestImport(result, externalId, fetchUrl);
   const importResult = await mlImportOrUpdateProduct({

@@ -11,4 +11,6 @@ export type {
   TestMlImportResult,
   UsedCandidateEntry,
 } from "./types";
+export type { RunTestMlImportOptions } from "./pipeline";
+export type { FetchHtmlWithPlaywrightOptions } from "./extractWithBrowser";
 export { runTestMlImport, runTestMlImport as runMlPdpImport } from "./pipeline";

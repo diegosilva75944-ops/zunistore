@@ -109,7 +109,7 @@ export async function mlSyncImportedProduct(productId: string) {
     : undefined;
 
   const fetchUrl = normalizeMlFetchUrl(permalink, { keepSearch: true });
-  const result = await runTestMlImport(fetchUrl, "auto");
+  const result = await runTestMlImport(fetchUrl, "auto", { playwrightHeaded: true });
   let idForNorm: string;
   try {
     idForNorm = extractMlItemIdFromUrl(fetchUrl);

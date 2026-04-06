@@ -51,7 +51,7 @@ function resolveExternalIdForNorm(fetchUrl: string, hint?: string | null): strin
 
 export async function fetchMlPricesLikeImport(
   input: FetchMlPriceInput,
-  opts?: { externalIdHint?: string | null },
+  opts?: { externalIdHint?: string | null; playwrightHeaded?: boolean },
 ): Promise<MlPricesLikeImportResult> {
   const fetchUrl = resolveFetchUrl(input);
   if (!String(fetchUrl || "").trim()) {
@@ -59,7 +59,9 @@ export async function fetchMlPricesLikeImport(
   }
 
   try {
-    const result = await runTestMlImport(fetchUrl, "auto");
+    const result = await runTestMlImport(fetchUrl, "auto", {
+      playwrightHeaded: opts?.playwrightHeaded !== false,
+    });
     const idForNorm = resolveExternalIdForNorm(fetchUrl, opts?.externalIdHint);
     const normalized = buildNormalizedFromTestImport(result, idForNorm, fetchUrl);
 

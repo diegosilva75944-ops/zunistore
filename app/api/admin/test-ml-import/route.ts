@@ -9,6 +9,8 @@ export const maxDuration = 120;
 const bodySchema = z.object({
   url: z.string().min(12, "URL inválida."),
   mode: z.enum(["auto", "html", "headless"]).optional().default("auto"),
+  /** false = só headless (sem janela). Por defeito usa Chromium gráfico no servidor com DISPLAY. */
+  playwrightHeaded: z.boolean().optional().default(true),
 });
 
 export async function POST(req: Request) {
@@ -32,10 +34,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const { url, mode } = parsed.data;
+  const { url, mode, playwrightHeaded } = parsed.data;
 
   try {
-    const result = await runTestMlImport(url, mode as ImportMode, { returnPartialOnBlock: true });
+    const result = await runTestMlImport(url, mode as ImportMode, {
+      returnPartialOnBlock: true,
+      playwrightHeaded,
+    });
     return NextResponse.json({ ok: true, result });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Falha ao processar a URL.";

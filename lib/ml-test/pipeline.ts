@@ -3,7 +3,7 @@ import "server-only";
 import type { ImportMode, TestMlImportResult } from "./types";
 import { extractFromHtml } from "./extractFromHtml";
 import { fetchMlHtml } from "./fetchHtml";
-import { fetchHtmlWithPlaywright } from "./extractWithBrowser";
+import { fetchHtmlWithPlaywright, type FetchHtmlWithPlaywrightOptions } from "./extractWithBrowser";
 import { makeShortDescription, preferLongerText } from "./extractDescriptions";
 import { preferMaxNullable } from "./extractReviews";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
@@ -127,10 +127,25 @@ async function tryFetchViaMlAuth(fetchUrl: string, rawUrl: string, hint: string)
   }
 }
 
+export type RunTestMlImportOptions = {
+  returnPartialOnBlock?: boolean;
+  /**
+   * `true` = Chromium com janela (import/sync no servidor com X11/Wayland).
+   * `false` = forçar headless. `undefined` = `ML_PLAYWRIGHT_HEADLESS` / defeito.
+   */
+  playwrightHeaded?: boolean;
+};
+
+function pwFetchOpts(opts?: RunTestMlImportOptions): FetchHtmlWithPlaywrightOptions | undefined {
+  if (opts?.playwrightHeaded === true) return { headless: false };
+  if (opts?.playwrightHeaded === false) return { headless: true };
+  return undefined;
+}
+
 export async function runTestMlImport(
   rawUrl: string,
   mode: ImportMode,
-  opts?: { returnPartialOnBlock?: boolean },
+  opts?: RunTestMlImportOptions,
 ): Promise<TestMlImportResult> {
   if (!isMercadoLivreProductUrl(rawUrl)) {
     throw new Error("Informe uma URL do Mercado Livre (mercadolivre.com.br/… ou meli.la/…).");
@@ -138,6 +153,9 @@ export async function runTestMlImport(
 
   const fetchUrl = normalizeMlFetchUrl(rawUrl, { keepSearch: true });
   const globalSteps: string[] = [`URL normalizada: ${fetchUrl}`, `Modo: ${mode}`];
+  if (opts?.playwrightHeaded) {
+    globalSteps.push("Playwright: Chromium em modo gráfico (abre o browser, importa e fecha).");
+  }
   const returnPartialOnBlock = Boolean(opts?.returnPartialOnBlock);
 
   const blockedResult = (why: string, extra?: Record<string, unknown>): TestMlImportResult => ({
@@ -173,7 +191,7 @@ export async function runTestMlImport(
   });
 
   if (mode === "headless") {
-    const pw = await fetchHtmlWithPlaywright(fetchUrl);
+    const pw = await fetchHtmlWithPlaywright(fetchUrl, { headless: true });
     if (!pw.ok) {
       /** Preferir API oficial (OAuth) quando scraping está bloqueado. */
       const auth = await tryFetchViaMlAuth(fetchUrl, rawUrl, "Playwright bloqueado (headless)");
@@ -329,7 +347,7 @@ export async function runTestMlImport(
   if (!fetched.ok) {
     if (mode === "auto") {
       globalSteps.push(`HTTP indisponível ou bloqueado: ${fetched.error}. Tentando Playwright…`);
-      const pw = await fetchHtmlWithPlaywright(fetchUrl);
+      const pw = await fetchHtmlWithPlaywright(fetchUrl, pwFetchOpts(opts));
       if (!pw.ok) {
         /** Preferir API oficial (OAuth) quando scraping está bloqueado. */
         const auth = await tryFetchViaMlAuth(fetchUrl, rawUrl, "Playwright bloqueado (auto)");
@@ -488,7 +506,7 @@ export async function runTestMlImport(
         "Sem título no HTML → tentando Playwright…"
       : "Heurística fraca ou sem preço → tentando Playwright…",
     );
-    const pw = await fetchHtmlWithPlaywright(fetchUrl);
+    const pw = await fetchHtmlWithPlaywright(fetchUrl, pwFetchOpts(opts));
     if (pw.ok) {
       globalSteps.push(`Playwright: ${pw.html.length} chars`);
       const headlessExtract = extractFromHtml(pw.html, "headless");

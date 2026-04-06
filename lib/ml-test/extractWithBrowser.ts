@@ -507,9 +507,38 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
   }
 }
 
-export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFetchResult> {
-  const headlessFirst = shouldRunHeadless();
-  let last = await runPlaywrightFetch(url, headlessFirst);
+export type FetchHtmlWithPlaywrightOptions = {
+  /**
+   * `false` = Chromium com janela (import/sync no servidor com X11/Wayland).
+   * `true` = forçar headless. `undefined` = `ML_PLAYWRIGHT_HEADLESS` / defeito.
+   */
+  headless?: boolean;
+};
+
+function resolveFetchHeadless(opts?: FetchHtmlWithPlaywrightOptions): boolean {
+  if (opts?.headless === true) return true;
+  if (opts?.headless === false) {
+    if (!hasDisplayForHeadedChromium()) {
+      console.warn(
+        "[ml-playwright] Modo gráfico pedido (headless=false) mas sem DISPLAY/Wayland — a usar headless.",
+      );
+      return true;
+    }
+    return false;
+  }
+  return shouldRunHeadless();
+}
+
+/**
+ * Abre o Chromium (headless ou com janela), obtém o HTML e fecha o browser no `finally` de cada contexto.
+ * Com `headless: false`, não abre segunda janela interativa no fim — só uma sessão gráfica por chamada.
+ */
+export async function fetchHtmlWithPlaywright(
+  url: string,
+  opts?: FetchHtmlWithPlaywrightOptions,
+): Promise<PlaywrightFetchResult> {
+  const headless = resolveFetchHeadless(opts);
+  let last = await runPlaywrightFetch(url, headless);
 
   if (isPlaywrightResultUsable(last)) {
     return last;
@@ -519,17 +548,17 @@ export async function fetchHtmlWithPlaywright(url: string): Promise<PlaywrightFe
     last.ok && (isMlBlockedOrLoginHtml(last.html) || isBlockedUrl(last.finalUrl));
   const blockedErr = !last.ok && looksLikePlaywrightBlockError(last.error);
 
-  if (
-    !hasDisplayForHeadedChromium() &&
-    headlessFirst &&
-    (blockedHtml || blockedErr)
-  ) {
+  if (blockedHtml || blockedErr) {
     const settle = Math.max(postGotoSettleMs(), 4500);
-    const second = await runPlaywrightFetch(url, true, { waitUntil: "load", settleMs: settle });
+    const second = await runPlaywrightFetch(url, headless, { waitUntil: "load", settleMs: settle });
     if (isPlaywrightResultUsable(second)) {
       return second;
     }
     last = second;
+  }
+
+  if (!headless) {
+    return last;
   }
 
   if (!shouldOpenHeadedOnBlock()) {
