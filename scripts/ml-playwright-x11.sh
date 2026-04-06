@@ -1,19 +1,13 @@
 #!/usr/bin/env bash
-# Ambiente X11 para Next.js / Node com Playwright (servidor com sessão gráfica ou root a aceder ao display do utilizador).
-# Uso: source scripts/ml-playwright-x11.sh   ou   . ./scripts/ml-playwright-x11.sh
+# Ambiente X11 para Node/Playwright. Uso: source scripts/ml-playwright-x11.sh
+# shellcheck source=/dev/null
+_ML_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${_ML_ROOT}/x11-detect.inc.sh"
+detect_x11_env
 
-set -euo pipefail
-
-export DISPLAY="${DISPLAY:-:1}"
 export GIO_USE_PROXY="${GIO_USE_PROXY:-0}"
 export GTK_USE_PORTAL="${GTK_USE_PORTAL:-0}"
-# GDM (sessão gráfica); fallback ~/.Xauthority
-export XAUTHORITY="${XAUTHORITY:-/run/user/1000/gdm/Xauthority}"
-if [ ! -r "${XAUTHORITY}" ] && [ -r "${HOME}/.Xauthority" ]; then
-  export XAUTHORITY="${HOME}/.Xauthority"
-fi
 
-# Permite ao root (ou outro utilizador) ligar ao X local do utilizador dono da sessão (ajuste o nome se necessário).
 if command -v xhost >/dev/null 2>&1; then
   xhost "+SI:localuser:root" 2>/dev/null || true
 fi
