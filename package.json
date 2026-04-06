@@ -9,6 +9,7 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
+    "start:x11": "bash scripts/run.sh",
     "lint": "eslint",
     "test": "vitest run",
     "replace": "node scripts/replace-all.js",

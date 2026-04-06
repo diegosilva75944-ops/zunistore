@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { BrowserContext, Page } from "playwright";
-import { existsSync, mkdirSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -37,31 +37,78 @@ function normalizeX11DisplayValue(raw: string): string {
   return s;
 }
 
+/** Defeito GDM + Xorg ecrã local (root/PM2 sem herança do login gráfico). */
+const LINUX_DEFAULT_DISPLAY = ":1";
+const LINUX_DEFAULT_GDM_XAUTHORITY = "/run/user/1000/gdm/Xauthority";
+
 function linuxAutoX11DefaultsEnabled(): boolean {
   const v = String(process.env.ML_PLAYWRIGHT_AUTO_X11 ?? "").trim().toLowerCase();
   if (v === "0" || v === "false" || v === "no") return false;
   return true;
 }
 
-/** Caminho típico do cookie X11 (utilizador atual ou root). */
-function resolveDefaultXauthorityPath(): string {
-  const fromEnv = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
-  if (fromEnv) return fromEnv;
-  const home = os.homedir();
+function gdmXauthorityCandidates(): string[] {
+  const uid = String(process.env.ML_PLAYWRIGHT_GRAPHICAL_UID ?? "1000").trim();
+  const custom = String(process.env.ML_PLAYWRIGHT_X11_GDM_XAUTHORITY ?? "").trim();
+  const out: string[] = [];
+  if (custom) out.push(custom);
+  out.push(`/run/user/${uid}/gdm/Xauthority`);
+  out.push(LINUX_DEFAULT_GDM_XAUTHORITY);
+  return out;
+}
+
+/** Primeiro ficheiro de cookie X11 legível; senão o caminho por defeito GDM (para env explícito). */
+function pickReadableXauthorityPath(): string {
+  const explicit = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
+  if (explicit) return explicit;
+  const def = String(process.env.ML_PLAYWRIGHT_X11_AUTHORITY_DEFAULT ?? LINUX_DEFAULT_GDM_XAUTHORITY).trim();
   const candidates = [
-    path.join(home, ".Xauthority"),
+    ...gdmXauthorityCandidates(),
+    def,
+    path.join(os.homedir(), ".Xauthority"),
     ...(typeof process.getuid === "function" && process.getuid() === 0 ? ["/root/.Xauthority"] : []),
   ];
+  const seen = new Set<string>();
   for (const p of candidates) {
-    if (existsSync(p)) return p;
+    if (!p || seen.has(p)) continue;
+    seen.add(p);
+    if (!existsSync(p)) continue;
+    try {
+      accessSync(p, fsConstants.R_OK);
+      return p;
+    } catch {
+      /* */
+    }
   }
-  return path.join(home, ".Xauthority");
+  return def || LINUX_DEFAULT_GDM_XAUTHORITY;
+}
+
+function linuxX11SessionAccessible(): boolean {
+  const xa = String(process.env.XAUTHORITY ?? "").trim();
+  if (!xa) return false;
+  if (!existsSync(xa)) return false;
+  try {
+    accessSync(xa, fsConstants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function logPlaywrightX11Env(label: string): void {
+  if (process.platform !== "linux") return;
+  syncX11DisplayFromEnv();
+  const uid = typeof process.getuid === "function" ? process.getuid() : -1;
+  const euid = typeof process.geteuid === "function" ? process.geteuid() : -1;
+  const ok = linuxX11SessionAccessible();
+  const w = String(process.env.WAYLAND_DISPLAY ?? "").trim();
+  console.info(
+    `[ml-playwright] ${label} DISPLAY=${process.env.DISPLAY ?? ""} XAUTHORITY=${process.env.XAUTHORITY ?? ""} WAYLAND_DISPLAY=${w || "—"} uid=${uid} euid=${euid} xAccessible=${ok}`,
+  );
 }
 
 /**
- * Sincroniza DISPLAY / XAUTHORITY: variáveis explícitas, depois ML_PLAYWRIGHT_* e, em Linux, defaults
- * (`ML_PLAYWRIGHT_X11_DISPLAY_DEFAULT`, por defeito `:1` e `~/.Xauthority`) quando `ML_PLAYWRIGHT_AUTO_X11` ≠ 0.
- * Não sobrescreve DISPLAY já definido (ex.: SSH X11 forwarding `localhost:10.0`).
+ * Sincroniza DISPLAY / XAUTHORITY (GDM, root, PM2). Não sobrescreve DISPLAY já definido (ex.: SSH).
  */
 function syncX11DisplayFromEnv(): void {
   if (process.platform !== "linux") return;
@@ -72,21 +119,23 @@ function syncX11DisplayFromEnv(): void {
     ).trim();
     if (fromEnv) {
       const resolved = normalizeX11DisplayValue(fromEnv);
-      if (resolved) {
-        process.env.DISPLAY = resolved;
-        d = resolved;
-      }
+      if (resolved) process.env.DISPLAY = resolved;
     }
   }
+  d = String(process.env.DISPLAY ?? "").trim();
   if (!d && linuxAutoX11DefaultsEnabled()) {
-    const raw = String(process.env.ML_PLAYWRIGHT_X11_DISPLAY_DEFAULT ?? ":1").trim();
-    const resolved = normalizeX11DisplayValue(raw || ":1");
+    const raw = String(process.env.ML_PLAYWRIGHT_X11_DISPLAY_DEFAULT ?? LINUX_DEFAULT_DISPLAY).trim();
+    const resolved = normalizeX11DisplayValue(raw || LINUX_DEFAULT_DISPLAY);
     if (resolved) process.env.DISPLAY = resolved;
   }
   let xa = String(process.env.XAUTHORITY ?? "").trim();
   if (!xa) {
-    process.env.XAUTHORITY = resolveDefaultXauthorityPath();
-    xa = String(process.env.XAUTHORITY ?? "").trim();
+    if (linuxAutoX11DefaultsEnabled()) {
+      process.env.XAUTHORITY = pickReadableXauthorityPath();
+    } else {
+      const fb = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
+      process.env.XAUTHORITY = fb || path.join(os.homedir(), ".Xauthority");
+    }
   }
 }
 
@@ -101,7 +150,7 @@ function playwrightBrowserEnv(): Record<string, string> {
 }
 
 function looksLikeX11OrDisplayError(msg: string): boolean {
-  return /Missing X server|\$DISPLAY|cannot open display|X11|BadValue|Authorization|Xauthority|Xvfb|Gtk-WARNING.*cannot open display/i.test(
+  return /Missing X server|missing x server|\$DISPLAY|cannot open display|X11|BadValue|Authorization|Xauthority|Xvfb|Gtk-WARNING.*cannot open display|No protocol specified/i.test(
     msg,
   );
 }
@@ -114,16 +163,21 @@ export function applyPlaywrightLinuxDisplayEnv(): void {
 }
 
 /**
- * Chromium com janela (headed) no Linux: em geral **X11** (`DISPLAY`) ou Wayland (`WAYLAND_DISPLAY`).
- * Sem ambos, forçamos headless (evita "Missing X server").
+ * Chromium com janela (headed): Wayland, ou X11 com DISPLAY + cookie legível (root precisa de XAUTHORITY GDM).
  */
 export function hasDisplayForHeadedChromium(): boolean {
   syncX11DisplayFromEnv();
   const p = process.platform;
   if (p === "darwin" || p === "win32") return true;
-  const d = String(process.env.DISPLAY ?? "").trim();
   const w = String(process.env.WAYLAND_DISPLAY ?? "").trim();
-  return Boolean(d || w);
+  if (w) return true;
+  if (p !== "linux") {
+    const d = String(process.env.DISPLAY ?? "").trim();
+    return Boolean(d);
+  }
+  const d = String(process.env.DISPLAY ?? "").trim();
+  if (!d) return false;
+  return linuxX11SessionAccessible();
 }
 
 function postGotoSettleMs(): number {
@@ -364,6 +418,7 @@ async function runPlaywrightFetchOnce(
   const { chromium } = await import("playwright");
 
   applyPlaywrightLinuxDisplayEnv();
+  logPlaywrightX11Env("launchPersistentContext");
   const headless = !hasDisplayForHeadedChromium() ? true : useHeadless;
   const waitUntil = opts?.waitUntil ?? "domcontentloaded";
   const settleMs = opts?.settleMs ?? postGotoSettleMs();
@@ -445,17 +500,11 @@ async function runPlaywrightFetch(
   url: string,
   useHeadless: boolean,
   opts?: PlaywrightFetchOpts,
-  headedModeRequested?: boolean,
 ): Promise<PlaywrightFetchResult> {
   try {
     let result = await runPlaywrightFetchOnce(url, useHeadless, opts);
     const errText = result.ok ? "" : result.error;
-    if (
-      !result.ok &&
-      headedModeRequested &&
-      !useHeadless &&
-      looksLikeX11OrDisplayError(errText)
-    ) {
+    if (!result.ok && !useHeadless && looksLikeX11OrDisplayError(errText)) {
       console.warn("[ml-playwright] Falha ao ligar ao servidor X11; a repetir em headless.");
       result = await runPlaywrightFetchOnce(url, true, opts);
     }
@@ -463,7 +512,7 @@ async function runPlaywrightFetch(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     let result: PlaywrightFetchResult = { ok: false, error: `Playwright: ${msg}` };
-    if (headedModeRequested && !useHeadless && looksLikeX11OrDisplayError(msg)) {
+    if (!useHeadless && looksLikeX11OrDisplayError(msg)) {
       console.warn("[ml-playwright] Exceção X11; a repetir em headless.");
       try {
         result = await runPlaywrightFetchOnce(url, true, opts);
@@ -484,11 +533,13 @@ function snapshotLooksLikeProduct(lastUrl: string, lastHtml: string): boolean {
 }
 
 async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFetchResult> {
+  applyPlaywrightLinuxDisplayEnv();
+  logPlaywrightX11Env("interactive");
   if (!hasDisplayForHeadedChromium()) {
     return {
       ok: false,
       error:
-        "Playwright (interativo): Linux sem DISPLAY/Wayland — não é possível abrir janela. " +
+        "Playwright (interativo): Linux sem DISPLAY/Wayland ou XAUTHORITY ilegível — não é possível abrir janela. " +
         "Use headless com perfil já logado (ML_PLAYWRIGHT_USER_DATA_DIR ou ML_PLAYWRIGHT_STORAGE_STATE). " +
         "Defina ML_PLAYWRIGHT_EXECUTABLE_PATH para o Chromium do sistema se o bundle Playwright for bloqueado.",
     };
@@ -611,7 +662,7 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
         error: `Playwright: tempo esgotado (${Math.round(maxWait / 1000)}s) sem obter a página do produto. Verifique login e tente de novo.`,
       };
     } finally {
-      await context.close();
+      await context.close().catch(() => {});
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -619,7 +670,7 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
       /browserType\.launch|Target page|closed|has been closed/i.test(msg) && !/DISPLAY/i.test(msg) ?
         ""
       : /DISPLAY|Missing X server|gtk/i.test(msg) ?
-        " (Linux: precisa de sessão gráfica, ex.: DISPLAY=:0 ou X11/Wayland)"
+        " (Linux: DISPLAY=:1 e XAUTHORITY GDM; scripts/run.sh ou xhost +SI:localuser:root)"
       : "";
     return {
       ok: false,
@@ -678,8 +729,7 @@ export async function fetchHtmlWithPlaywright(
     };
   }
   const headless = resolveFetchHeadless(opts);
-  const headedModeRequested = opts?.headless === false;
-  let last = await runPlaywrightFetch(url, headless, undefined, headedModeRequested);
+  let last = await runPlaywrightFetch(url, headless, undefined);
 
   if (isPlaywrightResultUsable(last)) {
     return last;
@@ -691,7 +741,7 @@ export async function fetchHtmlWithPlaywright(
 
   if (blockedHtml || blockedErr) {
     const settle = Math.max(postGotoSettleMs(), 4500);
-    const second = await runPlaywrightFetch(url, headless, { waitUntil: "load", settleMs: settle }, headedModeRequested);
+    const second = await runPlaywrightFetch(url, headless, { waitUntil: "load", settleMs: settle });
     if (isPlaywrightResultUsable(second)) {
       return second;
     }

@@ -5,7 +5,11 @@
 set -euo pipefail
 
 export DISPLAY="${DISPLAY:-:1}"
-export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+# GDM (sessão gráfica); fallback ~/.Xauthority
+export XAUTHORITY="${XAUTHORITY:-/run/user/1000/gdm/Xauthority}"
+if [ ! -r "${XAUTHORITY}" ] && [ -r "${HOME}/.Xauthority" ]; then
+  export XAUTHORITY="${HOME}/.Xauthority"
+fi
 
 # Permite ao root (ou outro utilizador) ligar ao X local do utilizador dono da sessão (ajuste o nome se necessário).
 if command -v xhost >/dev/null 2>&1; then
