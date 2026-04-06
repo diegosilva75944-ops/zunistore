@@ -238,6 +238,34 @@ export function hasDisplayForHeadedChromium(): boolean {
   return linuxX11SessionAccessible();
 }
 
+/** Mensagem para debug quando DISPLAY parece ok mas headed falha (ex.: root sem leitura do cookie GDM). */
+export function getLinuxHeadedChromiumUnavailableReason(): string | null {
+  applyPlaywrightLinuxDisplayEnv();
+  const p = process.platform;
+  if (p === "darwin" || p === "win32") return null;
+  if (hasDisplayForHeadedChromium()) return null;
+  const w = String(process.env.WAYLAND_DISPLAY ?? "").trim();
+  if (w) return null;
+  const d = String(process.env.DISPLAY ?? "").trim();
+  const xa = String(process.env.XAUTHORITY ?? "").trim();
+  if (!d) {
+    return "DISPLAY não está definido no processo Node — defina ML_PLAYWRIGHT_X11_DISPLAY=:1 ou arranque com scripts/run.sh / systemd.";
+  }
+  if (!xa) {
+    return "XAUTHORITY vazio — defina ML_PLAYWRIGHT_X11_XAUTHORITY=/run/user/1000/gdm/Xauthority (GDM).";
+  }
+  if (!existsSync(xa)) {
+    return `XAUTHORITY não existe: ${xa}`;
+  }
+  try {
+    accessSync(xa, fsConstants.R_OK);
+  } catch {
+    const uid = typeof process.getuid === "function" ? process.getuid() : -1;
+    return `sem permissão de leitura em ${xa} (uid do processo=${uid}). Comum com Next.js como root e cookie do utilizador gráfico (UID 1000): execute o serviço como esse utilizador, ou copie/merge o cookie (xauth), ou ajuste ACL — não é falta de DISPLAY (já está ${d}).`;
+  }
+  return "sessão X11 não utilizável.";
+}
+
 function postGotoSettleMs(): number {
   const raw = String(process.env.ML_PLAYWRIGHT_POST_GOTO_MS ?? "").trim();
   const n = Number(raw);

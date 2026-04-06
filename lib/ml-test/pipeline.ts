@@ -8,6 +8,7 @@ import {
   fetchHtmlWithPlaywright,
   type FetchHtmlWithPlaywrightOptions,
   getEffectivePlaywrightHeadless,
+  getLinuxHeadedChromiumUnavailableReason,
   hasDisplayForHeadedChromium,
 } from "./extractWithBrowser";
 import { makeShortDescription, preferLongerText } from "./extractDescriptions";
@@ -183,10 +184,14 @@ export async function runTestMlImport(
         "Playwright: modo gráfico pedido — sessão gráfica detetada (X11: DISPLAY; ou Wayland) no processo Node; Chromium deve abrir com janela.",
       );
     } else {
-      globalSteps.push(
-        "AVISO: modo gráfico pedido mas sem DISPLAY (X11) nem WAYLAND_DISPLAY no processo Node — Playwright corre em headless (fallback). Servidor X11: defina DISPLAY=:0 no systemd/PM2 ou ML_PLAYWRIGHT_X11_DISPLAY=:0 no .env; opcional ML_PLAYWRIGHT_X11_XAUTHORITY.",
-      );
+      const why = getLinuxHeadedChromiumUnavailableReason() ?? "sessão gráfica indisponível.";
+      globalSteps.push(`AVISO: modo gráfico pedido mas ${why} Playwright corre em headless (fallback).`);
     }
+  }
+  if (mode === "headless" && opts?.playwrightHeaded) {
+    globalSteps.push(
+      "Modo teste «Só Playwright»: com janela ativa no formulário, o Chromium usa modo gráfico se o X estiver acessível (não força mais só headless por causa do nome do modo).",
+    );
   }
   const returnPartialOnBlock = Boolean(opts?.returnPartialOnBlock);
 
@@ -223,7 +228,7 @@ export async function runTestMlImport(
   });
 
   if (mode === "headless") {
-    const pw = await fetchHtmlWithPlaywright(fetchUrl, { headless: true });
+    const pw = await fetchHtmlWithPlaywright(fetchUrl, pwFetchOpts(opts) ?? { headless: true });
     if (!pw.ok) {
       /** Preferir API oficial (OAuth) quando scraping está bloqueado. */
       const auth = await tryFetchViaMlAuth(fetchUrl, rawUrl, "Playwright bloqueado (headless)");
