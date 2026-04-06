@@ -5,6 +5,8 @@
 set -euo pipefail
 
 export DISPLAY="${DISPLAY:-:1}"
+export GIO_USE_PROXY="${GIO_USE_PROXY:-0}"
+export GTK_USE_PORTAL="${GTK_USE_PORTAL:-0}"
 # GDM (sessão gráfica); fallback ~/.Xauthority
 export XAUTHORITY="${XAUTHORITY:-/run/user/1000/gdm/Xauthority}"
 if [ ! -r "${XAUTHORITY}" ] && [ -r "${HOME}/.Xauthority" ]; then

@@ -7,6 +7,8 @@ cd "$ROOT"
 
 export DISPLAY="${DISPLAY:-:1}"
 export XAUTHORITY="${XAUTHORITY:-/run/user/1000/gdm/Xauthority}"
+export GIO_USE_PROXY="${GIO_USE_PROXY:-0}"
+export GTK_USE_PORTAL="${GTK_USE_PORTAL:-0}"
 
 if command -v xhost >/dev/null 2>&1; then
   xhost "+SI:localuser:root" 2>/dev/null || true

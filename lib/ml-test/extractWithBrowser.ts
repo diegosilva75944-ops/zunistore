@@ -15,6 +15,7 @@ const PLAYWRIGHT_TIMEOUT_MS = 75_000;
 const DEFAULT_STORAGE_STATE_PATH = ".playwright/ml-storage-state.json";
 const DEFAULT_USER_DATA_DIR = ".playwright/ml-user-data";
 
+/** Base: root e utilizador normal (Ubuntu/GDM); Snap costuma exigir no-sandbox em serviços. */
 const CHROMIUM_SERVER_ARGS = [
   "--no-sandbox",
   "--disable-setuid-sandbox",
@@ -25,6 +26,59 @@ const CHROMIUM_SERVER_ARGS = [
 ] as const;
 
 const PLAYWRIGHT_IGNORE_DEFAULT_ARGS = ["--enable-automation"] as const;
+
+function isRootProcess(): boolean {
+  const uid = typeof process.getuid === "function" ? process.getuid() : -1;
+  const euid = typeof process.geteuid === "function" ? process.geteuid() : -1;
+  return uid === 0 || euid === 0;
+}
+
+function dedupeChromiumArgs(args: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const a of args) {
+    if (seen.has(a)) continue;
+    seen.add(a);
+    out.push(a);
+  }
+  return out;
+}
+
+function parseExtraChromiumArgsFromEnv(): string[] {
+  const raw = String(process.env.ML_PLAYWRIGHT_EXTRA_CHROMIUM_ARGS ?? "").trim();
+  if (!raw) return [];
+  return raw.split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Args finais do Chromium: no-sandbox (reforço como root), flags Snap/GTK (libproxy), extras do .env.
+ */
+function buildChromiumLaunchArgs(headless: boolean): string[] {
+  const parts: string[] = [];
+  if (isRootProcess()) {
+    parts.push("--no-sandbox", "--disable-setuid-sandbox");
+  }
+  parts.push(...CHROMIUM_SERVER_ARGS);
+  if (process.platform === "linux") {
+    parts.push("--disable-background-networking");
+  }
+  parts.push(...parseExtraChromiumArgsFromEnv());
+  if (!headless) {
+    parts.push("--window-size=1365,900");
+  }
+  return dedupeChromiumArgs(parts);
+}
+
+function logChromiumLaunch(
+  headless: boolean,
+  launchExtra: { executablePath?: string; channel?: "chrome" | "chromium" | "msedge" },
+  args: string[],
+): void {
+  const exe = launchExtra.executablePath ?? launchExtra.channel ?? "playwright-bundled";
+  console.info(
+    `[ml-playwright] chromium headless=${headless} root=${isRootProcess()} chromiumSandbox=false executable=${exe} args=${JSON.stringify(args)}`,
+  );
+}
 
 /** Normaliza valor vindo do .env (ex. `0` ou `:0`) para um DISPLAY X11 válido. */
 function normalizeX11DisplayValue(raw: string): string {
@@ -139,18 +193,22 @@ function syncX11DisplayFromEnv(): void {
   }
 }
 
-/** `env` explícito para o processo do Chromium (SSH/root/herança); só strings (Playwright). */
+/** `env` explícito para o processo do Chromium (SSH/root/Snap); GIO/GTK reduzem erros libproxy em Ubuntu Snap. */
 function playwrightBrowserEnv(): Record<string, string> {
   syncX11DisplayFromEnv();
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined) out[k] = v;
   }
+  if (process.platform === "linux") {
+    if (out.GIO_USE_PROXY === undefined) out.GIO_USE_PROXY = "0";
+    if (out.GTK_USE_PORTAL === undefined) out.GTK_USE_PORTAL = "0";
+  }
   return out;
 }
 
 function looksLikeX11OrDisplayError(msg: string): boolean {
-  return /Missing X server|missing x server|\$DISPLAY|cannot open display|X11|BadValue|Authorization|Xauthority|Xvfb|Gtk-WARNING.*cannot open display|No protocol specified/i.test(
+  return /Missing X server|missing x server|\$DISPLAY|cannot open display|X11|BadValue|Authorization|Xauthority|Xvfb|Gtk-WARNING.*cannot open display|No protocol specified|libpxbackend|libgiolibproxy|libproxy|snap|error while loading shared libraries|cannot load shared object/i.test(
     msg,
   );
 }
@@ -225,13 +283,13 @@ function isPlaywrightResultUsable(r: PlaywrightFetchResult): boolean {
   return true;
 }
 
-/** Ordem: variável de ambiente (se existir no disco) → caminhos típicos Linux (Snap antes de /usr). */
+/** Deb/apt antes de Snap (evita libpxbackend/libgiolibproxy em muitos servidores). */
 const LINUX_CHROMIUM_FALLBACKS = [
-  "/snap/bin/chromium",
-  "/usr/bin/chromium",
-  "/usr/bin/chromium-browser",
   "/usr/bin/google-chrome-stable",
   "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/snap/bin/chromium",
 ] as const;
 
 function chromiumExecutableCandidates(preferred: string): string[] {
@@ -424,6 +482,8 @@ async function runPlaywrightFetchOnce(
   const settleMs = opts?.settleMs ?? postGotoSettleMs();
   const launchExtra = playwrightExecutableOrChannel();
   const browserEnv = playwrightBrowserEnv();
+  const chromiumArgs = buildChromiumLaunchArgs(headless);
+  logChromiumLaunch(headless, launchExtra, chromiumArgs);
 
   const storageStatePath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || DEFAULT_STORAGE_STATE_PATH;
   const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
@@ -431,8 +491,9 @@ async function runPlaywrightFetchOnce(
   const contextBase = {
     ...launchExtra,
     headless,
+    chromiumSandbox: false,
     env: browserEnv,
-    args: [...CHROMIUM_SERVER_ARGS],
+    args: chromiumArgs,
     ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
     locale: "pt-BR" as const,
     viewport: mlViewport(),
@@ -459,15 +520,20 @@ async function runPlaywrightFetchOnce(
       }
       return last;
     } finally {
+      const closeDelay = Number(String(process.env.ML_PLAYWRIGHT_HEADED_CLOSE_DELAY_MS ?? "").trim());
+      if (!headless && Number.isFinite(closeDelay) && closeDelay > 0) {
+        await new Promise((r) => setTimeout(r, Math.min(closeDelay, 30_000)));
+      }
       await context.close().catch(() => {});
     }
   }
 
   const browser = await chromium.launch({
     headless,
+    chromiumSandbox: false,
     env: browserEnv,
     ...launchExtra,
-    args: [...CHROMIUM_SERVER_ARGS],
+    args: chromiumArgs,
     ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
   });
   try {
@@ -553,6 +619,8 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
     const maxWait = interactiveTimeoutMs();
     const deadline = Date.now() + maxWait;
     const launchExtra = playwrightExecutableOrChannel();
+    const chromiumArgs = buildChromiumLaunchArgs(false);
+    logChromiumLaunch(false, launchExtra, chromiumArgs);
 
     console.warn(
       `[ml-playwright] Abrindo janela para login/verificação do Mercado Livre. ` +
@@ -562,8 +630,9 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
     const context = await chromium.launchPersistentContext(absDir, {
       ...launchExtra,
       headless: false,
+      chromiumSandbox: false,
       env: playwrightBrowserEnv(),
-      args: [...CHROMIUM_SERVER_ARGS],
+      args: chromiumArgs,
       ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
       locale: "pt-BR",
       viewport: mlViewport(),
