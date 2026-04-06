@@ -314,6 +314,28 @@ function x11UnixSocketsDebug(): string {
   }
 }
 
+/** No Docker, paths como `/run/user/1000/gdm/Xauthority` são do host — não existem no FS do contentor até copiar para um volume. */
+function xauthorityFileDockerHostPathHint(): string {
+  const p = String(process.env.ML_PLAYWRIGHT_XAUTHORITY_FILE ?? "").trim();
+  if (!p || existsSync(p)) return "";
+  const ctr = detectLinuxContainerKind();
+  if (!ctr) return "";
+  if (/\/run\/user\/\d+\//.test(p) || /^\/home\/[^/]+\//.test(p)) {
+    return (
+      " NOTA_ML_PLAYWRIGHT_XAUTHORITY_FILE: este caminho é típico do host; no contentor copie o ficheiro binário para um volume " +
+      "(ex. /data/ml-xauth) e defina ML_PLAYWRIGHT_XAUTHORITY_FILE=/data/ml-xauth — não reutilize o path do host."
+    );
+  }
+  return "";
+}
+
+function x11DockerMissingSocketHint(): string {
+  const ctr = detectLinuxContainerKind();
+  if (!ctr) return "";
+  if (x11UnixSocketsDebug() !== "x11_unix=absent") return "";
+  return " NOTA_X11: /tmp/.X11-unix ausente no contentor — modo gráfico exige montar o socket do host (ex.: -v /tmp/.X11-unix:/tmp/.X11-unix) e DISPLAY igual ao do host.";
+}
+
 /** Resumo para o debug do import: primeiros candidatos e se existem / são legíveis pelo processo atual. */
 export function getXauthorityDiscoveryDebug(): string {
   applyPlaywrightLinuxDisplayEnv();
@@ -332,7 +354,7 @@ export function getXauthorityDiscoveryDebug(): string {
     });
   const fileEnv = String(process.env.ML_PLAYWRIGHT_XAUTHORITY_FILE ?? "").trim();
   const fileHint = fileEnv ? ` ML_PLAYWRIGHT_XAUTHORITY_FILE=${fileEnv}(${existsSync(fileEnv) ? "exists" : "missing"})` : "";
-  return `uid=${uid}; container=${ctr ?? "no"}; ${x11UnixSocketsDebug()};${fileHint} ${parts.join("; ")}`;
+  return `uid=${uid}; container=${ctr ?? "no"}; ${x11UnixSocketsDebug()};${fileHint} ${parts.join("; ")}${xauthorityFileDockerHostPathHint()}${x11DockerMissingSocketHint()}`;
 }
 
 function linuxX11SessionAccessible(): boolean {
