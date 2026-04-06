@@ -29,7 +29,7 @@ const PLAYWRIGHT_IGNORE_DEFAULT_ARGS = ["--enable-automation"] as const;
  * Chromium com janela (headed) exige X11 ou Wayland no Linux. Em Docker/servidor típico não há DISPLAY —
  * nesse caso forçamos sempre headless e não chamamos o modo interativo (evita "Missing X server").
  */
-function hasDisplayForHeadedChromium(): boolean {
+export function hasDisplayForHeadedChromium(): boolean {
   const p = process.platform;
   if (p === "darwin" || p === "win32") return true;
   const d = String(process.env.DISPLAY ?? "").trim();
@@ -515,18 +515,29 @@ export type FetchHtmlWithPlaywrightOptions = {
   headless?: boolean;
 };
 
+function strictHeadedWhenNoDisplay(): boolean {
+  const v = String(process.env.ML_PLAYWRIGHT_STRICT_HEADED ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 function resolveFetchHeadless(opts?: FetchHtmlWithPlaywrightOptions): boolean {
   if (opts?.headless === true) return true;
   if (opts?.headless === false) {
     if (!hasDisplayForHeadedChromium()) {
       console.warn(
-        "[ml-playwright] Modo gráfico pedido (headless=false) mas sem DISPLAY/Wayland — a usar headless.",
+        "[ml-playwright] Modo gráfico pedido (headless=false) mas sem DISPLAY/Wayland no processo Node — a usar headless. " +
+          "Defina DISPLAY=:0 (ou WAYLAND_DISPLAY) no serviço que arranca o Next.js, ou ML_PLAYWRIGHT_STRICT_HEADED=1 para falhar em vez de fallback.",
       );
       return true;
     }
     return false;
   }
   return shouldRunHeadless();
+}
+
+/** Mesma lógica que `fetchHtmlWithPlaywright` usa para decidir headless (útil para mensagens de debug). */
+export function getEffectivePlaywrightHeadless(opts?: FetchHtmlWithPlaywrightOptions): boolean {
+  return resolveFetchHeadless(opts);
 }
 
 /**
@@ -537,6 +548,13 @@ export async function fetchHtmlWithPlaywright(
   url: string,
   opts?: FetchHtmlWithPlaywrightOptions,
 ): Promise<PlaywrightFetchResult> {
+  if (opts?.headless === false && !hasDisplayForHeadedChromium() && strictHeadedWhenNoDisplay()) {
+    return {
+      ok: false,
+      error:
+        "Modo gráfico pedido mas DISPLAY/Wayland não está definido no processo Node. Defina DISPLAY=:0 (ou WAYLAND_DISPLAY) no systemd/.env e reinicie o Next.js, ou remova ML_PLAYWRIGHT_STRICT_HEADED.",
+    };
+  }
   const headless = resolveFetchHeadless(opts);
   let last = await runPlaywrightFetch(url, headless);
 

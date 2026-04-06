@@ -7,9 +7,19 @@ type Props = {
   onUrlChange: (v: string) => void;
   loading: boolean;
   onSubmit: (mode: ImportMode) => void;
+  /** Chromium com janela (requer DISPLAY/Wayland no processo do servidor Next.js). */
+  playwrightHeaded: boolean;
+  onPlaywrightHeadedChange: (v: boolean) => void;
 };
 
-export function TestMlImportForm({ url, onUrlChange, loading, onSubmit }: Props) {
+export function TestMlImportForm({
+  url,
+  onUrlChange,
+  loading,
+  onSubmit,
+  playwrightHeaded,
+  onPlaywrightHeadedChange,
+}: Props) {
   return (
     <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 md:p-5 space-y-3">
       <div>
@@ -19,6 +29,21 @@ export function TestMlImportForm({ url, onUrlChange, loading, onSubmit }: Props)
           dados somem.
         </p>
       </div>
+      <label className="flex cursor-pointer items-start gap-2 text-sm text-amber-950">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={playwrightHeaded}
+          disabled={loading}
+          onChange={(e) => onPlaywrightHeadedChange(e.target.checked)}
+        />
+        <span>
+          Chromium com janela (modo gráfico). No servidor Linux exige{" "}
+          <code className="rounded bg-amber-100/80 px-1 text-xs">DISPLAY</code> ou{" "}
+          <code className="rounded bg-amber-100/80 px-1 text-xs">WAYLAND_DISPLAY</code> no processo do Next.js;
+          sem isso o Playwright usa headless.
+        </span>
+      </label>
       <textarea
         value={url}
         onChange={(e) => onUrlChange(e.target.value)}

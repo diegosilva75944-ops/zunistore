@@ -3,7 +3,12 @@ import "server-only";
 import type { ImportMode, TestMlImportResult } from "./types";
 import { extractFromHtml } from "./extractFromHtml";
 import { fetchMlHtml } from "./fetchHtml";
-import { fetchHtmlWithPlaywright, type FetchHtmlWithPlaywrightOptions } from "./extractWithBrowser";
+import {
+  fetchHtmlWithPlaywright,
+  type FetchHtmlWithPlaywrightOptions,
+  getEffectivePlaywrightHeadless,
+  hasDisplayForHeadedChromium,
+} from "./extractWithBrowser";
 import { makeShortDescription, preferLongerText } from "./extractDescriptions";
 import { preferMaxNullable } from "./extractReviews";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "./normalize";
@@ -142,6 +147,17 @@ function pwFetchOpts(opts?: RunTestMlImportOptions): FetchHtmlWithPlaywrightOpti
   return undefined;
 }
 
+/** Rótulo para mensagens quando Playwright corre em headless mas foi pedido modo gráfico (sem DISPLAY no servidor). */
+function playwrightFetchModeLabel(opts?: RunTestMlImportOptions): string {
+  const pwOpts = pwFetchOpts(opts);
+  const eff = getEffectivePlaywrightHeadless(pwOpts);
+  const headedRequested = opts?.playwrightHeaded === true;
+  if (headedRequested && eff) {
+    return "headless (pedido gráfico; DISPLAY/Wayland ausente no processo Node)";
+  }
+  return eff ? "headless" : "graphical";
+}
+
 export async function runTestMlImport(
   rawUrl: string,
   mode: ImportMode,
@@ -152,9 +168,21 @@ export async function runTestMlImport(
   }
 
   const fetchUrl = normalizeMlFetchUrl(rawUrl, { keepSearch: true });
-  const globalSteps: string[] = [`URL normalizada: ${fetchUrl}`, `Modo: ${mode}`];
+  const globalSteps: string[] = [
+    `URL normalizada: ${fetchUrl}`,
+    `Modo: ${mode}`,
+    `Servidor: DISPLAY=${process.env.DISPLAY ?? "—"} WAYLAND_DISPLAY=${process.env.WAYLAND_DISPLAY ?? "—"}`,
+  ];
   if (opts?.playwrightHeaded) {
-    globalSteps.push("Playwright: Chromium em modo gráfico (abre o browser, importa e fecha).");
+    if (hasDisplayForHeadedChromium()) {
+      globalSteps.push(
+        "Playwright: modo gráfico pedido — DISPLAY/Wayland detetado no processo Node (Chromium deve abrir com janela).",
+      );
+    } else {
+      globalSteps.push(
+        "AVISO: modo gráfico pedido mas DISPLAY/Wayland não está definido no processo Node — Playwright corre em headless (fallback). Defina DISPLAY=:0 no serviço que arranca o Next.js.",
+      );
+    }
   }
   const returnPartialOnBlock = Boolean(opts?.returnPartialOnBlock);
 
@@ -450,7 +478,7 @@ export async function runTestMlImport(
           }
           if (returnPartialOnBlock) {
             return blockedResult(
-              `Bloqueado no fetch+headless: ${pw.error} (API auth: ${auth.ok ? "sem dados" : auth.error}; API items falhou: ${api.ok ? "sem dados" : api.error})`,
+              `Bloqueado no Playwright (${playwrightFetchModeLabel(opts)}): ${pw.error} (API auth: ${auth.ok ? "sem dados" : auth.error}; API items falhou: ${api.ok ? "sem dados" : api.error})`,
               {
                 layer: "headless",
                 apiTried: { id },
@@ -461,7 +489,7 @@ export async function runTestMlImport(
         }
         if (returnPartialOnBlock) {
           return blockedResult(
-            `Bloqueado no fetch+headless: ${pw.error} (API auth: ${auth.ok ? "sem dados" : auth.error})`,
+            `Bloqueado no Playwright (${playwrightFetchModeLabel(opts)}): ${pw.error} (API auth: ${auth.ok ? "sem dados" : auth.error})`,
             { layer: "headless", authTried: { ok: auth.ok, error: auth.ok ? null : auth.error } },
           );
         }

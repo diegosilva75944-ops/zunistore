@@ -8,6 +8,7 @@ import { TestMlImportDebug } from "./TestMlImportDebug";
 
 export function TestMlImportClient() {
   const [url, setUrl] = useState("");
+  const [playwrightHeaded, setPlaywrightHeaded] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TestMlImportResult | null>(null);
@@ -20,7 +21,7 @@ export function TestMlImportClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ url: url.trim(), mode }),
+        body: JSON.stringify({ url: url.trim(), mode, playwrightHeaded }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
@@ -33,11 +34,18 @@ export function TestMlImportClient() {
     } finally {
       setLoading(false);
     }
-  }, [url]);
+  }, [url, playwrightHeaded]);
 
   return (
     <div className="space-y-6">
-      <TestMlImportForm url={url} onUrlChange={setUrl} loading={loading} onSubmit={run} />
+      <TestMlImportForm
+        url={url}
+        onUrlChange={setUrl}
+        loading={loading}
+        onSubmit={run}
+        playwrightHeaded={playwrightHeaded}
+        onPlaywrightHeadedChange={setPlaywrightHeaded}
+      />
 
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">{error}</div>
