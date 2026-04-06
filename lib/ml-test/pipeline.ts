@@ -149,13 +149,15 @@ function pwFetchOpts(opts?: RunTestMlImportOptions): FetchHtmlWithPlaywrightOpti
   return undefined;
 }
 
-/** Rótulo para mensagens quando Playwright corre em headless mas foi pedido modo gráfico (sem DISPLAY no servidor). */
+/** Rótulo para mensagens quando Playwright corre em headless mas foi pedido modo gráfico (sem sessão X11/Wayland no processo Node). */
 function playwrightFetchModeLabel(opts?: RunTestMlImportOptions): string {
   const pwOpts = pwFetchOpts(opts);
   const eff = getEffectivePlaywrightHeadless(pwOpts);
   const headedRequested = opts?.playwrightHeaded === true;
   if (headedRequested && eff) {
-    return "headless (pedido gráfico; X11 sem DISPLAY no processo Node — use DISPLAY=:0 no systemd ou ML_PLAYWRIGHT_X11_DISPLAY=:0 no .env)";
+    const why = getLinuxHeadedChromiumUnavailableReason();
+    if (why) return `headless (pedido gráfico; ${why})`;
+    return "headless (pedido gráfico; sessão gráfica indisponível — ML_PLAYWRIGHT_X11_DISPLAY e cookie XAUTHORITY no .env)";
   }
   return eff ? "headless" : "graphical";
 }

@@ -149,12 +149,12 @@ function scanGdmXauthorityPathsFromDisk(): string[] {
   });
 }
 
-/** Primeiro ficheiro de cookie X11 legível; senão o caminho por defeito GDM (para env explícito). */
+/** Primeiro ficheiro de cookie X11 legível. `ML_PLAYWRIGHT_X11_XAUTHORITY` só conta se existir e for legível (evita .env com path GDM errado). */
 function pickReadableXauthorityPath(): string {
   const explicit = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
-  if (explicit) return explicit;
   const def = String(process.env.ML_PLAYWRIGHT_X11_AUTHORITY_DEFAULT ?? LINUX_DEFAULT_GDM_XAUTHORITY).trim();
   const candidates = [
+    ...(explicit ? [explicit] : []),
     ...scanGdmXauthorityPathsFromDisk(),
     ...gdmXauthorityCandidates(),
     def,
@@ -173,7 +173,7 @@ function pickReadableXauthorityPath(): string {
       /* */
     }
   }
-  return def || LINUX_DEFAULT_GDM_XAUTHORITY;
+  return "";
 }
 
 function linuxX11SessionAccessible(): boolean {
@@ -239,6 +239,17 @@ function syncX11DisplayFromEnv(): void {
   if (process.platform === "linux" && (pin === "1" || pin === "true" || pin === "yes")) {
     process.env.DISPLAY = LINUX_DEFAULT_DISPLAY;
     process.env.XAUTHORITY = LINUX_DEFAULT_GDM_XAUTHORITY;
+    if (!existsSync(LINUX_DEFAULT_GDM_XAUTHORITY)) {
+      const picked = pickReadableXauthorityPath();
+      if (picked) process.env.XAUTHORITY = picked;
+    }
+  }
+  if (linuxAutoX11DefaultsEnabled()) {
+    const xaBad = String(process.env.XAUTHORITY ?? "").trim();
+    if (xaBad && !linuxX11SessionAccessible()) {
+      const picked = pickReadableXauthorityPath();
+      if (picked) process.env.XAUTHORITY = picked;
+    }
   }
   if (process.platform === "linux") {
     const d2 = String(process.env.DISPLAY ?? "").trim();
