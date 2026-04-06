@@ -1,5 +1,6 @@
 import "server-only";
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { BrowserContext, Page } from "playwright";
 import {
   accessSync,
@@ -765,18 +766,81 @@ type PlaywrightFetchOpts = {
   settleMs?: number;
 };
 
+/** Uma única `BrowserContext` para reimportação ML + validação de afiliados (fecha só no fim do pipeline). */
+type MlPlaywrightSharedSession = { context: BrowserContext };
+
+const mlPlaywrightSharedSessionAls = new AsyncLocalStorage<MlPlaywrightSharedSession>();
+
+/**
+ * Abre um Chromium persistente uma vez; `fetchHtmlWithPlaywright` / sync ML reutilizam o mesmo contexto
+ * (novas páginas por URL) até o callback terminar.
+ */
+export async function runWithMlPlaywrightBrowserSession<T>(fn: () => Promise<T>): Promise<T> {
+  applyPlaywrightLinuxDisplayEnv();
+  logPlaywrightX11Env("sharedSession");
+  const { chromium } = await import("playwright");
+  const headless = !hasDisplayForHeadedChromium();
+  const launchExtra = playwrightExecutableOrChannel();
+  const chromiumArgs = buildChromiumLaunchArgs(headless);
+  logChromiumLaunch(headless, launchExtra, chromiumArgs);
+  const browserEnv = playwrightBrowserEnv();
+  const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
+  const absDir = path.resolve(process.cwd(), userDataDir);
+  mkdirSync(absDir, { recursive: true });
+  const contextBase = {
+    ...launchExtra,
+    headless,
+    chromiumSandbox: false,
+    env: browserEnv,
+    args: chromiumArgs,
+    ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
+    locale: "pt-BR" as const,
+    viewport: mlViewport(),
+    userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
+    extraHTTPHeaders: mlExtraHttpHeaders(),
+    timezoneId: "America/Sao_Paulo",
+  };
+  const context = await chromium.launchPersistentContext(absDir, contextBase);
+  await attachMlStealth(context);
+  const session: MlPlaywrightSharedSession = { context };
+  console.info(
+    "[ml-playwright] Sessão única: reimportação ML + validação de afiliados (janela/processos fecham só ao terminar o pipeline).",
+  );
+  try {
+    return await mlPlaywrightSharedSessionAls.run(session, fn);
+  } finally {
+    await context.close().catch(() => {});
+    console.info("[ml-playwright] Sessão única encerrada.");
+  }
+}
+
 async function runPlaywrightFetchOnce(
   url: string,
   useHeadless: boolean,
   opts?: PlaywrightFetchOpts,
 ): Promise<PlaywrightFetchResult> {
-  const { chromium } = await import("playwright");
-
   applyPlaywrightLinuxDisplayEnv();
   logPlaywrightX11Env("launchPersistentContext");
   const headless = !hasDisplayForHeadedChromium() ? true : useHeadless;
   const waitUntil = opts?.waitUntil ?? "domcontentloaded";
   const settleMs = opts?.settleMs ?? postGotoSettleMs();
+
+  const shared = mlPlaywrightSharedSessionAls.getStore();
+  if (shared) {
+    let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
+    for (const tryUrl of mlPdpUrlVariants(url)) {
+      const page = await shared.context.newPage();
+      try {
+        last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
+        if (isPlaywrightResultUsable(last)) return last;
+      } finally {
+        await page.close().catch(() => {});
+      }
+    }
+    return last;
+  }
+
+  const { chromium } = await import("playwright");
   const launchExtra = playwrightExecutableOrChannel();
   const browserEnv = playwrightBrowserEnv();
   const chromiumArgs = buildChromiumLaunchArgs(headless);
@@ -1137,6 +1201,10 @@ export async function fetchHtmlWithPlaywright(
     (!last.ok && looksLikePlaywrightBlockError(last.error));
 
   if (!needsRetry) {
+    return last;
+  }
+
+  if (mlPlaywrightSharedSessionAls.getStore()) {
     return last;
   }
 

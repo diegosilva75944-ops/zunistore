@@ -29,7 +29,33 @@ export type CronMlProgressEvent =
       outcome: CronMlProgressOutcome;
       error?: string;
     }
-  | { phase: "dedupe" };
+  | { phase: "dedupe" }
+  | { phase: "affiliate_start" }
+  | {
+      phase: "affiliate_batch";
+      batch: number;
+      batchChecked: number;
+      totalChecked: number;
+      valid: number;
+      invalid: number;
+      errors: number;
+    }
+  | {
+      phase: "affiliate_done";
+      batches: number;
+      checked: number;
+      valid: number;
+      invalid: number;
+      errors: number;
+    };
+
+export type AffiliateValidationSweepSummary = {
+  batches: number;
+  checked: number;
+  valid: number;
+  invalid: number;
+  errors: number;
+};
 
 export type CronMlFullReimportBatchResult =
   | {
@@ -44,6 +70,7 @@ export type CronMlFullReimportBatchResult =
       failures: CronMlBatchFailure[];
       dedupe_removed?: number;
       dedupe_errors?: string[];
+      affiliate_validation?: AffiliateValidationSweepSummary;
     }
   | {
       ok: true;
@@ -56,6 +83,7 @@ export type CronMlFullReimportBatchResult =
       failures: CronMlBatchFailure[];
       dedupe_removed: number;
       dedupe_errors: string[];
+      affiliate_validation?: AffiliateValidationSweepSummary;
     }
   | {
       ok: false;

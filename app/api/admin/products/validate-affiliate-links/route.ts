@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/admin/auth";
-import { postgrestGet } from "@/lib/postgrest/server";
 import {
   adminMoveAllAffiliateExpiredProductsToHistory,
   adminValidateAffiliateLinksBatch,
-  mergeProductIdsForAffiliateValidation,
+  pickAffiliateValidationProductIds,
 } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
@@ -23,38 +22,7 @@ export async function POST(req: Request) {
 
     const sweep = await adminMoveAllAffiliateExpiredProductsToHistory();
 
-    let expiredRows: { id: string }[] = [];
-    try {
-      expiredRows = await postgrestGet<{ id: string }[]>("products", {
-        select: "id",
-        affiliate_valid: "eq.false",
-        limit: String(limit),
-      });
-    } catch (e) {
-      console.warn("[validate-affiliate-links] consulta affiliate_valid=false ignorada", e);
-    }
-    const expiredIds = (Array.isArray(expiredRows) ? expiredRows : []).map((r) => r.id).filter(Boolean);
-    const need = Math.max(0, limit - expiredIds.length);
-
-    let queueRows: { id: string }[] = [];
-    if (need > 0) {
-      try {
-        queueRows = await postgrestGet<{ id: string }[]>("products", {
-          select: "id",
-          order: "affiliate_valid_checked_at.asc.nullsfirst",
-          limit: String(Math.min(need * 4, 100)),
-        });
-      } catch (e) {
-        console.warn("[validate-affiliate-links] order por affiliate_valid_checked_at falhou, usando created_at", e);
-        queueRows = await postgrestGet<{ id: string }[]>("products", {
-          select: "id",
-          order: "created_at.desc",
-          limit: String(Math.min(need * 4, 100)),
-        });
-      }
-    }
-
-    const ids = mergeProductIdsForAffiliateValidation(expiredIds, queueRows, limit);
+    const ids = await pickAffiliateValidationProductIds(limit);
     if (ids.length === 0) {
       return NextResponse.json({
         ok: true,

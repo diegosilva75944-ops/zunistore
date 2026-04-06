@@ -66,12 +66,17 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
-  /** Progresso da reimportação ML em lote (stream NDJSON). */
+  /** Progresso da reimportação ML + validação afiliados (stream NDJSON). */
   const [mlSyncProgress, setMlSyncProgress] = useState<{
     total: number;
     current: number;
     code6?: string;
     dedupe?: boolean;
+    affiliate?: boolean;
+    affiliateBatch?: number;
+    affiliateChecked?: number;
+    affiliateValid?: number;
+    affiliateInvalid?: number;
   } | null>(null);
   const [syncingProductId, setSyncingProductId] = useState<string | null>(null);
   const [tab, setTab] = useState<"listagem" | "historico" | "precos">(() => {
@@ -310,7 +315,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   async function syncAllPrices() {
     if (
       !confirm(
-        "Serão reimportados TODOS os produtos com vínculo Mercado Livre, um por um, em ordem decrescente do código. Pode levar muitos minutos. Continuar?",
+        "Serão reimportados TODOS os produtos com vínculo Mercado Livre (um por um), depois a validação COMPLETA dos links de afiliado. O navegador no servidor permanece aberto até terminar tudo. Pode levar muito tempo. Continuar?",
       )
     )
       return;
@@ -366,8 +371,37 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               });
             } else if (obj.phase === "dedupe") {
               setMlSyncProgress((p) =>
-                p ? { ...p, dedupe: true } : { total: 0, current: 0, dedupe: true },
+                p ? { ...p, dedupe: true, affiliate: false } : { total: 0, current: 0, dedupe: true },
               );
+            } else if (obj.phase === "affiliate_start") {
+              setMlSyncProgress((p) =>
+                p ?
+                  { ...p, dedupe: false, affiliate: true }
+                : { total: 0, current: 0, affiliate: true },
+              );
+            } else if (obj.phase === "affiliate_batch") {
+              setMlSyncProgress((p) => ({
+                total: p?.total ?? 0,
+                current: p?.current ?? 0,
+                code6: p?.code6,
+                dedupe: false,
+                affiliate: true,
+                affiliateBatch: typeof obj.batch === "number" ? obj.batch : undefined,
+                affiliateChecked: typeof obj.totalChecked === "number" ? obj.totalChecked : undefined,
+                affiliateValid: typeof obj.valid === "number" ? obj.valid : undefined,
+                affiliateInvalid: typeof obj.invalid === "number" ? obj.invalid : undefined,
+              }));
+            } else if (obj.phase === "affiliate_done") {
+              setMlSyncProgress((p) => ({
+                total: p?.total ?? 0,
+                current: p?.current ?? 0,
+                dedupe: false,
+                affiliate: true,
+                affiliateBatch: typeof obj.batches === "number" ? obj.batches : undefined,
+                affiliateChecked: typeof obj.checked === "number" ? obj.checked : undefined,
+                affiliateValid: typeof obj.valid === "number" ? obj.valid : undefined,
+                affiliateInvalid: typeof obj.invalid === "number" ? obj.invalid : undefined,
+              }));
             }
           } else if (obj.type === "complete" && obj.result && typeof obj.result === "object") {
             data = obj.result as Record<string, unknown>;
@@ -405,8 +439,18 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       }
 
       if (data.mode === "ml_full_reimport") {
+        const av = data.affiliate_validation as
+          | { checked: number; valid: number; invalid: number; errors: number; batches: number }
+          | undefined;
+        const avLine =
+          av != null ?
+            `\nValidação de afiliados: ${av.checked} link(s) verificado(s), ${av.valid} válido(s), ${av.invalid} expirado(s)${av.errors > 0 ? `, ${av.errors} erro(s)` : ""} (${av.batches} lote(s)).`
+          : "";
+
         if (data.skipped && data.reason === "no_ml_products") {
-          setSyncResult("Nenhum produto com vínculo Mercado Livre para processar.");
+          setSyncResult(
+            `Nenhum produto com vínculo Mercado Livre para reimportar.${avLine || "\n(Nenhuma validação de afiliados pendente.)"}`,
+          );
         } else {
           const failN = typeof data.failed === "number" ? data.failed : 0;
           const skipUrl = typeof data.skipped_no_url === "number" ? data.skipped_no_url : 0;
@@ -420,8 +464,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               .join(" | ");
             msg += `\nExemplos: ${sample}`;
           }
+          msg += avLine;
           setSyncResult(msg);
         }
+
+        const movedAff =
+          av && typeof av.invalid === "number" && av.invalid > 0 ? av.invalid : 0;
+        if (movedAff > 0) setHistoricoTabBadgeCount((c) => c + movedAff);
       } else {
         const deletedPart = data.deleted ? `, Removidos (não encontrados): ${data.deleted}` : "";
         setSyncResult(
@@ -1076,34 +1125,39 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           </span>
         </div>
 
-        {mlSyncProgress && mlSyncProgress.total > 0 && (
-          <div className="space-y-1 max-w-xl">
-            <div className="flex justify-between gap-2 text-xs text-zinc-600">
-              <span>
-                {mlSyncProgress.dedupe ?
-                  "Removendo títulos duplicados…"
-                : `Reimportados / processados: ${mlSyncProgress.current} de ${mlSyncProgress.total}`}
-              </span>
-              {mlSyncProgress.code6 && !mlSyncProgress.dedupe && (
-                <span className="font-mono text-zinc-500">#{mlSyncProgress.code6}</span>
-              )}
+        {mlSyncProgress &&
+          (mlSyncProgress.total > 0 || mlSyncProgress.dedupe || mlSyncProgress.affiliate) && (
+            <div className="space-y-1 max-w-xl">
+              <div className="flex justify-between gap-2 text-xs text-zinc-600">
+                <span>
+                  {mlSyncProgress.affiliate ?
+                    `Validação de afiliados${typeof mlSyncProgress.affiliateBatch === "number" ? ` — lote ${mlSyncProgress.affiliateBatch}` : ""}: ${mlSyncProgress.affiliateChecked ?? 0} verificado(s)${typeof mlSyncProgress.affiliateValid === "number" ? `, ${mlSyncProgress.affiliateValid} válido(s)` : ""}${typeof mlSyncProgress.affiliateInvalid === "number" ? `, ${mlSyncProgress.affiliateInvalid} expirado(s)` : ""}`
+                  : mlSyncProgress.dedupe ?
+                    "Removendo títulos duplicados…"
+                  : `Reimportados / processados: ${mlSyncProgress.current} de ${mlSyncProgress.total}`}
+                </span>
+                {mlSyncProgress.code6 && !mlSyncProgress.dedupe && !mlSyncProgress.affiliate && (
+                  <span className="font-mono text-zinc-500">#{mlSyncProgress.code6}</span>
+                )}
+              </div>
+              <div className="h-2 rounded-full bg-white/80 ring-1 ring-zuni-green/20 overflow-hidden">
+                <div
+                  className={`h-full rounded-full bg-zuni-green transition-[width] duration-300 ${
+                    mlSyncProgress.dedupe || mlSyncProgress.affiliate ?
+                      "animate-pulse w-full opacity-80"
+                    : ""
+                  }`}
+                  style={
+                    mlSyncProgress.dedupe || mlSyncProgress.affiliate || mlSyncProgress.total <= 0 ?
+                      undefined
+                    : {
+                        width: `${Math.min(100, (100 * mlSyncProgress.current) / mlSyncProgress.total)}%`,
+                      }
+                  }
+                />
+              </div>
             </div>
-            <div className="h-2 rounded-full bg-white/80 ring-1 ring-zuni-green/20 overflow-hidden">
-              <div
-                className={`h-full rounded-full bg-zuni-green transition-[width] duration-300 ${
-                  mlSyncProgress.dedupe ? "animate-pulse w-full opacity-80" : ""
-                }`}
-                style={
-                  mlSyncProgress.dedupe ?
-                    undefined
-                  : {
-                      width: `${Math.min(100, (100 * mlSyncProgress.current) / mlSyncProgress.total)}%`,
-                    }
-                }
-              />
-            </div>
-          </div>
-        )}
+          )}
       </div>
 
       <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-3">

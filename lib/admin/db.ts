@@ -285,6 +285,88 @@ export function mergeProductIdsForAffiliateValidation(
   return out;
 }
 
+/** Próximo lote de IDs para validação de links (mesma lógica da rota `validate-affiliate-links`). */
+export async function pickAffiliateValidationProductIds(limit: number): Promise<string[]> {
+  const cap = Math.min(50, Math.max(1, limit));
+  let expiredRows: { id: string }[] = [];
+  try {
+    expiredRows = await postgrestGet<{ id: string }[]>("products", {
+      select: "id",
+      affiliate_valid: "eq.false",
+      limit: String(cap),
+    });
+  } catch (e) {
+    console.warn("[admin] pickAffiliateValidationProductIds affiliate_valid=false ignorada", e);
+  }
+  const expiredIds = (Array.isArray(expiredRows) ? expiredRows : []).map((r) => r.id).filter(Boolean);
+  const need = Math.max(0, cap - expiredIds.length);
+
+  let queueRows: { id: string }[] = [];
+  if (need > 0) {
+    try {
+      queueRows = await postgrestGet<{ id: string }[]>("products", {
+        select: "id",
+        order: "affiliate_valid_checked_at.asc.nullsfirst",
+        limit: String(Math.min(need * 4, 100)),
+      });
+    } catch (e) {
+      console.warn("[admin] pickAffiliateValidationProductIds order falhou, usando created_at", e);
+      queueRows = await postgrestGet<{ id: string }[]>("products", {
+        select: "id",
+        order: "created_at.desc",
+        limit: String(Math.min(need * 4, 100)),
+      });
+    }
+  }
+
+  return mergeProductIdsForAffiliateValidation(expiredIds, queueRows, cap);
+}
+
+/**
+ * Varre todos os produtos em lotes até não haver mais pendentes (após `adminMoveAllAffiliateExpiredProductsToHistory` por iteração).
+ * Usar dentro de `runWithMlPlaywrightBrowserSession` para reutilizar o mesmo Chromium.
+ */
+export async function adminAffiliateValidationSweepAll(opts?: {
+  batchSize?: number;
+  onBatch?: (info: {
+    batchIndex: number;
+    batchChecked: number;
+    totalChecked: number;
+    valid: number;
+    invalid: number;
+    errors: number;
+  }) => void | Promise<void>;
+}): Promise<{ batches: number; checked: number; valid: number; invalid: number; errors: number }> {
+  const batchSize = Math.min(50, Math.max(1, opts?.batchSize ?? 30));
+  let batches = 0;
+  let checked = 0;
+  let valid = 0;
+  let invalid = 0;
+  let errors = 0;
+
+  for (;;) {
+    await adminMoveAllAffiliateExpiredProductsToHistory();
+    const ids = await pickAffiliateValidationProductIds(batchSize);
+    if (ids.length === 0) break;
+    batches += 1;
+    const r = await adminValidateAffiliateLinksBatch(ids);
+    checked += r.checked;
+    valid += r.valid;
+    invalid += r.invalid;
+    errors += r.errors;
+    await opts?.onBatch?.({
+      batchIndex: batches,
+      batchChecked: r.checked,
+      totalChecked: checked,
+      valid,
+      invalid,
+      errors,
+    });
+  }
+
+  return { batches, checked, valid, invalid, errors };
+}
+
 const PRODUCTS_SELECT_FULL =
   "id,code6,slug,title,images,price,promo_price,is_offer,off_percent,needs_update,affiliate_url,affiliate_valid,affiliate_valid_checked_at,created_at,categories:category_id(id,name,slug)";
 const PRODUCTS_SELECT_FALLBACK =
