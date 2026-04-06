@@ -1,6 +1,6 @@
 import "server-only";
 
-import { runTestMlImport } from "@/lib/ml-test/pipeline";
+import { runTestMlImport } from "@/lib/ml-test";
 import { isMercadoLivreProductUrl, normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
 import { normalizeMercadoLivreProductUrl } from "@/lib/ml-price";
 import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";

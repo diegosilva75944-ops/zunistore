@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runTestMlImport } from "./pipeline";
+import { runTestMlImportCore } from "./pipeline";
 
 const networkOk = process.env.CI !== "true" && process.env.SKIP_ML_NETWORK !== "1";
 
@@ -23,7 +23,7 @@ const URL =
 
 describe("runTestMlImport — pdp_filters + wid no hash", () => {
   it.skipIf(!networkOk)("importa dados (não em branco) incluindo preço", async () => {
-    const r = await runTestMlImport(URL, "auto", { playwrightHeaded: false });
+    const r = await runTestMlImportCore(URL, "auto", { playwrightHeaded: false });
     expect(r.title?.trim().length).toBeGreaterThan(5);
     expect(r.images.length).toBeGreaterThan(0);
     expect(r.pricing.currentPrice).not.toBeNull();

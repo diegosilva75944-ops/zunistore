@@ -163,7 +163,7 @@ function playwrightFetchModeLabel(opts?: RunTestMlImportOptions): string {
   return eff ? "headless" : "graphical";
 }
 
-export async function runTestMlImport(
+export async function runTestMlImportCore(
   rawUrl: string,
   mode: ImportMode,
   opts?: RunTestMlImportOptions,

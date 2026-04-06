@@ -2,7 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runTestMlImport } from "./pipeline";
+import { runTestMlImportCore } from "./pipeline";
 
 const networkOk = process.env.CI !== "true" && process.env.SKIP_ML_NETWORK !== "1";
 
@@ -24,7 +24,7 @@ const RECO_URL =
 
 describe("runTestMlImport — URL reco wid ≠ MLB do path", () => {
   it.skipIf(!networkOk)("importa título e preço (não vazio)", async () => {
-    const r = await runTestMlImport(RECO_URL, "auto", { playwrightHeaded: false });
+    const r = await runTestMlImportCore(RECO_URL, "auto", { playwrightHeaded: false });
     expect(r.title?.trim().length).toBeGreaterThan(5);
     expect(r.pricing.currentPrice).not.toBeNull();
     expect(r.pricing.currentPrice).toBeGreaterThan(0);

@@ -18,7 +18,8 @@
     "playwright:teste": "node scripts/teste.js",
     "playwright:teste:x11": "bash scripts/run-playwright-teste.sh",
     "ml:login": "node scripts/ml-login.js",
-    "ml:login:env": "node -e \"console.log('ML_PLAYWRIGHT_USER_DATA_DIR=.playwright/ml-user-data'); console.log('ML_PLAYWRIGHT_STORAGE_STATE=.playwright/ml-storage-state.json'); console.log('ML_PLAYWRIGHT_HEADLESS=0  (opcional, janela sempre visível)'); console.log('ML_PLAYWRIGHT_HEADED_ON_BLOCK=1  (abre janela só se headless falhar por bloqueio/login)'); console.log('ML_PLAYWRIGHT_INTERACTIVE_TIMEOUT_MS=300000  (5 min ao aguardar desbloqueio)');\""
+    "ml:login:env": "node -e \"console.log('ML_PLAYWRIGHT_USER_DATA_DIR=.playwright/ml-user-data'); console.log('ML_PLAYWRIGHT_STORAGE_STATE=.playwright/ml-storage-state.json'); console.log('ML_PLAYWRIGHT_HEADLESS=0  (opcional, janela sempre visível)'); console.log('ML_PLAYWRIGHT_HEADED_ON_BLOCK=1  (abre janela só se headless falhar por bloqueio/login)'); console.log('ML_PLAYWRIGHT_INTERACTIVE_TIMEOUT_MS=300000  (5 min ao aguardar desbloqueio)');\"",
+    "ml-host:worker": "tsx --tsconfig workers/ml-host/tsconfig.json workers/ml-host/server.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2",
@@ -52,6 +53,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^3.2.4"
   }

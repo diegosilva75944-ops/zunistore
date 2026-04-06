@@ -5,7 +5,7 @@ import {
   resolveMercadoLivreFetchUrl,
   type FetchMlPriceInput,
 } from "@/lib/ml-price";
-import { runTestMlImport } from "@/lib/ml-test/pipeline";
+import { runTestMlImport } from "@/lib/ml-test";
 import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
 import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
 import { mapMlNormalizedToDrafts } from "@/services/mercadolivre/mapper";

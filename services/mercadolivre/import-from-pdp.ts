@@ -1,7 +1,7 @@
 import "server-only";
 
 import { normalizeMlFetchUrl } from "@/lib/ml-test/normalize";
-import { runTestMlImport } from "@/lib/ml-test/pipeline";
+import { runTestMlImport } from "@/lib/ml-test";
 import { extractMlItemIdFromUrlWithRedirects } from "@/services/mercadolivre/ml-url-resolve";
 import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
 import { mlImportOrUpdateProduct, type MlImportResult } from "@/services/mercadolivre/persist";
