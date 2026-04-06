@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { BrowserContext, Page } from "playwright";
-import { accessSync, constants as fsConstants, existsSync, mkdirSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -111,12 +111,51 @@ function gdmXauthorityCandidates(): string[] {
   return out;
 }
 
+/** Sockets em /tmp/.X11-unix → `:0`, `:1`, … (prefere :1 depois :0). */
+function inferDisplayFromX11UnixSocket(): string | undefined {
+  try {
+    const unixDir = "/tmp/.X11-unix";
+    if (!existsSync(unixDir)) return undefined;
+    const names = readdirSync(unixDir).filter((n) => /^X\d+$/.test(n));
+    if (names.length === 0) return undefined;
+    const prefer = (["X1", "X0"] as const).find((n) => names.includes(n));
+    const pick =
+      prefer ??
+      [...names].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))[names.length - 1];
+    return `:${Number(pick.slice(1))}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/** `/run/user/<uid>/gdm/Xauthority` existentes (UID maior primeiro — sessão recente). */
+function scanGdmXauthorityPathsFromDisk(): string[] {
+  const out: string[] = [];
+  try {
+    const base = "/run/user";
+    if (!existsSync(base)) return out;
+    for (const ent of readdirSync(base, { withFileTypes: true })) {
+      if (!ent.isDirectory() || !/^\d+$/.test(ent.name)) continue;
+      const p = path.join(base, ent.name, "gdm", "Xauthority");
+      if (existsSync(p)) out.push(p);
+    }
+  } catch {
+    /* */
+  }
+  return out.sort((a, b) => {
+    const ua = Number((a.match(/\/run\/user\/(\d+)\//) ?? [])[1] ?? 0);
+    const ub = Number((b.match(/\/run\/user\/(\d+)\//) ?? [])[1] ?? 0);
+    return ub - ua;
+  });
+}
+
 /** Primeiro ficheiro de cookie X11 legível; senão o caminho por defeito GDM (para env explícito). */
 function pickReadableXauthorityPath(): string {
   const explicit = String(process.env.ML_PLAYWRIGHT_X11_XAUTHORITY ?? "").trim();
   if (explicit) return explicit;
   const def = String(process.env.ML_PLAYWRIGHT_X11_AUTHORITY_DEFAULT ?? LINUX_DEFAULT_GDM_XAUTHORITY).trim();
   const candidates = [
+    ...scanGdmXauthorityPathsFromDisk(),
     ...gdmXauthorityCandidates(),
     def,
     path.join(os.homedir(), ".Xauthority"),
@@ -156,8 +195,9 @@ function logPlaywrightX11Env(label: string): void {
   const euid = typeof process.geteuid === "function" ? process.geteuid() : -1;
   const ok = linuxX11SessionAccessible();
   const w = String(process.env.WAYLAND_DISPLAY ?? "").trim();
+  const sockHint = inferDisplayFromX11UnixSocket() ?? "—";
   console.info(
-    `[ml-playwright] ${label} DISPLAY=${process.env.DISPLAY ?? ""} XAUTHORITY=${process.env.XAUTHORITY ?? ""} WAYLAND_DISPLAY=${w || "—"} uid=${uid} euid=${euid} xAccessible=${ok}`,
+    `[ml-playwright] ${label} DISPLAY=${process.env.DISPLAY ?? ""} XAUTHORITY=${process.env.XAUTHORITY ?? ""} WAYLAND_DISPLAY=${w || "—"} uid=${uid} euid=${euid} xAccessible=${ok} socketInferDisplay=${sockHint}`,
   );
 }
 
@@ -166,6 +206,10 @@ function logPlaywrightX11Env(label: string): void {
  */
 function syncX11DisplayFromEnv(): void {
   if (process.platform !== "linux") return;
+  if (linuxAutoX11DefaultsEnabled() && !String(process.env.DISPLAY ?? "").trim()) {
+    const inferred = inferDisplayFromX11UnixSocket();
+    if (inferred) process.env.DISPLAY = inferred;
+  }
   let d = String(process.env.DISPLAY ?? "").trim();
   if (!d) {
     const fromEnv = String(
@@ -570,9 +614,19 @@ async function runPlaywrightFetchOnce(
       }
       return last;
     } finally {
-      const closeDelay = Number(String(process.env.ML_PLAYWRIGHT_HEADED_CLOSE_DELAY_MS ?? "").trim());
-      if (!headless && Number.isFinite(closeDelay) && closeDelay > 0) {
-        await new Promise((r) => setTimeout(r, Math.min(closeDelay, 30_000)));
+      const rawClose = String(process.env.ML_PLAYWRIGHT_HEADED_CLOSE_DELAY_MS ?? "").trim();
+      const skipClose = ["1", "true", "yes"].includes(
+        String(process.env.ML_PLAYWRIGHT_HEADED_SKIP_CLOSE_DELAY ?? "").trim().toLowerCase(),
+      );
+      if (!headless && !skipClose) {
+        if (rawClose === "") {
+          await new Promise((r) => setTimeout(r, 250));
+        } else {
+          const closeMs = Number(rawClose);
+          if (Number.isFinite(closeMs) && closeMs > 0) {
+            await new Promise((r) => setTimeout(r, Math.min(closeMs, 30_000)));
+          }
+        }
       }
       await context.close().catch(() => {});
     }

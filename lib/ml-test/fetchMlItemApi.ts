@@ -54,6 +54,11 @@ export async function fetchMlItemApi(itemId: string): Promise<MlItemApiResult> {
       signal: AbortSignal.timeout(25_000),
     });
     if (!res.ok) {
+      const hint =
+        res.status === 403 ? " (bloqueio/bot)"
+        : res.status === 429 ? " (rate limit)"
+        : "";
+      console.warn(`[ml-fetch] API items HTTP ${res.status}${hint} item=${id} url=${url}`);
       return { ok: false, error: `API items: HTTP ${res.status}` };
     }
     const json = (await res.json().catch(() => null)) as MlItemApiPayload | null;
