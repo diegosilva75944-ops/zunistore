@@ -1052,3 +1052,35 @@ export async function fetchPricesFromUrl(input: FetchMlPriceInput): Promise<Fetc
     throw e instanceof Error ? e : new Error(String(e));
   }
 }
+
+/**
+ * Fallback com Playwright (Chromium com janela quando há DISPLAY), alinhado ao sync ML.
+ * Usado quando HTTP não extrai preço (bloqueio, layout, etc.).
+ */
+export async function fetchPricesFromUrlViaPlaywright(
+  input: FetchMlPriceInput,
+): Promise<FetchMlPriceResult> {
+  const fetchUrl =
+    typeof input === "string"
+      ? normalizeMercadoLivreProductUrl(input)
+      : resolveMercadoLivreFetchUrl(input.sourceUrl, input.affiliateUrl);
+  if (!fetchUrl) {
+    return { kind: "unreadable" };
+  }
+  const { fetchHtmlWithPlaywright } = await import("@/lib/ml-test/extractWithBrowser");
+  const pw = await fetchHtmlWithPlaywright(fetchUrl, { headless: false });
+  if (!pw.ok || !pw.html) {
+    return { kind: "unreadable" };
+  }
+  if (looksLikeMlBlockedOrChallenge(pw.html)) {
+    return { kind: "blocked" };
+  }
+  if (looksLikeMlListingMissing(pw.html)) {
+    return { kind: "listing_gone" };
+  }
+  const { price, promoPrice } = extractPricesFromHtml(pw.html);
+  if (price != null && Number.isFinite(price) && price > 0) {
+    return packOk(price, promoPrice);
+  }
+  return { kind: "unreadable" };
+}

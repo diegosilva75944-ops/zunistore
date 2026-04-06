@@ -66,6 +66,13 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  /** Progresso da reimportação ML em lote (stream NDJSON). */
+  const [mlSyncProgress, setMlSyncProgress] = useState<{
+    total: number;
+    current: number;
+    code6?: string;
+    dedupe?: boolean;
+  } | null>(null);
   const [syncingProductId, setSyncingProductId] = useState<string | null>(null);
   const [tab, setTab] = useState<"listagem" | "historico" | "precos">(() => {
     const t = searchParams.get("tab");
@@ -310,16 +317,90 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
 
     setSyncing(true);
     setSyncResult(null);
+    setMlSyncProgress(null);
 
     try {
-      const res = await fetch("/api/cron/sync-prices", {
+      const res = await fetch("/api/admin/ml-full-reimport/stream", {
         method: "POST",
       });
 
-      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setSyncResult(`Erro: ${(err as { error?: string })?.error || res.statusText || "Falha na sincronização"}`);
+        return;
+      }
 
-      if (!res.ok || !data?.ok) {
-        setSyncResult(`Erro: ${data?.error || "Falha na sincronização"}`);
+      if (!res.body) {
+        setSyncResult("Erro: resposta sem corpo (stream).");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let data: Record<string, unknown> | null = null;
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let obj: { type?: string; [k: string]: unknown };
+          try {
+            obj = JSON.parse(line) as { type?: string };
+          } catch {
+            continue;
+          }
+          if (obj.type === "progress") {
+            if (obj.phase === "start" && typeof obj.total === "number") {
+              setMlSyncProgress({ total: obj.total, current: 0 });
+            } else if (obj.phase === "product") {
+              setMlSyncProgress({
+                total: typeof obj.total === "number" ? obj.total : 0,
+                current: typeof obj.index === "number" ? obj.index : 0,
+                code6: typeof obj.code6 === "string" ? obj.code6 : undefined,
+                dedupe: false,
+              });
+            } else if (obj.phase === "dedupe") {
+              setMlSyncProgress((p) =>
+                p ? { ...p, dedupe: true } : { total: 0, current: 0, dedupe: true },
+              );
+            }
+          } else if (obj.type === "complete" && obj.result && typeof obj.result === "object") {
+            data = obj.result as Record<string, unknown>;
+          } else if (obj.type === "error") {
+            setSyncResult(
+              `Erro: ${typeof obj.message === "string" ? obj.message : "Falha na sincronização"}`,
+            );
+            return;
+          }
+        }
+      }
+
+      if (buf.trim()) {
+        try {
+          const obj = JSON.parse(buf) as { type?: string; result?: unknown; message?: string };
+          if (obj.type === "complete" && obj.result && typeof obj.result === "object") {
+            data = obj.result as Record<string, unknown>;
+          } else if (obj.type === "error") {
+            setSyncResult(`Erro: ${typeof obj.message === "string" ? obj.message : "Falha"}`);
+            return;
+          }
+        } catch {
+          /* linha incompleta */
+        }
+      }
+
+      if (!data) {
+        setSyncResult("Erro: resposta incompleta do servidor.");
+        return;
+      }
+
+      if (!data.ok) {
+        setSyncResult(`Erro: ${String(data.error ?? "Falha na sincronização")}`);
         return;
       }
 
@@ -333,9 +414,9 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
           if (skipUrl > 0) msg += `, ignorados (sem URL de anúncio): ${skipUrl}`;
           if (failN > 0) msg += `, falhas: ${failN}`;
           if (Array.isArray(data.failures) && data.failures.length > 0) {
-            const sample = data.failures
+            const sample = (data.failures as { code6?: string; error?: string }[])
               .slice(0, 5)
-              .map((f: { code6?: string; error?: string }) => `${f.code6 ?? "?"}: ${f.error ?? ""}`)
+              .map((f) => `${f.code6 ?? "?"}: ${f.error ?? ""}`)
               .join(" | ");
             msg += `\nExemplos: ${sample}`;
           }
@@ -355,10 +436,11 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
       fetch("/api/admin/products/affiliate-expired-count")
         .then((r) => r.json().catch(() => ({})))
         .then((d) => setExpiredAffiliateCount(typeof d?.count === "number" ? d.count : 0));
-    } catch (e) {
+    } catch {
       setSyncResult("Erro ao conectar com o servidor.");
     } finally {
       setSyncing(false);
+      setMlSyncProgress(null);
     }
   }
 
@@ -962,33 +1044,66 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         )}
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap rounded-2xl bg-zuni-green/10 ring-1 ring-zuni-green/30 p-3">
-        <button
-          disabled={syncing}
-          onClick={syncAllPrices}
-          className="rounded-full bg-zuni-green px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 flex items-center gap-2"
-        >
-          {syncing ? (
-            <>
-              <span className="animate-spin">⏳</span>
-              Sincronizando...
-            </>
-          ) : (
-            <>
-              🔄 Sincronizar todos (ML)
-            </>
+      <div className="flex flex-col gap-3 rounded-2xl bg-zuni-green/10 ring-1 ring-zuni-green/30 p-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            disabled={syncing}
+            onClick={syncAllPrices}
+            className="rounded-full bg-zuni-green px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 flex items-center gap-2"
+          >
+            {syncing ? (
+              <>
+                <span className="animate-spin">⏳</span>
+                Sincronizando...
+              </>
+            ) : (
+              <>
+                🔄 Sincronizar todos (ML)
+              </>
+            )}
+          </button>
+
+          {syncResult && (
+            <span
+              className={`text-sm whitespace-pre-wrap ${syncResult.startsWith("Erro") ? "text-zuni-red" : "text-zuni-green"}`}
+            >
+              {syncResult}
+            </span>
           )}
-        </button>
-        
-        {syncResult && (
-          <span className={`text-sm ${syncResult.startsWith("Erro") ? "text-zuni-red" : "text-zuni-green"}`}>
-            {syncResult}
+
+          <span className="text-xs text-zinc-600 ml-auto">
+            Atualização automática: a cada 30 minutos
           </span>
+        </div>
+
+        {mlSyncProgress && mlSyncProgress.total > 0 && (
+          <div className="space-y-1 max-w-xl">
+            <div className="flex justify-between gap-2 text-xs text-zinc-600">
+              <span>
+                {mlSyncProgress.dedupe ?
+                  "Removendo títulos duplicados…"
+                : `Reimportados / processados: ${mlSyncProgress.current} de ${mlSyncProgress.total}`}
+              </span>
+              {mlSyncProgress.code6 && !mlSyncProgress.dedupe && (
+                <span className="font-mono text-zinc-500">#{mlSyncProgress.code6}</span>
+              )}
+            </div>
+            <div className="h-2 rounded-full bg-white/80 ring-1 ring-zuni-green/20 overflow-hidden">
+              <div
+                className={`h-full rounded-full bg-zuni-green transition-[width] duration-300 ${
+                  mlSyncProgress.dedupe ? "animate-pulse w-full opacity-80" : ""
+                }`}
+                style={
+                  mlSyncProgress.dedupe ?
+                    undefined
+                  : {
+                      width: `${Math.min(100, (100 * mlSyncProgress.current) / mlSyncProgress.total)}%`,
+                    }
+                }
+              />
+            </div>
+          </div>
         )}
-        
-        <span className="text-xs text-zinc-600 ml-auto">
-          Atualização automática: a cada 30 minutos
-        </span>
       </div>
 
       <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-3">

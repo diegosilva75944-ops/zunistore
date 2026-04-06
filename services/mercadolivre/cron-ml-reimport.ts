@@ -16,6 +16,21 @@ function sleep(ms: number) {
 
 export type CronMlBatchFailure = { product_id: string; code6: string; error: string };
 
+export type CronMlProgressOutcome = "reimported" | "deleted" | "failed" | "skipped_no_url";
+
+export type CronMlProgressEvent =
+  | { phase: "start"; total: number }
+  | {
+      phase: "product";
+      index: number;
+      total: number;
+      product_id: string;
+      code6: string;
+      outcome: CronMlProgressOutcome;
+      error?: string;
+    }
+  | { phase: "dedupe" };
+
 export type CronMlFullReimportBatchResult =
   | {
       ok: true;
@@ -152,7 +167,9 @@ async function processOneMlProduct(
  * Uma execução do cron / botão “sincronizar todos”: reimporta **todos** os produtos ML,
  * **um por um**, em ordem **decrescente** de `code6` (mesmo fluxo da aba Teste ML).
  */
-export async function runCronMlFullReimportAll(): Promise<CronMlFullReimportBatchResult> {
+export async function runCronMlFullReimportAll(options?: {
+  onProgress?: (evt: CronMlProgressEvent) => void | Promise<void>;
+}): Promise<CronMlFullReimportBatchResult> {
   let all: { id: string; code6: string }[];
   try {
     all = await listAllMlProductsDescCode6();
@@ -183,23 +200,41 @@ export async function runCronMlFullReimportAll(): Promise<CronMlFullReimportBatc
   let skipped_no_url = 0;
   const failures: CronMlBatchFailure[] = [];
 
+  await options?.onProgress?.({ phase: "start", total: all.length });
+
   for (let i = 0; i < all.length; i++) {
     const { id, code6 } = all[i];
     const result = await processOneMlProduct(id, code6);
+    let outcome: CronMlProgressOutcome;
     if (result.kind === "reimported") {
       reimported += 1;
+      outcome = "reimported";
     } else if (result.kind === "deleted") {
       deleted += 1;
+      outcome = "deleted";
     } else if (result.kind === "failed") {
       failed += 1;
       failures.push({ product_id: id, code6, error: result.error });
-    } else if (result.kind === "skip_no_urls") {
+      outcome = "failed";
+    } else {
       skipped_no_url += 1;
+      outcome = "skipped_no_url";
     }
+    await options?.onProgress?.({
+      phase: "product",
+      index: i + 1,
+      total: all.length,
+      product_id: id,
+      code6,
+      outcome,
+      error: result.kind === "failed" ? result.error : undefined,
+    });
     if (i < all.length - 1 && DELAY_MS_BETWEEN_PRODUCTS > 0) {
       await sleep(DELAY_MS_BETWEEN_PRODUCTS);
     }
   }
+
+  await options?.onProgress?.({ phase: "dedupe" });
 
   let dedupe_removed = 0;
   const dedupe_errors: string[] = [];
