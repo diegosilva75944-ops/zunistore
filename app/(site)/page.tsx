@@ -10,6 +10,7 @@ import { HeroSlider } from "@/components/HeroSlider";
 import { HomeRecommendationSections } from "@/components/home/HomeRecommendationSections";
 import { HomeOffersSection } from "@/components/home/HomeOffersSection";
 import { parseHomePerPage } from "@/lib/ui/home-listing";
+import { shuffleDailyOrder } from "@/lib/dailyShuffle";
 
 export const revalidate = 60;
 
@@ -60,7 +61,9 @@ export default async function Home(props: {
     </section>
   );
 
-  const offersSection = <HomeOffersSection products={offers.items} />;
+  const offersSection = (
+    <HomeOffersSection products={shuffleDailyOrder(offers.items)} />
+  );
 
   return (
     <div className="space-y-10">
