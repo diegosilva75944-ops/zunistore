@@ -1,6 +1,10 @@
 import "server-only";
 
-import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "@/lib/admin/db";
+import {
+  adminValidateProductAffiliateLink,
+  moveProductToDeletedHistoryAndDelete,
+  recordProductPriceChange,
+} from "@/lib/admin/db";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { postgrestGet } from "@/lib/postgrest/server";
 import { runDedupeProductsByDuplicateTitle } from "@/services/products/dedupe-by-title";
@@ -30,6 +34,8 @@ export type CronMlProgressEvent =
       code6: string;
       outcome: CronMlProgressOutcome;
       error?: string;
+      /** Após reimport ML: resultado da validação do link de afiliado desse mesmo produto. */
+      affiliate?: { valid: boolean; transient?: boolean; error?: boolean };
     }
   | { phase: "dedupe" }
   | { phase: "affiliate_start" }
@@ -225,6 +231,14 @@ export async function runCronMlFullReimportAll(options?: {
       failures: [],
       dedupe_removed: 0,
       dedupe_errors: [],
+      affiliate_validation: {
+        batches: 0,
+        checked: 0,
+        valid: 0,
+        invalid: 0,
+        errors: 0,
+        transient: 0,
+      },
     };
   }
 
@@ -237,6 +251,12 @@ export async function runCronMlFullReimportAll(options?: {
   await options?.onProgress?.({ phase: "start", total: all.length });
 
   let processed = 0;
+  let affChecked = 0;
+  let affValid = 0;
+  let affInvalid = 0;
+  let affTransient = 0;
+  let affErrors = 0;
+
   for (let batchStart = 0; batchStart < all.length; batchStart += SYNC_PARALLEL) {
     const slice = all.slice(batchStart, batchStart + SYNC_PARALLEL);
     const outcomes = await Promise.all(slice.map(({ id, code6 }) => processOneMlProduct(id, code6)));
@@ -245,9 +265,41 @@ export async function runCronMlFullReimportAll(options?: {
       const result = outcomes[j];
       processed += 1;
       let outcome: CronMlProgressOutcome;
+      let affiliate:
+        | { valid: boolean; transient?: boolean; error?: boolean }
+        | undefined;
+
       if (result.kind === "reimported") {
         reimported += 1;
         outcome = "reimported";
+        try {
+          const ar = await adminValidateProductAffiliateLink(id);
+          affChecked += 1;
+          if (ar.transient) {
+            affTransient += 1;
+            affiliate = { valid: false, transient: true };
+          } else if (ar.valid) {
+            affValid += 1;
+            affiliate = { valid: true };
+          } else {
+            affInvalid += 1;
+            affiliate = { valid: false };
+          }
+        } catch {
+          affChecked += 1;
+          affErrors += 1;
+          affiliate = { valid: false, error: true };
+        }
+        await options?.onProgress?.({
+          phase: "affiliate_batch",
+          batch: processed,
+          batchChecked: 1,
+          totalChecked: affChecked,
+          valid: affValid,
+          invalid: affInvalid,
+          errors: affErrors,
+          transient: affTransient,
+        });
       } else if (result.kind === "deleted") {
         deleted += 1;
         outcome = "deleted";
@@ -267,12 +319,23 @@ export async function runCronMlFullReimportAll(options?: {
         code6,
         outcome,
         error: result.kind === "failed" ? result.error : undefined,
+        affiliate,
       });
     }
     if (batchStart + slice.length < all.length && DELAY_MS_BETWEEN_BATCHES > 0) {
       await sleep(DELAY_MS_BETWEEN_BATCHES);
     }
   }
+
+  await options?.onProgress?.({
+    phase: "affiliate_done",
+    batches: affChecked > 0 ? 1 : 0,
+    checked: affChecked,
+    valid: affValid,
+    invalid: affInvalid,
+    errors: affErrors,
+    transient: affTransient,
+  });
 
   await options?.onProgress?.({ phase: "dedupe" });
 
@@ -297,5 +360,13 @@ export async function runCronMlFullReimportAll(options?: {
     failures,
     dedupe_removed,
     dedupe_errors,
+    affiliate_validation: {
+      batches: affChecked > 0 ? 1 : 0,
+      checked: affChecked,
+      valid: affValid,
+      invalid: affInvalid,
+      errors: affErrors,
+      transient: affTransient,
+    },
   };
 }

@@ -4,15 +4,27 @@
  * quando o ML devolve tela de login/HTML sem PDP.
  * Se HTTP não extrair preço, tenta `fetchPricesFromUrlViaPlaywright` (Chromium com janela quando há DISPLAY).
  *
+ * Critério: **válido** se existir preço de lista **ou** preço promocional (> 0);
+ * sem nenhum dos dois → trata como expirado (salvo falhas transitórias).
+ *
  * `import()` dinâmico evita ciclos de inicialização com `lib/admin/db` no carregamento do bundle.
  */
+
+import type { FetchMlPriceResult } from "@/lib/ml-price";
 
 function isTransientHttpStatus(status: number): boolean {
   return status === 429 || status === 502 || status === 503 || status === 504;
 }
 
+/** `kind === "ok"`: considera válido se houver preço cheio OU promocional. */
+export function mlPriceResultHasListedOrPromo(r: Extract<FetchMlPriceResult, { kind: "ok" }>): boolean {
+  const list = Number.isFinite(r.price) && r.price > 0;
+  const promo = r.promoPrice != null && Number.isFinite(r.promoPrice) && r.promoPrice > 0;
+  return list || promo;
+}
+
 /**
- * Retorna válido se conseguirmos extrair preço da página (mesmo critério do sync).
+ * Retorna válido se existir preço de lista ou promocional na página (mesmo critério do sync).
  * `transient: true` → não marcar link como expirado (bloqueio/rate limit/timeout); tentar de novo depois.
  */
 export async function checkAffiliatePageContainsProduct(
@@ -31,11 +43,12 @@ export async function checkAffiliatePageContainsProduct(
       affiliateUrl: trimmed,
     });
 
-    if (result.kind === "ok") {
-      return { valid: true };
-    }
     if (result.kind === "listing_gone") {
       return { valid: false, error: "Anúncio removido ou indisponível." };
+    }
+
+    if (result.kind === "ok" && mlPriceResultHasListedOrPromo(result)) {
+      return { valid: true };
     }
 
     const pw = await fetchPricesFromUrlViaPlaywright({
@@ -43,7 +56,10 @@ export async function checkAffiliatePageContainsProduct(
       affiliateUrl: trimmed,
     });
     if (pw.kind === "ok") {
-      return { valid: true };
+      if (mlPriceResultHasListedOrPromo(pw)) {
+        return { valid: true };
+      }
+      return { valid: false, error: "Nenhum preço de lista ou promocional detectável na página." };
     }
     if (pw.kind === "listing_gone") {
       return { valid: false, error: "Anúncio removido ou indisponível." };
@@ -63,7 +79,7 @@ export async function checkAffiliatePageContainsProduct(
         transient: true,
       };
     }
-    return { valid: false, error: "Preço não detectável mesmo com navegador (layout ou bloqueio)." };
+    return { valid: false, error: "Nenhum preço de lista ou promocional detectável (layout ou bloqueio)." };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const transient =

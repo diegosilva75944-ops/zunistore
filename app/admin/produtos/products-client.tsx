@@ -78,6 +78,8 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
     affiliateValid?: number;
     affiliateInvalid?: number;
     affiliateTransient?: number;
+    /** Último produto: resultado da validação do link após o sync ML. */
+    affiliateHint?: string;
   } | null>(null);
   const [syncingProductId, setSyncingProductId] = useState<string | null>(null);
   const [tab, setTab] = useState<"listagem" | "historico" | "precos">(() => {
@@ -316,7 +318,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   async function syncAllPrices() {
     if (
       !confirm(
-        "Serão atualizados no ML (pelo navegador) só preços, promoção e avaliações/nota — um produto de cada vez. Depois corre a validação dos links de afiliado (também um de cada vez). O browser no servidor fica aberto até terminar. Pode levar muito tempo. Continuar?",
+        "Para cada produto com ML: primeiro atualiza preço, promoção e avaliações no navegador, depois valida o link de afiliado do mesmo item (um de cada vez). No fim, remove títulos duplicados. O browser no servidor fica aberto até terminar. Pode levar muito tempo. Continuar?",
       )
     )
       return;
@@ -364,11 +366,25 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
             if (obj.phase === "start" && typeof obj.total === "number") {
               setMlSyncProgress({ total: obj.total, current: 0 });
             } else if (obj.phase === "product") {
-              setMlSyncProgress({
-                total: typeof obj.total === "number" ? obj.total : 0,
-                current: typeof obj.index === "number" ? obj.index : 0,
-                code6: typeof obj.code6 === "string" ? obj.code6 : undefined,
-                dedupe: false,
+              setMlSyncProgress((p) => {
+                const po = obj as {
+                  affiliate?: { valid?: boolean; transient?: boolean; error?: boolean };
+                };
+                let affiliateHint: string | undefined;
+                if (po.affiliate) {
+                  if (po.affiliate.error) affiliateHint = "Afiliado: erro";
+                  else if (po.affiliate.transient) affiliateHint = "Afiliado: adiado";
+                  else if (po.affiliate.valid) affiliateHint = "Afiliado: ok";
+                  else affiliateHint = "Afiliado: expirado";
+                }
+                return {
+                  ...(p ?? { total: 0, current: 0 }),
+                  total: typeof obj.total === "number" ? obj.total : p?.total ?? 0,
+                  current: typeof obj.index === "number" ? obj.index : 0,
+                  code6: typeof obj.code6 === "string" ? obj.code6 : undefined,
+                  dedupe: false,
+                  affiliateHint,
+                };
               });
             } else if (obj.phase === "dedupe") {
               setMlSyncProgress((p) =>
@@ -1140,16 +1156,37 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
             <div className="space-y-1 max-w-xl">
               <div className="flex justify-between gap-2 text-xs text-zinc-600">
                 <span>
-                  {mlSyncProgress.affiliate ?
-                    `Validação de afiliados${typeof mlSyncProgress.affiliateBatch === "number" ? ` — lote ${mlSyncProgress.affiliateBatch}` : ""}: ${mlSyncProgress.affiliateChecked ?? 0} verificado(s)${typeof mlSyncProgress.affiliateValid === "number" ? `, ${mlSyncProgress.affiliateValid} válido(s)` : ""}${typeof mlSyncProgress.affiliateInvalid === "number" ? `, ${mlSyncProgress.affiliateInvalid} expirado(s)` : ""}${typeof mlSyncProgress.affiliateTransient === "number" && mlSyncProgress.affiliateTransient > 0 ? `, ${mlSyncProgress.affiliateTransient} adiado(s)` : ""}`
-                  : mlSyncProgress.dedupe ?
+                  {mlSyncProgress.dedupe ?
                     "Removendo títulos duplicados…"
-                  : `Reimportados / processados: ${mlSyncProgress.current} de ${mlSyncProgress.total}`}
+                  : <>
+                      Reimportados / processados: {mlSyncProgress.current} de {mlSyncProgress.total}
+                      {mlSyncProgress.affiliateHint ?
+                        <span className="text-zinc-500"> · {mlSyncProgress.affiliateHint}</span>
+                      : null}
+                    </>
+                  }
                 </span>
-                {mlSyncProgress.code6 && !mlSyncProgress.dedupe && !mlSyncProgress.affiliate && (
+                {mlSyncProgress.code6 && !mlSyncProgress.dedupe && (
                   <span className="font-mono text-zinc-500">#{mlSyncProgress.code6}</span>
                 )}
               </div>
+              {mlSyncProgress.affiliate &&
+                typeof mlSyncProgress.affiliateChecked === "number" &&
+                !mlSyncProgress.dedupe && (
+                  <div className="text-xs text-zinc-500 pl-0.5">
+                    Link afiliado (acumulado): {mlSyncProgress.affiliateChecked} verif.
+                    {typeof mlSyncProgress.affiliateValid === "number" ?
+                      ` · ${mlSyncProgress.affiliateValid} ok`
+                    : ""}
+                    {typeof mlSyncProgress.affiliateInvalid === "number" ?
+                      ` · ${mlSyncProgress.affiliateInvalid} exp.`
+                    : ""}
+                    {typeof mlSyncProgress.affiliateTransient === "number" &&
+                    mlSyncProgress.affiliateTransient > 0 ?
+                      ` · ${mlSyncProgress.affiliateTransient} adiados`
+                    : ""}
+                  </div>
+                )}
               <div className="h-2 rounded-full bg-white/80 ring-1 ring-zuni-green/20 overflow-hidden">
                 <div
                   className={`h-full rounded-full bg-zuni-green transition-[width] duration-300 ${

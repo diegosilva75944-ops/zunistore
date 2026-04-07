@@ -1,17 +1,15 @@
 import "server-only";
 
-import { adminAffiliateValidationSweepAll } from "@/lib/admin/db";
 import { runWithMlPlaywrightBrowserSession } from "@/lib/ml-test/extractWithBrowser";
 import {
   runCronMlFullReimportAll,
-  type AffiliateValidationSweepSummary,
   type CronMlFullReimportBatchResult,
   type CronMlProgressEvent,
 } from "@/services/mercadolivre/cron-ml-reimport";
 
 export type { CronMlProgressEvent };
 
-/** Resposta JSON para cron / stream (inclui validação de afiliados quando existir). */
+/** Resposta JSON para cron / stream (inclui validação de afiliados por produto no próprio loop ML). */
 export function mlAdminFullPipelineResultToJson(result: CronMlFullReimportBatchResult) {
   if (!result.ok) {
     return {
@@ -57,52 +55,15 @@ export function mlAdminFullPipelineResultToJson(result: CronMlFullReimportBatchR
 }
 
 /**
- * Reimportação ML (todos) → dedupe → validação completa de links de afiliado.
- * Um único Chromium permanece aberto até o fim; uma aba de cada vez (sem pool paralelo).
+ * Reimportação ML (todos) → após cada produto reimportado, validação do link de afiliado do mesmo item → dedupe.
+ * Um Chromium, uma aba; validação alinhada ao sync individual.
  */
 export async function runMlAdminFullPipeline(options?: {
   onProgress?: (evt: CronMlProgressEvent) => void | Promise<void>;
 }): Promise<CronMlFullReimportBatchResult> {
   return runWithMlPlaywrightBrowserSession(async () => {
-    const reimport = await runCronMlFullReimportAll({
+    return runCronMlFullReimportAll({
       onProgress: options?.onProgress,
     });
-
-    if (!reimport.ok) {
-      return reimport;
-    }
-
-    await options?.onProgress?.({ phase: "affiliate_start" });
-
-    const affiliate: AffiliateValidationSweepSummary = await adminAffiliateValidationSweepAll({
-      batchSize: 30,
-      onBatch: async (info) => {
-        await options?.onProgress?.({
-          phase: "affiliate_batch",
-          batch: info.batchIndex,
-          batchChecked: info.batchChecked,
-          totalChecked: info.totalChecked,
-          valid: info.valid,
-          invalid: info.invalid,
-          errors: info.errors,
-          transient: info.transient,
-        });
-      },
-    });
-
-    await options?.onProgress?.({
-      phase: "affiliate_done",
-      batches: affiliate.batches,
-      checked: affiliate.checked,
-      valid: affiliate.valid,
-      invalid: affiliate.invalid,
-      errors: affiliate.errors,
-      transient: affiliate.transient,
-    });
-
-    if (reimport.skipped) {
-      return { ...reimport, affiliate_validation: affiliate };
-    }
-    return { ...reimport, affiliate_validation: affiliate };
   }, { poolSize: 1 });
 }
