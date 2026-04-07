@@ -316,7 +316,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   async function syncAllPrices() {
     if (
       !confirm(
-        "Serão atualizados no ML (pelo navegador) só preços, promoção e avaliações/nota — até 5 produtos em paralelo. Depois corre a validação completa dos links de afiliado (até 10 em paralelo). O browser no servidor fica aberto até terminar. Pode levar muito tempo. Continuar?",
+        "Serão atualizados no ML (pelo navegador) só preços, promoção e avaliações/nota — um produto de cada vez. Depois corre a validação dos links de afiliado (também um de cada vez). O browser no servidor fica aberto até terminar. Pode levar muito tempo. Continuar?",
       )
     )
       return;

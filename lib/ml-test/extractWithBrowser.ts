@@ -795,8 +795,8 @@ function releasePipelineSlot(s: MlPlaywrightSharedSession, index: number) {
 }
 
 /**
- * Abre um Chromium persistente e um **pool de abas** (defeito 10).
- * Cada `fetchHtmlWithPlaywright` pede uma aba livre; liberta ao terminar (vários produtos em paralelo).
+ * Abre um Chromium persistente e um **pool de abas** (defeito 10; `poolSize: 1` = uma aba).
+ * Cada `fetchHtmlWithPlaywright` pede uma aba livre; liberta ao terminar.
  */
 export async function runWithMlPlaywrightBrowserSession<T>(
   fn: () => Promise<T>,
@@ -828,7 +828,7 @@ export async function runWithMlPlaywrightBrowserSession<T>(
   };
   const context = await chromium.launchPersistentContext(absDir, contextBase);
   await attachMlStealth(context);
-  const poolSize = Math.min(20, Math.max(2, opts?.poolSize ?? 10));
+  const poolSize = Math.min(20, Math.max(1, opts?.poolSize ?? 10));
   const pool = await Promise.all(Array.from({ length: poolSize }, () => context.newPage()));
   const session: MlPlaywrightSharedSession = {
     context,

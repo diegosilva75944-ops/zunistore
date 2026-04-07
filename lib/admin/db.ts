@@ -617,7 +617,8 @@ export async function adminMoveAffiliateExpiredToHistoryByCode6(code6: string): 
   return { ok: true };
 }
 
-const AFFILIATE_VALIDATE_PARALLEL = 10;
+/** Um link de cada vez (menos bloqueios do ML / mesmo ritmo do sync). */
+const AFFILIATE_VALIDATE_PARALLEL = 1;
 
 export async function adminValidateAffiliateLinksBatch(productIds: string[]): Promise<{
   checked: number;

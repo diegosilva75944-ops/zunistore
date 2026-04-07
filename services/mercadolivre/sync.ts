@@ -139,6 +139,7 @@ export async function mlSyncImportedProduct(productId: string) {
 /**
  * Sync pelo navegador (Playwright): atualiza **apenas** preços, promoção, % off, nota e quantidade de avaliações.
  * Não altera título, descrição, imagens nem categoria.
+ * Sempre **um** `productId` por chamada (ex.: POST `/api/admin/products/[id]/sync-price` — sem paralelismo).
  */
 export async function mlSyncImportedProductPricesAndRatingsOnly(productId: string) {
   const rows = await postgrestGet<any[]>("product_external_listings", {

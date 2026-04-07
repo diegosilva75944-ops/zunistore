@@ -58,7 +58,7 @@ export function mlAdminFullPipelineResultToJson(result: CronMlFullReimportBatchR
 
 /**
  * Reimportação ML (todos) → dedupe → validação completa de links de afiliado.
- * Um único Chromium permanece aberto até o fim (sessão partilhada no Playwright).
+ * Um único Chromium permanece aberto até o fim; uma aba de cada vez (sem pool paralelo).
  */
 export async function runMlAdminFullPipeline(options?: {
   onProgress?: (evt: CronMlProgressEvent) => void | Promise<void>;
@@ -104,5 +104,5 @@ export async function runMlAdminFullPipeline(options?: {
       return { ...reimport, affiliate_validation: affiliate };
     }
     return { ...reimport, affiliate_validation: affiliate };
-  }, { poolSize: 10 });
+  }, { poolSize: 1 });
 }

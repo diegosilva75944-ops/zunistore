@@ -7,9 +7,9 @@ import { runDedupeProductsByDuplicateTitle } from "@/services/products/dedupe-by
 import { mlSyncImportedProductPricesAndRatingsOnly } from "@/services/mercadolivre/sync";
 
 const BATCH_PAGE = 500;
-/** Produtos ML processados em paralelo no browser (pool de abas no servidor). */
-const SYNC_PARALLEL = 5;
-/** Pausa entre lotes paralelos. */
+/** Um produto de cada vez no fluxo de sync ML (navegador no servidor). */
+const SYNC_PARALLEL = 1;
+/** Pausa entre produtos (evita martelar o ML). */
 const DELAY_MS_BETWEEN_BATCHES = 400;
 
 function sleep(ms: number) {
