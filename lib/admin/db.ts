@@ -290,9 +290,11 @@ export async function pickAffiliateValidationProductIds(limit: number): Promise<
   const cap = Math.min(50, Math.max(1, limit));
   let expiredRows: { id: string }[] = [];
   try {
+    /** Só catálogo ativo: inativos/deletados do site não devem entrar na fila (evita HTTP longo na sync ML). */
     expiredRows = await postgrestGet<{ id: string }[]>("products", {
       select: "id",
       affiliate_valid: "eq.false",
+      is_active: "eq.true",
       limit: String(cap),
     });
   } catch (e) {
@@ -306,6 +308,7 @@ export async function pickAffiliateValidationProductIds(limit: number): Promise<
     try {
       queueRows = await postgrestGet<{ id: string }[]>("products", {
         select: "id",
+        is_active: "eq.true",
         order: "affiliate_valid_checked_at.asc.nullsfirst",
         limit: String(Math.min(need * 4, 100)),
       });
@@ -313,6 +316,7 @@ export async function pickAffiliateValidationProductIds(limit: number): Promise<
       console.warn("[admin] pickAffiliateValidationProductIds order falhou, usando created_at", e);
       queueRows = await postgrestGet<{ id: string }[]>("products", {
         select: "id",
+        is_active: "eq.true",
         order: "created_at.desc",
         limit: String(Math.min(need * 4, 100)),
       });
