@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { postgrestGet } from "@/lib/postgrest/server";
 import {
   adminMoveAllAffiliateExpiredProductsToHistory,
   adminValidateAffiliateLinksBatch,
-  mergeProductIdsForAffiliateValidation,
+  pickAffiliateValidationProductIds,
 } from "@/lib/admin/db";
 
 export const runtime = "nodejs";
@@ -41,38 +40,8 @@ export async function GET(req: Request) {
 
     const sweep = await adminMoveAllAffiliateExpiredProductsToHistory();
 
-    let expiredRows: { id: string }[] = [];
-    try {
-      expiredRows = await postgrestGet<{ id: string }[]>("products", {
-        select: "id",
-        affiliate_valid: "eq.false",
-        limit: String(limit),
-      });
-    } catch (e) {
-      console.warn("[cron validate-affiliate-links] consulta affiliate_valid=false ignorada", e);
-    }
-    const expiredIds = (Array.isArray(expiredRows) ? expiredRows : []).map((r) => r.id).filter(Boolean);
-    const need = Math.max(0, limit - expiredIds.length);
-
-    let queueRows: { id: string }[] = [];
-    if (need > 0) {
-      try {
-        queueRows = await postgrestGet<{ id: string }[]>("products", {
-          select: "id",
-          order: "affiliate_valid_checked_at.asc.nullsfirst",
-          limit: String(Math.min(need * 4, 100)),
-        });
-      } catch (e) {
-        console.warn("[cron validate-affiliate-links] fallback order created_at", e);
-        queueRows = await postgrestGet<{ id: string }[]>("products", {
-          select: "id",
-          order: "created_at.desc",
-          limit: String(Math.min(need * 4, 100)),
-        });
-      }
-    }
-
-    const ids = mergeProductIdsForAffiliateValidation(expiredIds, queueRows, limit);
+    /** Mesma seleção que POST /api/admin/products/validate-affiliate-links (inclui `is_active=true`). */
+    const ids = await pickAffiliateValidationProductIds(limit);
     if (ids.length === 0) {
       return NextResponse.json({
         ok: true,
@@ -80,6 +49,7 @@ export async function GET(req: Request) {
         valid: 0,
         invalid: 0,
         errors: 0,
+        transient: 0,
         message: "Nenhum produto para validar.",
       });
     }
@@ -89,7 +59,7 @@ export async function GET(req: Request) {
       ok: true,
       sweptFromExpiredFlag: sweep.moved,
       ...result,
-      message: `Histórico: ${sweep.moved} com flag expirado. Validados ${result.checked} link(s): ${result.valid} válido(s), ${result.invalid} inválido(s)${result.errors > 0 ? `, ${result.errors} erro(s)` : ""}.`,
+      message: `Histórico: ${sweep.moved} com flag expirado. Validados ${result.checked} link(s): ${result.valid} válido(s), ${result.invalid} expirado(s)${result.transient > 0 ? `, ${result.transient} adiado(s) (bloqueio/rate limit)` : ""}${result.errors > 0 ? `, ${result.errors} erro(s)` : ""}.`,
     });
   } catch (e) {
     console.error(e);

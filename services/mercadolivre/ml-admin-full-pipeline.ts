@@ -85,6 +85,7 @@ export async function runMlAdminFullPipeline(options?: {
           valid: info.valid,
           invalid: info.invalid,
           errors: info.errors,
+          transient: info.transient,
         });
       },
     });
@@ -96,6 +97,7 @@ export async function runMlAdminFullPipeline(options?: {
       valid: affiliate.valid,
       invalid: affiliate.invalid,
       errors: affiliate.errors,
+      transient: affiliate.transient,
     });
 
     if (reimport.skipped) {

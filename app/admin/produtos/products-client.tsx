@@ -77,6 +77,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
     affiliateChecked?: number;
     affiliateValid?: number;
     affiliateInvalid?: number;
+    affiliateTransient?: number;
   } | null>(null);
   const [syncingProductId, setSyncingProductId] = useState<string | null>(null);
   const [tab, setTab] = useState<"listagem" | "historico" | "precos">(() => {
@@ -390,6 +391,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                 affiliateChecked: typeof obj.totalChecked === "number" ? obj.totalChecked : undefined,
                 affiliateValid: typeof obj.valid === "number" ? obj.valid : undefined,
                 affiliateInvalid: typeof obj.invalid === "number" ? obj.invalid : undefined,
+                affiliateTransient: typeof obj.transient === "number" ? obj.transient : undefined,
               }));
             } else if (obj.phase === "affiliate_done") {
               setMlSyncProgress((p) => ({
@@ -401,6 +403,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
                 affiliateChecked: typeof obj.checked === "number" ? obj.checked : undefined,
                 affiliateValid: typeof obj.valid === "number" ? obj.valid : undefined,
                 affiliateInvalid: typeof obj.invalid === "number" ? obj.invalid : undefined,
+                affiliateTransient: typeof obj.transient === "number" ? obj.transient : undefined,
               }));
             }
           } else if (obj.type === "complete" && obj.result && typeof obj.result === "object") {
@@ -440,11 +443,18 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
 
       if (data.mode === "ml_full_reimport") {
         const av = data.affiliate_validation as
-          | { checked: number; valid: number; invalid: number; errors: number; batches: number }
+          | {
+              checked: number;
+              valid: number;
+              invalid: number;
+              errors: number;
+              batches: number;
+              transient?: number;
+            }
           | undefined;
         const avLine =
           av != null ?
-            `\nValidação de afiliados: ${av.checked} link(s) verificado(s), ${av.valid} válido(s), ${av.invalid} expirado(s)${av.errors > 0 ? `, ${av.errors} erro(s)` : ""} (${av.batches} lote(s)).`
+            `\nValidação de afiliados: ${av.checked} link(s) verificado(s), ${av.valid} válido(s), ${av.invalid} expirado(s)${typeof av.transient === "number" && av.transient > 0 ? `, ${av.transient} adiado(s) (bloqueio/rate limit)` : ""}${av.errors > 0 ? `, ${av.errors} erro(s)` : ""} (${av.batches} lote(s)).`
           : "";
 
         if (data.skipped && data.reason === "no_ml_products") {
@@ -1131,7 +1141,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
               <div className="flex justify-between gap-2 text-xs text-zinc-600">
                 <span>
                   {mlSyncProgress.affiliate ?
-                    `Validação de afiliados${typeof mlSyncProgress.affiliateBatch === "number" ? ` — lote ${mlSyncProgress.affiliateBatch}` : ""}: ${mlSyncProgress.affiliateChecked ?? 0} verificado(s)${typeof mlSyncProgress.affiliateValid === "number" ? `, ${mlSyncProgress.affiliateValid} válido(s)` : ""}${typeof mlSyncProgress.affiliateInvalid === "number" ? `, ${mlSyncProgress.affiliateInvalid} expirado(s)` : ""}`
+                    `Validação de afiliados${typeof mlSyncProgress.affiliateBatch === "number" ? ` — lote ${mlSyncProgress.affiliateBatch}` : ""}: ${mlSyncProgress.affiliateChecked ?? 0} verificado(s)${typeof mlSyncProgress.affiliateValid === "number" ? `, ${mlSyncProgress.affiliateValid} válido(s)` : ""}${typeof mlSyncProgress.affiliateInvalid === "number" ? `, ${mlSyncProgress.affiliateInvalid} expirado(s)` : ""}${typeof mlSyncProgress.affiliateTransient === "number" && mlSyncProgress.affiliateTransient > 0 ? `, ${mlSyncProgress.affiliateTransient} adiado(s)` : ""}`
                   : mlSyncProgress.dedupe ?
                     "Removendo títulos duplicados…"
                   : `Reimportados / processados: ${mlSyncProgress.current} de ${mlSyncProgress.total}`}

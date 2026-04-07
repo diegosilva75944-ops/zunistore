@@ -30,6 +30,7 @@ export async function POST(req: Request) {
         valid: 0,
         invalid: 0,
         errors: 0,
+        transient: 0,
         message: "Nenhum produto para validar.",
       });
     }
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
       ok: true,
       sweptFromExpiredFlag: sweep.moved,
       ...result,
-      message: `Histórico: ${sweep.moved} produto(s) com link já marcado expirado. Validados ${result.checked} link(s): ${result.valid} válido(s), ${result.invalid} expirado(s)${result.errors > 0 ? `, ${result.errors} erro(s) interno(s)` : ""}.`,
+      message: `Histórico: ${sweep.moved} produto(s) com link já marcado expirado. Validados ${result.checked} link(s): ${result.valid} válido(s), ${result.invalid} expirado(s)${result.transient > 0 ? `, ${result.transient} adiado(s) (bloqueio/rate limit)` : ""}${result.errors > 0 ? `, ${result.errors} erro(s) interno(s)` : ""}.`,
     });
   } catch (e) {
     console.error(e);

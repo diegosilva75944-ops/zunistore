@@ -41,6 +41,7 @@ export type CronMlProgressEvent =
       valid: number;
       invalid: number;
       errors: number;
+      transient: number;
     }
   | {
       phase: "affiliate_done";
@@ -49,6 +50,7 @@ export type CronMlProgressEvent =
       valid: number;
       invalid: number;
       errors: number;
+      transient: number;
     };
 
 export type AffiliateValidationSweepSummary = {
@@ -57,6 +59,8 @@ export type AffiliateValidationSweepSummary = {
   valid: number;
   invalid: number;
   errors: number;
+  /** Bloqueio/rate limit — não contados como expirados. */
+  transient: number;
 };
 
 export type CronMlFullReimportBatchResult =

@@ -339,14 +339,16 @@ export async function adminAffiliateValidationSweepAll(opts?: {
     valid: number;
     invalid: number;
     errors: number;
+    transient: number;
   }) => void | Promise<void>;
-}): Promise<{ batches: number; checked: number; valid: number; invalid: number; errors: number }> {
+}): Promise<{ batches: number; checked: number; valid: number; invalid: number; errors: number; transient: number }> {
   const batchSize = Math.min(50, Math.max(1, opts?.batchSize ?? 30));
   let batches = 0;
   let checked = 0;
   let valid = 0;
   let invalid = 0;
   let errors = 0;
+  let transient = 0;
 
   for (;;) {
     await adminMoveAllAffiliateExpiredProductsToHistory();
@@ -358,6 +360,7 @@ export async function adminAffiliateValidationSweepAll(opts?: {
     valid += r.valid;
     invalid += r.invalid;
     errors += r.errors;
+    transient += r.transient;
     await opts?.onBatch?.({
       batchIndex: batches,
       batchChecked: r.checked,
@@ -365,10 +368,11 @@ export async function adminAffiliateValidationSweepAll(opts?: {
       valid,
       invalid,
       errors,
+      transient,
     });
   }
 
-  return { batches, checked, valid, invalid, errors };
+  return { batches, checked, valid, invalid, errors, transient };
 }
 
 const PRODUCTS_SELECT_FULL =
@@ -492,6 +496,8 @@ export async function adminListProducts(opts: {
 export async function adminValidateProductAffiliateLink(productId: string): Promise<{
   valid: boolean;
   error?: string;
+  /** Bloqueio/rate limit/timeout — não mover para histórico; só atualiza `affiliate_valid_checked_at`. */
+  transient?: boolean;
 }> {
   let row: any;
   try {
@@ -518,12 +524,20 @@ export async function adminValidateProductAffiliateLink(productId: string): Prom
     return { valid: false };
   }
   const title = row.title ? String(row.title).trim() : "";
-  const { valid } = await checkAffiliatePageContainsProduct(
+  const check = await checkAffiliatePageContainsProduct(
     row.affiliate_url,
     title || "Produto",
   );
   const now = new Date().toISOString();
-  if (!valid) {
+  if (!check.valid) {
+    if (check.transient) {
+      await postgrestPatch(
+        "products",
+        { affiliate_valid_checked_at: now },
+        { id: `eq.${productId}` },
+      );
+      return { valid: false, transient: true, error: check.error };
+    }
     await moveProductToDeletedHistoryAndDelete(productId, "affiliate_expired");
     return { valid: false };
   }
@@ -610,17 +624,19 @@ export async function adminValidateAffiliateLinksBatch(productIds: string[]): Pr
   valid: number;
   invalid: number;
   errors: number;
+  transient: number;
 }> {
   let valid = 0;
   let invalid = 0;
   let errors = 0;
+  let transient = 0;
   for (let i = 0; i < productIds.length; i += AFFILIATE_VALIDATE_PARALLEL) {
     const chunk = productIds.slice(i, i + AFFILIATE_VALIDATE_PARALLEL);
     const chunkResults = await Promise.all(
       chunk.map(async (id) => {
         try {
           const result = await adminValidateProductAffiliateLink(id);
-          return { ok: true as const, valid: result.valid };
+          return { ok: true as const, valid: result.valid, transient: result.transient };
         } catch (err) {
           console.error("[admin] adminValidateProductAffiliateLink failed", id, err);
           return { ok: false as const };
@@ -632,11 +648,15 @@ export async function adminValidateAffiliateLinksBatch(productIds: string[]): Pr
         errors += 1;
         continue;
       }
+      if (r.transient) {
+        transient += 1;
+        continue;
+      }
       if (r.valid) valid += 1;
       else invalid += 1;
     }
   }
-  return { checked: productIds.length, valid, invalid, errors };
+  return { checked: productIds.length, valid, invalid, errors, transient };
 }
 
 export async function adminBulkUpdateCategory(productIds: string[], categoryId: string) {

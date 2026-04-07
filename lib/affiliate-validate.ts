@@ -7,13 +7,18 @@
  * `import()` dinâmico evita ciclos de inicialização com `lib/admin/db` no carregamento do bundle.
  */
 
+function isTransientHttpStatus(status: number): boolean {
+  return status === 429 || status === 502 || status === 503 || status === 504;
+}
+
 /**
  * Retorna válido se conseguirmos extrair preço da página (mesmo critério do sync).
+ * `transient: true` → não marcar link como expirado (bloqueio/rate limit/timeout); tentar de novo depois.
  */
 export async function checkAffiliatePageContainsProduct(
   affiliateUrl: string,
   _productTitle: string,
-): Promise<{ valid: boolean; error?: string }> {
+): Promise<{ valid: boolean; error?: string; transient?: boolean }> {
   const trimmed = String(affiliateUrl || "").trim();
   if (!trimmed.startsWith("http")) {
     return { valid: false, error: "URL inválida." };
@@ -44,18 +49,25 @@ export async function checkAffiliatePageContainsProduct(
       return { valid: false, error: "Anúncio removido ou indisponível." };
     }
     if (pw.kind === "http_error") {
-      return { valid: false, error: `HTTP ${pw.status}` };
+      return {
+        valid: false,
+        error: `HTTP ${pw.status}`,
+        transient: isTransientHttpStatus(pw.status),
+      };
     }
     if (pw.kind === "blocked") {
       return {
         valid: false,
         error:
           "Mercado Livre bloqueou a leitura (login/captcha). Confira DISPLAY/X11 para a janela do Chromium ou use outro link.",
+        transient: true,
       };
     }
     return { valid: false, error: "Preço não detectável mesmo com navegador (layout ou bloqueio)." };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    return { valid: false, error: message };
+    const transient =
+      /Tempo esgotado|AbortError|timeout|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(message);
+    return { valid: false, error: message, transient };
   }
 }
