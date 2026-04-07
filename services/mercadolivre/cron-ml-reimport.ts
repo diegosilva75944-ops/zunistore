@@ -4,11 +4,13 @@ import { moveProductToDeletedHistoryAndDelete, recordProductPriceChange } from "
 import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { postgrestGet } from "@/lib/postgrest/server";
 import { runDedupeProductsByDuplicateTitle } from "@/services/products/dedupe-by-title";
-import { mlSyncImportedProduct } from "@/services/mercadolivre/sync";
+import { mlSyncImportedProductPricesAndRatingsOnly } from "@/services/mercadolivre/sync";
 
 const BATCH_PAGE = 500;
-/** Pausa entre produtos para reduzir bloqueio / carga no ML. */
-const DELAY_MS_BETWEEN_PRODUCTS = 400;
+/** Produtos ML processados em paralelo no browser (pool de abas no servidor). */
+const SYNC_PARALLEL = 5;
+/** Pausa entre lotes paralelos. */
+const DELAY_MS_BETWEEN_BATCHES = 400;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -162,7 +164,7 @@ async function processOneMlProduct(
   }
 
   try {
-    await mlSyncImportedProduct(productId);
+    await mlSyncImportedProductPricesAndRatingsOnly(productId);
   } catch (e) {
     return { kind: "failed", error: e instanceof Error ? e.message : String(e) };
   }
@@ -230,35 +232,41 @@ export async function runCronMlFullReimportAll(options?: {
 
   await options?.onProgress?.({ phase: "start", total: all.length });
 
-  for (let i = 0; i < all.length; i++) {
-    const { id, code6 } = all[i];
-    const result = await processOneMlProduct(id, code6);
-    let outcome: CronMlProgressOutcome;
-    if (result.kind === "reimported") {
-      reimported += 1;
-      outcome = "reimported";
-    } else if (result.kind === "deleted") {
-      deleted += 1;
-      outcome = "deleted";
-    } else if (result.kind === "failed") {
-      failed += 1;
-      failures.push({ product_id: id, code6, error: result.error });
-      outcome = "failed";
-    } else {
-      skipped_no_url += 1;
-      outcome = "skipped_no_url";
+  let processed = 0;
+  for (let batchStart = 0; batchStart < all.length; batchStart += SYNC_PARALLEL) {
+    const slice = all.slice(batchStart, batchStart + SYNC_PARALLEL);
+    const outcomes = await Promise.all(slice.map(({ id, code6 }) => processOneMlProduct(id, code6)));
+    for (let j = 0; j < slice.length; j++) {
+      const { id, code6 } = slice[j];
+      const result = outcomes[j];
+      processed += 1;
+      let outcome: CronMlProgressOutcome;
+      if (result.kind === "reimported") {
+        reimported += 1;
+        outcome = "reimported";
+      } else if (result.kind === "deleted") {
+        deleted += 1;
+        outcome = "deleted";
+      } else if (result.kind === "failed") {
+        failed += 1;
+        failures.push({ product_id: id, code6, error: result.error });
+        outcome = "failed";
+      } else {
+        skipped_no_url += 1;
+        outcome = "skipped_no_url";
+      }
+      await options?.onProgress?.({
+        phase: "product",
+        index: processed,
+        total: all.length,
+        product_id: id,
+        code6,
+        outcome,
+        error: result.kind === "failed" ? result.error : undefined,
+      });
     }
-    await options?.onProgress?.({
-      phase: "product",
-      index: i + 1,
-      total: all.length,
-      product_id: id,
-      code6,
-      outcome,
-      error: result.kind === "failed" ? result.error : undefined,
-    });
-    if (i < all.length - 1 && DELAY_MS_BETWEEN_PRODUCTS > 0) {
-      await sleep(DELAY_MS_BETWEEN_PRODUCTS);
+    if (batchStart + slice.length < all.length && DELAY_MS_BETWEEN_BATCHES > 0) {
+      await sleep(DELAY_MS_BETWEEN_BATCHES);
     }
   }
 

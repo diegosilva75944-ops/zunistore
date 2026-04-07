@@ -599,6 +599,8 @@ export async function adminMoveAffiliateExpiredToHistoryByCode6(code6: string): 
   return { ok: true };
 }
 
+const AFFILIATE_VALIDATE_PARALLEL = 10;
+
 export async function adminValidateAffiliateLinksBatch(productIds: string[]): Promise<{
   checked: number;
   valid: number;
@@ -608,16 +610,27 @@ export async function adminValidateAffiliateLinksBatch(productIds: string[]): Pr
   let valid = 0;
   let invalid = 0;
   let errors = 0;
-  for (const id of productIds) {
-    try {
-      const result = await adminValidateProductAffiliateLink(id);
-      if (result.valid) valid += 1;
+  for (let i = 0; i < productIds.length; i += AFFILIATE_VALIDATE_PARALLEL) {
+    const chunk = productIds.slice(i, i + AFFILIATE_VALIDATE_PARALLEL);
+    const chunkResults = await Promise.all(
+      chunk.map(async (id) => {
+        try {
+          const result = await adminValidateProductAffiliateLink(id);
+          return { ok: true as const, valid: result.valid };
+        } catch (err) {
+          console.error("[admin] adminValidateProductAffiliateLink failed", id, err);
+          return { ok: false as const };
+        }
+      }),
+    );
+    for (const r of chunkResults) {
+      if (!r.ok) {
+        errors += 1;
+        continue;
+      }
+      if (r.valid) valid += 1;
       else invalid += 1;
-    } catch (err) {
-      errors += 1;
-      console.error("[admin] adminValidateProductAffiliateLink failed", id, err);
     }
-    await new Promise((r) => setTimeout(r, 400));
   }
   return { checked: productIds.length, valid, invalid, errors };
 }

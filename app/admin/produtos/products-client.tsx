@@ -315,7 +315,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
   async function syncAllPrices() {
     if (
       !confirm(
-        "Serão reimportados TODOS os produtos com vínculo Mercado Livre (um por um), depois a validação COMPLETA dos links de afiliado. O navegador no servidor permanece aberto até terminar tudo. Pode levar muito tempo. Continuar?",
+        "Serão atualizados no ML (pelo navegador) só preços, promoção e avaliações/nota — até 5 produtos em paralelo. Depois corre a validação completa dos links de afiliado (até 10 em paralelo). O browser no servidor fica aberto até terminar. Pode levar muito tempo. Continuar?",
       )
     )
       return;

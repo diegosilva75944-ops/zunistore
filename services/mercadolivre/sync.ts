@@ -6,8 +6,14 @@ import { normalizeMercadoLivreProductUrl } from "@/lib/ml-price";
 import { postgrestGet, postgrestPost } from "@/lib/postgrest/server";
 import { extractMlItemIdFromFirstWorkingCandidate } from "@/services/mercadolivre/ml-url-resolve";
 import { extractMlItemIdFromUrl } from "@/services/mercadolivre/parser";
+import { fetchPricesFromUrl, type FetchMlPriceInput } from "@/lib/ml-price";
 import { buildNormalizedFromTestImport } from "@/services/mercadolivre/pdp-import-mapper";
-import { deleteConflictingExternalListingsForOtherProducts, mlImportOrUpdateProduct } from "@/services/mercadolivre/persist";
+import { mapMlNormalizedToDrafts } from "@/services/mercadolivre/mapper";
+import {
+  deleteConflictingExternalListingsForOtherProducts,
+  mlImportOrUpdateProduct,
+  patchProductMlPricesAndRatingsOnly,
+} from "@/services/mercadolivre/persist";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -127,6 +133,84 @@ export async function mlSyncImportedProduct(productId: string) {
     descriptionDetail: result.fullDescription,
     affiliateUrl: existingAffiliate,
     sourceUrl: existingSource ?? fetchUrl,
+  });
+}
+
+/**
+ * Sync pelo navegador (Playwright): atualiza **apenas** preços, promoção, % off, nota e quantidade de avaliações.
+ * Não altera título, descrição, imagens nem categoria.
+ */
+export async function mlSyncImportedProductPricesAndRatingsOnly(productId: string) {
+  const rows = await postgrestGet<any[]>("product_external_listings", {
+    select: "external_id,external_permalink",
+    origin: "eq.mercadolivre",
+    product_id: `eq.${productId}`,
+    limit: "1",
+  });
+  const row = Array.isArray(rows) ? rows[0] : null;
+  const externalId = row?.external_id ? String(row.external_id) : "";
+  if (!externalId) {
+    throw new Error("Produto não tem vínculo externo do Mercado Livre (external_id).");
+  }
+
+  const permalink =
+    row?.external_permalink && String(row.external_permalink).startsWith("http") ?
+      String(row.external_permalink)
+    : `https://www.mercadolivre.com.br/p/${externalId}`;
+
+  const prodRows = await postgrestGet<any[]>("products", {
+    select: "affiliate_url,source_url",
+    id: `eq.${productId}`,
+    limit: "1",
+  });
+  const prod = Array.isArray(prodRows) ? prodRows[0] : null;
+  const existingAffiliate =
+    prod?.affiliate_url && String(prod.affiliate_url).startsWith("http") ?
+      String(prod.affiliate_url)
+    : undefined;
+  const existingSource =
+    prod?.source_url && String(prod.source_url).startsWith("http") ?
+      String(prod.source_url)
+    : undefined;
+
+  const fetchUrl = normalizeMlFetchUrl(permalink, { keepSearch: true });
+  const priceInput: FetchMlPriceInput = { sourceUrl: existingSource ?? null, affiliateUrl: existingAffiliate ?? null };
+
+  const result = await runTestMlImport(fetchUrl, "auto", { playwrightHeaded: true });
+  let idForNorm: string;
+  try {
+    idForNorm = extractMlItemIdFromUrl(fetchUrl);
+  } catch {
+    idForNorm = externalId;
+  }
+  const normalized = buildNormalizedFromTestImport(result, idForNorm, fetchUrl);
+
+  let fallbackPrice: { price: number; promo_price: number | null } | null = null;
+  if (
+    normalized.price_current == null ||
+    !Number.isFinite(normalized.price_current) ||
+    normalized.price_current <= 0
+  ) {
+    const ml = await fetchPricesFromUrl(priceInput);
+    if (ml.kind === "ok") {
+      fallbackPrice = { price: ml.price, promo_price: ml.promoPrice };
+    }
+  }
+
+  const { productDraft } = mapMlNormalizedToDrafts({
+    normalized,
+    fallbackPrice,
+    affiliateUrlOverride: existingAffiliate,
+    sourceUrlOverride: existingSource ?? fetchUrl,
+  });
+
+  await patchProductMlPricesAndRatingsOnly(productId, {
+    price: productDraft.price,
+    promo_price: productDraft.promo_price,
+    is_offer: productDraft.is_offer,
+    off_percent: productDraft.off_percent,
+    rating: productDraft.rating,
+    reviews_count: productDraft.reviews_count,
   });
 }
 

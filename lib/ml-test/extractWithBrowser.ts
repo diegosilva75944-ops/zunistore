@@ -766,29 +766,42 @@ type PlaywrightFetchOpts = {
   settleMs?: number;
 };
 
-/** Uma única janela + uma aba reutilizada (navegação em sequência) até o fim do pipeline. */
+/** Uma janela + várias abas (pool) — empréstimo por fetch; até `poolSize` operações em paralelo. */
 type MlPlaywrightSharedSession = {
   context: BrowserContext;
-  /** Tab única: todos os produtos fazem `goto` aqui; não fechar entre URLs. */
-  pipelinePage?: Page;
+  pool: Page[];
+  freeIdx: number[];
+  waiters: ((idx: number) => void)[];
 };
 
 const mlPlaywrightSharedSessionAls = new AsyncLocalStorage<MlPlaywrightSharedSession>();
 
-async function getOrCreatePipelinePage(session: MlPlaywrightSharedSession): Promise<Page> {
-  if (session.pipelinePage && !session.pipelinePage.isClosed()) {
-    return session.pipelinePage;
-  }
-  const page = await session.context.newPage();
-  session.pipelinePage = page;
-  return page;
+async function borrowPipelineSlot(
+  s: MlPlaywrightSharedSession,
+): Promise<{ page: Page; index: number }> {
+  const idx =
+    s.freeIdx.length > 0 ?
+      s.freeIdx.pop()!
+    : await new Promise<number>((resolve) => {
+        s.waiters.push(resolve);
+      });
+  return { page: s.pool[idx], index: idx };
+}
+
+function releasePipelineSlot(s: MlPlaywrightSharedSession, index: number) {
+  const w = s.waiters.shift();
+  if (w) w(index);
+  else s.freeIdx.push(index);
 }
 
 /**
- * Abre um Chromium persistente uma vez; todo o Playwright do pipeline usa **a mesma aba**
- * (vários `goto` em sequência). O browser só fecha ao terminar reimportação + validação.
+ * Abre um Chromium persistente e um **pool de abas** (defeito 10).
+ * Cada `fetchHtmlWithPlaywright` pede uma aba livre; liberta ao terminar (vários produtos em paralelo).
  */
-export async function runWithMlPlaywrightBrowserSession<T>(fn: () => Promise<T>): Promise<T> {
+export async function runWithMlPlaywrightBrowserSession<T>(
+  fn: () => Promise<T>,
+  opts?: { poolSize?: number },
+): Promise<T> {
   applyPlaywrightLinuxDisplayEnv();
   logPlaywrightX11Env("sharedSession");
   const { chromium } = await import("playwright");
@@ -815,15 +828,22 @@ export async function runWithMlPlaywrightBrowserSession<T>(fn: () => Promise<T>)
   };
   const context = await chromium.launchPersistentContext(absDir, contextBase);
   await attachMlStealth(context);
-  const session: MlPlaywrightSharedSession = { context };
+  const poolSize = Math.min(20, Math.max(2, opts?.poolSize ?? 10));
+  const pool = await Promise.all(Array.from({ length: poolSize }, () => context.newPage()));
+  const session: MlPlaywrightSharedSession = {
+    context,
+    pool,
+    freeIdx: pool.map((_, i) => i),
+    waiters: [],
+  };
   console.info(
-    "[ml-playwright] Sessão única: um browser, uma aba — navegação sequencial por produto até o fim do pipeline.",
+    `[ml-playwright] Sessão única: pool de ${poolSize} aba(s) no mesmo browser até o fim do pipeline.`,
   );
   try {
     return await mlPlaywrightSharedSessionAls.run(session, fn);
   } finally {
-    if (session.pipelinePage && !session.pipelinePage.isClosed()) {
-      await session.pipelinePage.close().catch(() => {});
+    for (const p of session.pool) {
+      await p.close().catch(() => {});
     }
     await context.close().catch(() => {});
     console.info("[ml-playwright] Sessão única encerrada.");
@@ -843,21 +863,28 @@ async function runPlaywrightFetchOnce(
 
   const shared = mlPlaywrightSharedSessionAls.getStore();
   if (shared) {
-    let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
-    for (const tryUrl of mlPdpUrlVariants(url)) {
-      const page = await getOrCreatePipelinePage(shared);
-      try {
-        last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
-        if (isPlaywrightResultUsable(last)) return last;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        last = { ok: false, error: `Playwright: ${msg}` };
-        if (page.isClosed()) {
-          shared.pipelinePage = undefined;
+    const slot = await borrowPipelineSlot(shared);
+    let page = slot.page;
+    try {
+      let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
+      for (const tryUrl of mlPdpUrlVariants(url)) {
+        try {
+          last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
+          if (isPlaywrightResultUsable(last)) return last;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          last = { ok: false, error: `Playwright: ${msg}` };
+          if (page.isClosed()) {
+            const fresh = await shared.context.newPage();
+            shared.pool[slot.index] = fresh;
+            page = fresh;
+          }
         }
       }
+      return last;
+    } finally {
+      releasePipelineSlot(shared, slot.index);
     }
-    return last;
   }
 
   const { chromium } = await import("playwright");

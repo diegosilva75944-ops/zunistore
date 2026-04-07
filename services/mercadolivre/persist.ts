@@ -165,6 +165,33 @@ export type MlImportResult =
       matchedBy: "external_id" | "permalink" | "title_norm";
     };
   
+/** Atualiza só preços, oferta e avaliações (sync ML em lote sem reescrever título/descrição/imagens). */
+export async function patchProductMlPricesAndRatingsOnly(
+  productId: string,
+  fields: {
+    price: number;
+    promo_price: number | null;
+    is_offer: boolean;
+    off_percent: number;
+    rating: number | null;
+    reviews_count: number | null;
+  },
+): Promise<void> {
+  await postgrestPatch(
+    "products",
+    {
+      price: fields.price,
+      promo_price: fields.promo_price,
+      is_offer: fields.is_offer,
+      off_percent: fields.off_percent,
+      rating: fields.rating,
+      reviews_count: fields.reviews_count,
+      last_seen_at: new Date().toISOString(),
+    },
+    { id: `eq.${productId}` },
+  );
+}
+
 export async function mlImportOrUpdateProduct(opts: {
   normalized: NormalizedMlListing;
   /** Se true, atualiza dados caso já exista. Se false, apenas reporta existente (não cria duplicata). */

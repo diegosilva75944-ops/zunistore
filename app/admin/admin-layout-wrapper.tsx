@@ -56,6 +56,9 @@ export default function AdminLayoutWrapper({
               <NavLink href="/admin/produtos" active={pathname.startsWith("/admin/produtos")}>
                 Produtos
               </NavLink>
+              <NavLink href="/admin/tabela-produtos" active={pathname.startsWith("/admin/tabela-produtos")}>
+                Tabela produtos
+              </NavLink>
               <NavLink href="/admin/categorias" active={pathname.startsWith("/admin/categorias")}>
                 Categorias
               </NavLink>

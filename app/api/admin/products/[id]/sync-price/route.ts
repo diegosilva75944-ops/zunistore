@@ -8,7 +8,10 @@ import {
 import { fetchPricesFromUrl } from "@/lib/ml-price";
 import { listMercadoLivreUrlsForItemExtraction } from "@/services/mercadolivre/ml-url-resolve";
 import { fetchMlPricesLikeImport } from "@/services/mercadolivre/sync-prices-like-import";
-import { ensureMercadoLivreListingRowForProduct, mlSyncImportedProduct } from "@/services/mercadolivre/sync";
+import {
+  ensureMercadoLivreListingRowForProduct,
+  mlSyncImportedProductPricesAndRatingsOnly,
+} from "@/services/mercadolivre/sync";
 
 export const runtime = "nodejs";
 /** Reimportação ML (Teste ML + persist) pode acionar Playwright. */
@@ -128,7 +131,7 @@ export async function POST(
       const oldPromo = row.promo_price != null ? Number(row.promo_price) : null;
 
       try {
-        await mlSyncImportedProduct(id);
+        await mlSyncImportedProductPricesAndRatingsOnly(id);
       } catch (e) {
         const message =
           e instanceof Error ? e.message : "Falha ao reimportar o anúncio do Mercado Livre.";

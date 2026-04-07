@@ -102,5 +102,5 @@ export async function runMlAdminFullPipeline(options?: {
       return { ...reimport, affiliate_validation: affiliate };
     }
     return { ...reimport, affiliate_validation: affiliate };
-  });
+  }, { poolSize: 10 });
 }
