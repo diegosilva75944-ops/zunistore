@@ -3,7 +3,10 @@ import "server-only";
 import { cache } from "react";
 import { postgrestGet, postgrestGetWithCount, inVal } from "@/lib/postgrest/server";
 import { ilikeContainsPattern } from "@/lib/postgrest/ilike";
-import { collectDescendantCategoryIds } from "@/lib/categories-tree";
+import {
+  collectDescendantCategoryIds,
+  filterFlatToCategoriesWithCatalogBranches,
+} from "@/lib/categories-tree";
 
 export type Category = {
   id: string;
@@ -271,7 +274,7 @@ export async function listHeaderCategories(): Promise<Category[]> {
   }
 }
 
-/** Todas as categorias (seeds + importadas) para /categorias e filtros do site. */
+/** Todas as categorias (seeds + importadas) — lista completa para `applyCategorySubtreeToParams` e listagens. */
 export async function listSiteCategoriesFlat(): Promise<Category[]> {
   try {
     const data = await getWithPublicFallback<any[]>("categories", {
@@ -286,6 +289,53 @@ export async function listSiteCategoriesFlat(): Promise<Category[]> {
 
 /** Deduplica chamadas à listagem plana na mesma requisição (árvore / subcategorias). */
 export const getSiteCategoriesFlatCached = cache(listSiteCategoriesFlat);
+
+/** IDs de categoria com ≥1 produto no catálogo (mesmos filtros que `listProducts`: ativo, oferta, afiliado visível). */
+async function fetchDistinctCategoryIdsWithCatalogProducts(): Promise<Set<string>> {
+  const ids = new Set<string>();
+  const pageSize = 1000;
+  let offset = 0;
+  for (;;) {
+    const base: Record<string, string> = {
+      select: "category_id",
+      is_active: "eq.true",
+      is_offer: "eq.true",
+      limit: String(pageSize),
+      offset: String(offset),
+    };
+    let rows: any[];
+    try {
+      const p = { ...base };
+      applyAffiliateVisibleToProductParams(p);
+      rows = await getWithPublicFallback<any[]>("products", p);
+    } catch (e) {
+      if (!isStoreAffiliateColumnError(e)) throw e;
+      rows = await getWithPublicFallback<any[]>("products", base);
+    }
+    const list = Array.isArray(rows) ? rows : [];
+    for (const r of list) {
+      if (r?.category_id) ids.add(String(r.category_id));
+    }
+    if (list.length < pageSize) break;
+    offset += pageSize;
+  }
+  return ids;
+}
+
+const getDistinctCatalogCategoryIdsCached = cache(fetchDistinctCategoryIdsWithCatalogProducts);
+
+/**
+ * Categorias para /categorias, filtros da home e cabeçalho: só ramos com produtos no catálogo (critério alinhado a `listProducts`).
+ * A lista completa `getSiteCategoriesFlatCached` continua a ser usada nas consultas de produtos por subárvore.
+ */
+export async function listSiteCategoriesFlatForNavigation(): Promise<Category[]> {
+  const full = await getSiteCategoriesFlatCached();
+  const leafIds = await getDistinctCatalogCategoryIdsCached();
+  if (full.length === 0 || leafIds.size === 0) return [];
+  return filterFlatToCategoriesWithCatalogBranches(full, leafIds);
+}
+
+export const getSiteCategoriesFlatForNavigationCached = cache(listSiteCategoriesFlatForNavigation);
 
 async function applyCategorySubtreeToParams(params: Record<string, string>, categoryId: string) {
   const flat = await getSiteCategoriesFlatCached();

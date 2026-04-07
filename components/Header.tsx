@@ -2,22 +2,23 @@ import Link from "next/link";
 import Image from "next/image";
 import { HeaderCategoryStrip } from "@/components/HeaderCategoryStrip";
 import { getDirectSubcategories, orderHeaderCategoriesForStrip } from "@/lib/categories-tree";
-import { listHeaderCategories, listSiteCategoriesFlat, getSiteSettings } from "@/lib/store";
+import { listHeaderCategories, getSiteCategoriesFlatForNavigationCached, getSiteSettings } from "@/lib/store";
 import { SearchBox } from "@/components/SearchBox";
 
 export async function Header() {
-  const [settings, headerCategories, allCategories] = await Promise.all([
+  const [settings, headerCategories, navCategories] = await Promise.all([
     getSiteSettings(),
     listHeaderCategories(),
-    listSiteCategoriesFlat(),
+    getSiteCategoriesFlatForNavigationCached(),
   ]);
   const logoUrl = settings?.logo_url ?? null;
-  const ordered = orderHeaderCategoriesForStrip(headerCategories);
+  const visibleIds = new Set(navCategories.map((c) => c.id));
+  const ordered = orderHeaderCategoriesForStrip(headerCategories.filter((h) => visibleIds.has(h.id)));
   const stripItems = ordered.map((c) => ({
     id: c.id,
     name: c.name,
     slug: c.slug,
-    subcategories: getDirectSubcategories(c.id, allCategories).map((s) => ({
+    subcategories: getDirectSubcategories(c.id, navCategories).map((s) => ({
       id: s.id,
       name: s.name,
       slug: s.slug,

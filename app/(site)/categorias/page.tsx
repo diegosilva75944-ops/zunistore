@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { listSiteCategoriesFlat } from "@/lib/store";
+import { getSiteCategoriesFlatForNavigationCached } from "@/lib/store";
 import { buildCategoryTree, type CategoryTreeNode } from "@/lib/categories-tree";
 
 export const revalidate = 300;
@@ -45,7 +45,7 @@ function CategoryColumn({ node }: { node: CategoryTreeNode }) {
 }
 
 export default async function CategoriasPage() {
-  const flat = await listSiteCategoriesFlat();
+  const flat = await getSiteCategoriesFlatForNavigationCached();
   const tree = buildCategoryTree(flat);
 
   return (
@@ -62,7 +62,9 @@ export default async function CategoriasPage() {
         </div>
 
         {tree.length === 0 ? (
-          <p className="text-sm text-zinc-500">Nenhuma categoria cadastrada.</p>
+          <p className="text-sm text-zinc-500">
+            Nenhuma categoria com produtos em oferta no catálogo no momento.
+          </p>
         ) : (
           <ul className="m-0 grid list-none grid-cols-2 gap-x-4 gap-y-10 p-0 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
             {tree.map((node) => (

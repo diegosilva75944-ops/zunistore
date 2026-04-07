@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { siteCategorySelectOptionsWithPath } from "@/lib/categoriesSelect";
-import { getSiteSettings, listCarouselProducts, listProducts, listSiteCategoriesFlat } from "@/lib/store";
+import {
+  getSiteCategoriesFlatForNavigationCached,
+  getSiteSettings,
+  listCarouselProducts,
+  listProducts,
+} from "@/lib/store";
 import { HomeAllProductsScroll } from "@/components/home/HomeAllProductsScroll";
 import { HomeTodosProdutosFilterForm } from "@/components/home/HomeTodosProdutosFilterForm";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
@@ -28,7 +33,7 @@ export default async function Home(props: {
 
   const [carousel, categoriesRaw, offers, siteSettings] = await Promise.all([
     listCarouselProducts(),
-    listSiteCategoriesFlat(),
+    getSiteCategoriesFlatForNavigationCached(),
     listProducts({ perPage: 15, page: 1, sort: "maior-desconto" }),
     getSiteSettings(),
   ]);

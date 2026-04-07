@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { getBaseUrl } from "@/lib/site-url";
 import { getCategoryBreadcrumbTrail } from "@/lib/categories-tree";
-import { getCategoryById, getProductByCode6, getSiteCategoriesFlatCached, listRelatedProducts } from "@/lib/store";
+import { getCategoryById, getProductByCode6, getSiteCategoriesFlatForNavigationCached, listRelatedProducts } from "@/lib/store";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { ProductPageTracker } from "@/components/tracking/ProductPageTracker";
@@ -67,7 +67,7 @@ export default async function ProdutoPage(props: {
   if (!product) notFound();
 
   const category = await getCategoryById(product.category_id);
-  const categoriesFlat = await getSiteCategoriesFlatCached();
+  const categoriesFlat = await getSiteCategoriesFlatForNavigationCached();
   const categoryTrail = category ? getCategoryBreadcrumbTrail(category.id, categoriesFlat) : [];
   const related = await listRelatedProducts({
     categoryId: product.category_id?.trim() || null,

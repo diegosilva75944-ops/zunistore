@@ -84,6 +84,36 @@ export function getDirectSubcategories(parentId: string, allFlat: CategoryFlat[]
     .sort((a, b) => a.name.localeCompare(b.name, "pt"));
 }
 
+/**
+ * Inclui cada `category_id` que tem produto no catálogo **e** todos os ascendentes na árvore `flat`,
+ * para poder mostrar pais sem produto direto quando um filho tem ofertas.
+ */
+export function expandCategoryIdsWithAncestors(
+  categoryIdsWithProducts: Set<string>,
+  flat: CategoryFlat[],
+): Set<string> {
+  const byId = new Map(flat.map((c) => [c.id, c]));
+  const out = new Set<string>();
+  for (const id of categoryIdsWithProducts) {
+    let cur: CategoryFlat | undefined = byId.get(id);
+    while (cur) {
+      out.add(cur.id);
+      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+    }
+  }
+  return out;
+}
+
+/** Mantém só ramos que têm pelo menos um produto no catálogo (ids já expandidos com ascendentes). */
+export function filterFlatToCategoriesWithCatalogBranches(
+  flat: CategoryFlat[],
+  categoryIdsWithProducts: Set<string>,
+): CategoryFlat[] {
+  if (flat.length === 0 || categoryIdsWithProducts.size === 0) return [];
+  const visible = expandCategoryIdsWithAncestors(categoryIdsWithProducts, flat);
+  return flat.filter((c) => visible.has(c.id));
+}
+
 /** Da folha até a raiz (ordem: raiz → … → folha). */
 export function getCategoryBreadcrumbTrail(leafId: string, flat: CategoryFlat[]): CategoryFlat[] {
   const byId = Object.fromEntries(flat.map((c) => [c.id, c])) as Record<string, CategoryFlat | undefined>;

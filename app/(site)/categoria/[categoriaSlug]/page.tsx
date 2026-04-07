@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCategoryBySlug, getSiteCategoriesFlatCached, listProducts } from "@/lib/store";
+import { getCategoryBySlug, getSiteCategoriesFlatForNavigationCached, listProducts } from "@/lib/store";
 import { robotsForListing } from "@/lib/seo";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
@@ -36,7 +36,7 @@ export default async function CategoriaPage(props: {
   const category = await getCategoryBySlug(categoriaSlug);
   if (!category) notFound();
 
-  const flat = await getSiteCategoriesFlatCached();
+  const flat = await getSiteCategoriesFlatForNavigationCached();
   const parent = category.parent_id ? flat.find((c) => c.id === category.parent_id) ?? null : null;
   const childCategories = flat
     .filter((c) => c.parent_id === category.id)
