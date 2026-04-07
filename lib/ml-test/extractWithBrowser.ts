@@ -766,14 +766,27 @@ type PlaywrightFetchOpts = {
   settleMs?: number;
 };
 
-/** Uma única `BrowserContext` para reimportação ML + validação de afiliados (fecha só no fim do pipeline). */
-type MlPlaywrightSharedSession = { context: BrowserContext };
+/** Uma única janela + uma aba reutilizada (navegação em sequência) até o fim do pipeline. */
+type MlPlaywrightSharedSession = {
+  context: BrowserContext;
+  /** Tab única: todos os produtos fazem `goto` aqui; não fechar entre URLs. */
+  pipelinePage?: Page;
+};
 
 const mlPlaywrightSharedSessionAls = new AsyncLocalStorage<MlPlaywrightSharedSession>();
 
+async function getOrCreatePipelinePage(session: MlPlaywrightSharedSession): Promise<Page> {
+  if (session.pipelinePage && !session.pipelinePage.isClosed()) {
+    return session.pipelinePage;
+  }
+  const page = await session.context.newPage();
+  session.pipelinePage = page;
+  return page;
+}
+
 /**
- * Abre um Chromium persistente uma vez; `fetchHtmlWithPlaywright` / sync ML reutilizam o mesmo contexto
- * (novas páginas por URL) até o callback terminar.
+ * Abre um Chromium persistente uma vez; todo o Playwright do pipeline usa **a mesma aba**
+ * (vários `goto` em sequência). O browser só fecha ao terminar reimportação + validação.
  */
 export async function runWithMlPlaywrightBrowserSession<T>(fn: () => Promise<T>): Promise<T> {
   applyPlaywrightLinuxDisplayEnv();
@@ -804,11 +817,14 @@ export async function runWithMlPlaywrightBrowserSession<T>(fn: () => Promise<T>)
   await attachMlStealth(context);
   const session: MlPlaywrightSharedSession = { context };
   console.info(
-    "[ml-playwright] Sessão única: reimportação ML + validação de afiliados (janela/processos fecham só ao terminar o pipeline).",
+    "[ml-playwright] Sessão única: um browser, uma aba — navegação sequencial por produto até o fim do pipeline.",
   );
   try {
     return await mlPlaywrightSharedSessionAls.run(session, fn);
   } finally {
+    if (session.pipelinePage && !session.pipelinePage.isClosed()) {
+      await session.pipelinePage.close().catch(() => {});
+    }
     await context.close().catch(() => {});
     console.info("[ml-playwright] Sessão única encerrada.");
   }
@@ -829,12 +845,16 @@ async function runPlaywrightFetchOnce(
   if (shared) {
     let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
     for (const tryUrl of mlPdpUrlVariants(url)) {
-      const page = await shared.context.newPage();
+      const page = await getOrCreatePipelinePage(shared);
       try {
         last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
         if (isPlaywrightResultUsable(last)) return last;
-      } finally {
-        await page.close().catch(() => {});
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        last = { ok: false, error: `Playwright: ${msg}` };
+        if (page.isClosed()) {
+          shared.pipelinePage = undefined;
+        }
       }
     }
     return last;
