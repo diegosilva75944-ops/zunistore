@@ -1326,16 +1326,23 @@ export async function openMercadoLivreLoginWindow(): Promise<OpenMercadoLivreLog
   mkdirSync(path.dirname(path.resolve(process.cwd(), storageStatePath)), { recursive: true });
 
   /**
-   * O sync usa `headless = !hasDisplayForHeadedChromium()` — sem janela quando o heurístico falha.
-   * Para **login manual** forçamos sempre janela (`headless: false`), como `runPlaywrightHeadedInteractive`:
-   * o Chromium pode conseguir X11/Wayland com env herdado pelo subprocesso mesmo quando o check do Node falha.
+   * Igual ao `runWithMlPlaywrightBrowserSession`: `headless = !hasDisplayForHeadedChromium()`.
+   * Sem X11/Wayland o sync corre em **headless** (não abre janela). Login manual **precisa** de janela:
+   * lançar headed sem servidor X rebenta o Chromium (erro Playwright sobre XServer).
+   * Falhamos cedo com mensagem acionável em vez de crash no launch.
    */
-  const headless = false;
   if (!hasDisplayForHeadedChromium()) {
-    console.warn(
-      "[ml-playwright] manual-login: heurístico seria headless (como sync sem janela); a forçar janela para login.",
-    );
+    const why = getLinuxHeadedChromiumUnavailableReason();
+    const debug = getXauthorityDiscoveryDebug();
+    return {
+      ok: false,
+      error:
+        "Login manual no servidor requer sessão gráfica (X11 ou Wayland). Neste ambiente o Node não vê DISPLAY/cookie X11 — a sincronização pode correr em headless sem janela; para abrir o browser aqui, monte o X11 no contentor e defina ML_PLAYWRIGHT_XAUTHORITY_FILE (ver detalhes).",
+      details: [why, debug].filter(Boolean).join("\n\n").trim() || undefined,
+    };
   }
+
+  const headless = false;
 
   try {
     return await enqueuePersistentProfileLaunch(absDir, async () => {
