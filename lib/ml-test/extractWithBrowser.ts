@@ -1303,3 +1303,71 @@ export async function fetchHtmlWithPlaywright(
 
   return runPlaywrightHeadedInteractive(url);
 }
+
+export type OpenMercadoLivreLoginWindowResult =
+  | { ok: true; userDataDir: string; storageStatePath: string }
+  | { ok: false; error: string; details?: string };
+
+/**
+ * Abre o Chromium no mesmo modo do sync (perfil `.playwright/ml-user-data`), para login/captcha manual.
+ * Usa a fila `enqueuePersistentProfileLaunch` para não conflitar com a sincronização.
+ */
+export async function openMercadoLivreLoginWindow(): Promise<OpenMercadoLivreLoginWindowResult> {
+  applyPlaywrightLinuxDisplayEnv();
+  logPlaywrightX11Env("manual-login");
+
+  if (!hasDisplayForHeadedChromium()) {
+    return {
+      ok: false,
+      error:
+        "Não foi possível abrir janela (modo gráfico indisponível). Configure DISPLAY/WAYLAND_DISPLAY e XAUTHORITY (Linux).",
+      details: getLinuxHeadedChromiumUnavailableReason() ?? getXauthorityDiscoveryDebug(),
+    };
+  }
+
+  const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
+  const storageStatePath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || DEFAULT_STORAGE_STATE_PATH;
+  const absDir = path.resolve(process.cwd(), userDataDir);
+  mkdirSync(absDir, { recursive: true });
+  mkdirSync(path.dirname(path.resolve(process.cwd(), storageStatePath)), { recursive: true });
+
+  try {
+    return await enqueuePersistentProfileLaunch(absDir, async () => {
+      const { chromium } = await import("playwright");
+      const launchExtra = playwrightExecutableOrChannel();
+      const chromiumArgs = buildChromiumLaunchArgs(false);
+      logChromiumLaunch(false, launchExtra, chromiumArgs);
+
+      const context = await chromium.launchPersistentContext(absDir, {
+        ...launchExtra,
+        headless: false,
+        chromiumSandbox: false,
+        env: playwrightBrowserEnv(),
+        args: chromiumArgs,
+        ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
+        locale: "pt-BR",
+        viewport: mlViewport(),
+        userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
+        extraHTTPHeaders: mlExtraHttpHeaders(),
+        timezoneId: "America/Sao_Paulo",
+      });
+      await attachMlStealth(context);
+
+      try {
+        const page = context.pages()[0] || (await context.newPage());
+        await page.goto("https://www.mercadolivre.com.br/", { waitUntil: "domcontentloaded", timeout: 60_000 });
+        await page.waitForEvent("close", { timeout: 0 });
+      } finally {
+        await context
+          .storageState({ path: path.resolve(process.cwd(), storageStatePath) })
+          .catch(() => {});
+        await context.close().catch(() => {});
+      }
+
+      return { ok: true as const, userDataDir, storageStatePath };
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg, details: getXauthorityDiscoveryDebug() };
+  }
+}

@@ -15,6 +15,8 @@ export function TokensClient() {
   const [name, setName] = useState("Extensão");
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mlBusy, setMlBusy] = useState(false);
+  const [mlMsg, setMlMsg] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch("/api/admin/tokens").catch(() => null);
@@ -55,8 +57,47 @@ export function TokensClient() {
     await load();
   }
 
+  async function openMlLoginOnServer() {
+    setMlBusy(true);
+    setMlMsg(
+      "Abrindo o mesmo Playwright da sincronização neste servidor. Faça login no Mercado Livre na janela que abrir; esta página aguarda até você fechar o navegador.",
+    );
+    const res = await fetch("/api/admin/mercadolivre/login/open", { method: "POST" }).catch(() => null);
+    const data = res ? await res.json().catch(() => null) : null;
+    setMlBusy(false);
+
+    if (!res || !res.ok || !data?.ok) {
+      const err = typeof data?.error === "string" ? data.error : "Falha ao abrir o navegador.";
+      const det = typeof data?.details === "string" ? data.details : "";
+      setMlMsg(det ? `${err} ${det}` : err);
+      return;
+    }
+
+    setMlMsg("Sessão gravada. A sincronização passa a usar o mesmo perfil em .playwright/.");
+  }
+
   return (
     <div className="space-y-4">
+      <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-2">
+        <div className="text-sm font-semibold">Mercado Livre — login no servidor</div>
+        <p className="text-sm text-zinc-600">
+          Abre o Chromium com o <b>mesmo perfil</b> usado na sincronização (variáveis DISPLAY/XAUTHORITY e pasta{" "}
+          <span className="font-mono">.playwright/</span>). Não inicia outro serviço.
+        </p>
+        <button
+          type="button"
+          disabled={mlBusy}
+          onClick={openMlLoginOnServer}
+          className="rounded-full bg-zuni-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          Abrir navegador para login ML
+        </button>
+        {mlMsg ? <div className="text-sm text-zinc-700">{mlMsg}</div> : null}
+        <p className="text-xs text-zinc-500">
+          Atrás de proxy (nginx), aumente o timeout de leitura: o pedido só termina quando a janela for fechada.
+        </p>
+      </div>
+
       <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 space-y-2">
         <div className="text-sm font-semibold">Criar token</div>
         <div className="flex items-center gap-2 flex-wrap">
