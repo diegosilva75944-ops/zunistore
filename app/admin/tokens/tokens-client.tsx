@@ -82,7 +82,9 @@ export function TokensClient() {
         <div className="text-sm font-semibold">Mercado Livre — login no servidor</div>
         <p className="text-sm text-zinc-600">
           Abre o Chromium com o <b>mesmo perfil</b> usado na sincronização (variáveis DISPLAY/XAUTHORITY e pasta{" "}
-          <span className="font-mono">.playwright/</span>). Não inicia outro serviço.
+          <span className="font-mono">.playwright/</span>). Em Docker sem X11, use o mesmo worker do import ML (
+          <span className="font-mono">ML_HOST_IMPORT_URL</span> → <span className="font-mono">npm run ml-host:worker</span> no
+          host; ver <span className="font-mono">workers/ml-host/README.md</span>).
         </p>
         <button
           type="button"

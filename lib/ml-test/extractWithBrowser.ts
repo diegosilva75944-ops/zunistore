@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { hasMlProductPageSignals, isMlBlockedOrLoginHtml, ML_FETCH_HEADERS } from "./fetchHtml";
+import { tryHostWorkerMlLoginOpen } from "./hostProxy";
 
 export type PlaywrightFetchResult =
   | { ok: true; html: string; finalUrl: string }
@@ -1332,12 +1333,15 @@ export async function openMercadoLivreLoginWindow(): Promise<OpenMercadoLivreLog
    * Falhamos cedo com mensagem acionável em vez de crash no launch.
    */
   if (!hasDisplayForHeadedChromium()) {
+    const viaHost = await tryHostWorkerMlLoginOpen();
+    if (viaHost !== null) return viaHost;
+
     const why = getLinuxHeadedChromiumUnavailableReason();
     const debug = getXauthorityDiscoveryDebug();
     return {
       ok: false,
       error:
-        "Login manual no servidor requer sessão gráfica (X11 ou Wayland). Neste ambiente o Node não vê DISPLAY/cookie X11 — a sincronização pode correr em headless sem janela; para abrir o browser aqui, monte o X11 no contentor e defina ML_PLAYWRIGHT_XAUTHORITY_FILE (ver detalhes).",
+        "Sem sessão gráfica neste processo (Docker típico). Defina ML_HOST_IMPORT_URL para o mesmo worker HTTP no host que já usa o import/sync ML (npx tsx workers/ml-host/server.ts), ou monte X11 no contentor. Ver workers/ml-host/README.md.",
       details: [why, debug].filter(Boolean).join("\n\n").trim() || undefined,
     };
   }

@@ -13,6 +13,11 @@ import { fileURLToPath } from "node:url";
 import { runTestMlImportCore } from "@/lib/ml-test/pipeline";
 import type { ImportMode } from "@/lib/ml-test/types";
 import type { RunTestMlImportOptions } from "@/lib/ml-test/pipeline";
+import { openMercadoLivreLoginWindow } from "@/lib/ml-test/extractWithBrowser";
+import { readFileSync } from "node:fs";
+
+/** Evita `openMercadoLivreLoginWindow` delegar de volta ao ML_HOST_IMPORT_URL neste processo. */
+process.env.ML_HOST_IS_WORKER = "1";
 
 const MODES = new Set<string>(["auto", "html", "headless"]);
 
@@ -49,7 +54,41 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
         return;
       }
 
-      if (req.method !== "POST" || req.url?.split("?")[0] !== "/internal/ml-import") {
+      const pathname = req.url?.split("?")[0] ?? "";
+
+      if (req.method === "POST" && pathname === "/internal/ml-login-open") {
+        if (secret) {
+          const auth = String(req.headers.authorization ?? "").trim();
+          const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+          if (token !== secret) {
+            json(res, 401, { ok: false, error: "Não autorizado." });
+            return;
+          }
+        }
+        const result = await openMercadoLivreLoginWindow();
+        if (!result.ok) {
+          json(res, 422, { ok: false, error: result.error, details: result.details ?? undefined });
+          return;
+        }
+        const abs = path.resolve(process.cwd(), result.storageStatePath);
+        let storageState: unknown;
+        try {
+          storageState = JSON.parse(readFileSync(abs, "utf8")) as unknown;
+        } catch (e) {
+          const message = e instanceof Error ? e.message : "falha ao ler storage state";
+          json(res, 422, { ok: false, error: `Após login: ${message}` });
+          return;
+        }
+        json(res, 200, {
+          ok: true,
+          storageState,
+          userDataDir: result.userDataDir,
+          storageStatePath: result.storageStatePath,
+        });
+        return;
+      }
+
+      if (req.method !== "POST" || pathname !== "/internal/ml-import") {
         json(res, 404, { ok: false, error: "Não encontrado." });
         return;
       }
@@ -90,7 +129,7 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
   server.listen(port, listenHost, () => {
     const authHint = secret ? "auth=Bearer" : "auth=desligado";
     console.info(
-      `[ml-host-worker] http://${listenHost}:${port}  health=GET /health  import=POST /internal/ml-import  (${authHint})`,
+      `[ml-host-worker] http://${listenHost}:${port}  health=GET /health  import=POST /internal/ml-import  login=POST /internal/ml-login-open  (${authHint})`,
     );
   });
 
