@@ -9,6 +9,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  unlinkSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +23,42 @@ export type PlaywrightFetchResult =
 const PLAYWRIGHT_TIMEOUT_MS = 75_000;
 const DEFAULT_STORAGE_STATE_PATH = ".playwright/ml-storage-state.json";
 const DEFAULT_USER_DATA_DIR = ".playwright/ml-user-data";
+
+/** Chromium impede dois processos no mesmo perfil; stale/crash deixa locks e `Permission denied` se o UID mudou. */
+const CHROMIUM_SINGLETON_FILES = ["SingletonLock", "SingletonSocket", "SingletonCookie"] as const;
+
+function tryRemoveChromiumSingletonFiles(userDataDirAbs: string): void {
+  if (String(process.env.ML_PLAYWRIGHT_SKIP_SINGLETON_CLEANUP ?? "").trim() === "1") {
+    return;
+  }
+  for (const name of CHROMIUM_SINGLETON_FILES) {
+    const p = path.join(userDataDirAbs, name);
+    try {
+      if (existsSync(p)) {
+        unlinkSync(p);
+        console.info(`[ml-playwright] removido artefato singleton: ${p}`);
+      }
+    } catch (e) {
+      console.warn(
+        `[ml-playwright] não foi possível remover ${p} (outro Chromium a usar o perfil ou permissões — chown do .playwright/ml-user-data):`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+}
+
+/** Evita dois `launchPersistentContext` no mesmo `userDataDir` (ProcessSingleton / abort). */
+const persistentProfileLaunchChain = new Map<string, Promise<unknown>>();
+
+function enqueuePersistentProfileLaunch<T>(absDir: string, fn: () => Promise<T>): Promise<T> {
+  const prev = persistentProfileLaunchChain.get(absDir) ?? Promise.resolve();
+  const next = prev.then(async () => {
+    tryRemoveChromiumSingletonFiles(absDir);
+    return await fn();
+  });
+  persistentProfileLaunchChain.set(absDir, next.then(() => {}, () => {}));
+  return next;
+}
 
 /** Base: root e utilizador normal (Ubuntu/GDM); Snap costuma exigir no-sandbox em serviços. */
 const CHROMIUM_SERVER_ARGS = [
@@ -804,50 +841,53 @@ export async function runWithMlPlaywrightBrowserSession<T>(
 ): Promise<T> {
   applyPlaywrightLinuxDisplayEnv();
   logPlaywrightX11Env("sharedSession");
-  const { chromium } = await import("playwright");
-  const headless = !hasDisplayForHeadedChromium();
-  const launchExtra = playwrightExecutableOrChannel();
-  const chromiumArgs = buildChromiumLaunchArgs(headless);
-  logChromiumLaunch(headless, launchExtra, chromiumArgs);
-  const browserEnv = playwrightBrowserEnv();
   const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
   const absDir = path.resolve(process.cwd(), userDataDir);
   mkdirSync(absDir, { recursive: true });
-  const contextBase = {
-    ...launchExtra,
-    headless,
-    chromiumSandbox: false,
-    env: browserEnv,
-    args: chromiumArgs,
-    ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
-    locale: "pt-BR" as const,
-    viewport: mlViewport(),
-    userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
-    extraHTTPHeaders: mlExtraHttpHeaders(),
-    timezoneId: "America/Sao_Paulo",
-  };
-  const context = await chromium.launchPersistentContext(absDir, contextBase);
-  await attachMlStealth(context);
-  const poolSize = Math.min(20, Math.max(1, opts?.poolSize ?? 10));
-  const pool = await Promise.all(Array.from({ length: poolSize }, () => context.newPage()));
-  const session: MlPlaywrightSharedSession = {
-    context,
-    pool,
-    freeIdx: pool.map((_, i) => i),
-    waiters: [],
-  };
-  console.info(
-    `[ml-playwright] Sessão única: pool de ${poolSize} aba(s) no mesmo browser até o fim do pipeline.`,
-  );
-  try {
-    return await mlPlaywrightSharedSessionAls.run(session, fn);
-  } finally {
-    for (const p of session.pool) {
-      await p.close().catch(() => {});
+
+  return enqueuePersistentProfileLaunch(absDir, async () => {
+    const { chromium } = await import("playwright");
+    const headless = !hasDisplayForHeadedChromium();
+    const launchExtra = playwrightExecutableOrChannel();
+    const chromiumArgs = buildChromiumLaunchArgs(headless);
+    logChromiumLaunch(headless, launchExtra, chromiumArgs);
+    const browserEnv = playwrightBrowserEnv();
+    const contextBase = {
+      ...launchExtra,
+      headless,
+      chromiumSandbox: false,
+      env: browserEnv,
+      args: chromiumArgs,
+      ignoreDefaultArgs: [...PLAYWRIGHT_IGNORE_DEFAULT_ARGS],
+      locale: "pt-BR" as const,
+      viewport: mlViewport(),
+      userAgent: mlPlaywrightUserAgentAndPlatform().userAgent,
+      extraHTTPHeaders: mlExtraHttpHeaders(),
+      timezoneId: "America/Sao_Paulo",
+    };
+    const context = await chromium.launchPersistentContext(absDir, contextBase);
+    await attachMlStealth(context);
+    const poolSize = Math.min(20, Math.max(1, opts?.poolSize ?? 10));
+    const pool = await Promise.all(Array.from({ length: poolSize }, () => context.newPage()));
+    const session: MlPlaywrightSharedSession = {
+      context,
+      pool,
+      freeIdx: pool.map((_, i) => i),
+      waiters: [],
+    };
+    console.info(
+      `[ml-playwright] Sessão única: pool de ${poolSize} aba(s) no mesmo browser até o fim do pipeline.`,
+    );
+    try {
+      return await mlPlaywrightSharedSessionAls.run(session, fn);
+    } finally {
+      for (const p of session.pool) {
+        await p.close().catch(() => {});
+      }
+      await context.close().catch(() => {});
+      console.info("[ml-playwright] Sessão única encerrada.");
     }
-    await context.close().catch(() => {});
-    console.info("[ml-playwright] Sessão única encerrada.");
-  }
+  });
 }
 
 async function runPlaywrightFetchOnce(
@@ -913,37 +953,39 @@ async function runPlaywrightFetchOnce(
   if (userDataDir) {
     const absDir = path.resolve(process.cwd(), userDataDir);
     mkdirSync(absDir, { recursive: true });
-    const context = await chromium.launchPersistentContext(absDir, contextBase);
-    try {
-      await attachMlStealth(context);
-      let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
-      for (const tryUrl of mlPdpUrlVariants(url)) {
-        const page = await context.newPage();
-        try {
-          last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
-          if (isPlaywrightResultUsable(last)) return last;
-        } finally {
-          await page.close().catch(() => {});
-        }
-      }
-      return last;
-    } finally {
-      const rawClose = String(process.env.ML_PLAYWRIGHT_HEADED_CLOSE_DELAY_MS ?? "").trim();
-      const skipClose = ["1", "true", "yes"].includes(
-        String(process.env.ML_PLAYWRIGHT_HEADED_SKIP_CLOSE_DELAY ?? "").trim().toLowerCase(),
-      );
-      if (!headless && !skipClose) {
-        if (rawClose === "") {
-          await new Promise((r) => setTimeout(r, 250));
-        } else {
-          const closeMs = Number(rawClose);
-          if (Number.isFinite(closeMs) && closeMs > 0) {
-            await new Promise((r) => setTimeout(r, Math.min(closeMs, 30_000)));
+    return enqueuePersistentProfileLaunch(absDir, async () => {
+      const context = await chromium.launchPersistentContext(absDir, contextBase);
+      try {
+        await attachMlStealth(context);
+        let last: PlaywrightFetchResult = { ok: false, error: "Playwright: sem resultado" };
+        for (const tryUrl of mlPdpUrlVariants(url)) {
+          const page = await context.newPage();
+          try {
+            last = await snapshotAfterGoto(page, tryUrl, waitUntil, settleMs, true);
+            if (isPlaywrightResultUsable(last)) return last;
+          } finally {
+            await page.close().catch(() => {});
           }
         }
+        return last;
+      } finally {
+        const rawClose = String(process.env.ML_PLAYWRIGHT_HEADED_CLOSE_DELAY_MS ?? "").trim();
+        const skipClose = ["1", "true", "yes"].includes(
+          String(process.env.ML_PLAYWRIGHT_HEADED_SKIP_CLOSE_DELAY ?? "").trim().toLowerCase(),
+        );
+        if (!headless && !skipClose) {
+          if (rawClose === "") {
+            await new Promise((r) => setTimeout(r, 250));
+          } else {
+            const closeMs = Number(rawClose);
+            if (Number.isFinite(closeMs) && closeMs > 0) {
+              await new Promise((r) => setTimeout(r, Math.min(closeMs, 30_000)));
+            }
+          }
+        }
+        await context.close().catch(() => {});
       }
-      await context.close().catch(() => {});
-    }
+    });
   }
 
   const browser = await chromium.launch({
@@ -1028,11 +1070,14 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
         "Defina ML_PLAYWRIGHT_EXECUTABLE_PATH para o Chromium do sistema se o bundle Playwright for bloqueado.",
     };
   }
-  try {
-    const { chromium } = await import("playwright");
-    const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
-    const absDir = path.resolve(process.cwd(), userDataDir);
-    mkdirSync(absDir, { recursive: true });
+
+  const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
+  const absDir = path.resolve(process.cwd(), userDataDir);
+  mkdirSync(absDir, { recursive: true });
+
+  return enqueuePersistentProfileLaunch(absDir, async () => {
+    try {
+      const { chromium } = await import("playwright");
 
     const maxWait = interactiveTimeoutMs();
     const deadline = Date.now() + maxWait;
@@ -1164,6 +1209,7 @@ async function runPlaywrightHeadedInteractive(url: string): Promise<PlaywrightFe
       error: `Playwright (interativo): ${msg}${hint}`,
     };
   }
+  });
 }
 
 export type FetchHtmlWithPlaywrightOptions = {
