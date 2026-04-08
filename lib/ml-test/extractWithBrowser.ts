@@ -1315,15 +1315,9 @@ export type OpenMercadoLivreLoginWindowResult =
 export async function openMercadoLivreLoginWindow(): Promise<OpenMercadoLivreLoginWindowResult> {
   applyPlaywrightLinuxDisplayEnv();
   logPlaywrightX11Env("manual-login");
-
-  if (!hasDisplayForHeadedChromium()) {
-    return {
-      ok: false,
-      error:
-        "Não foi possível abrir janela (modo gráfico indisponível). Configure DISPLAY/WAYLAND_DISPLAY e XAUTHORITY (Linux).",
-      details: getLinuxHeadedChromiumUnavailableReason() ?? getXauthorityDiscoveryDebug(),
-    };
-  }
+  /** Segunda passagem: `syncX11DisplayFromEnv` pode preencher DISPLAY/XAUTHORITY após inferir socket. */
+  applyPlaywrightLinuxDisplayEnv();
+  logPlaywrightX11Env("manual-login-after-resync");
 
   const userDataDir = process.env.ML_PLAYWRIGHT_USER_DATA_DIR || DEFAULT_USER_DATA_DIR;
   const storageStatePath = process.env.ML_PLAYWRIGHT_STORAGE_STATE || DEFAULT_STORAGE_STATE_PATH;
@@ -1331,16 +1325,28 @@ export async function openMercadoLivreLoginWindow(): Promise<OpenMercadoLivreLog
   mkdirSync(absDir, { recursive: true });
   mkdirSync(path.dirname(path.resolve(process.cwd(), storageStatePath)), { recursive: true });
 
+  /**
+   * O sync usa `headless = !hasDisplayForHeadedChromium()` — sem janela quando o heurístico falha.
+   * Para **login manual** forçamos sempre janela (`headless: false`), como `runPlaywrightHeadedInteractive`:
+   * o Chromium pode conseguir X11/Wayland com env herdado pelo subprocesso mesmo quando o check do Node falha.
+   */
+  const headless = false;
+  if (!hasDisplayForHeadedChromium()) {
+    console.warn(
+      "[ml-playwright] manual-login: heurístico seria headless (como sync sem janela); a forçar janela para login.",
+    );
+  }
+
   try {
     return await enqueuePersistentProfileLaunch(absDir, async () => {
       const { chromium } = await import("playwright");
       const launchExtra = playwrightExecutableOrChannel();
-      const chromiumArgs = buildChromiumLaunchArgs(false);
-      logChromiumLaunch(false, launchExtra, chromiumArgs);
+      const chromiumArgs = buildChromiumLaunchArgs(headless);
+      logChromiumLaunch(headless, launchExtra, chromiumArgs);
 
       const context = await chromium.launchPersistentContext(absDir, {
         ...launchExtra,
-        headless: false,
+        headless,
         chromiumSandbox: false,
         env: playwrightBrowserEnv(),
         args: chromiumArgs,
@@ -1368,6 +1374,11 @@ export async function openMercadoLivreLoginWindow(): Promise<OpenMercadoLivreLog
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg, details: getXauthorityDiscoveryDebug() };
+    return {
+      ok: false,
+      error: msg,
+      details:
+        `${getLinuxHeadedChromiumUnavailableReason() ?? ""}\n${getXauthorityDiscoveryDebug()}`.trim(),
+    };
   }
 }
