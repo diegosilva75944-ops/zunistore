@@ -77,7 +77,8 @@ export async function tryHostWorkerMlLoginOpen(): Promise<MlLoginOpenDelegateRes
   const init: RequestInit = {
     method: "POST",
     headers,
-    body: "{}",
+    /** Mesmo endpoint que o import (`/internal/ml-import`) — evita 404 em workers antigos só com essa rota. */
+    body: JSON.stringify({ mlLoginOpen: true }),
   };
   if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
     init.signal = AbortSignal.timeout(timeoutMs);
@@ -85,7 +86,7 @@ export async function tryHostWorkerMlLoginOpen(): Promise<MlLoginOpenDelegateRes
 
   let res: Response;
   try {
-    res = await fetch(`${base.replace(/\/$/, "")}/internal/ml-login-open`, init);
+    res = await fetch(`${base.replace(/\/$/, "")}/internal/ml-import`, init);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return {
@@ -112,10 +113,19 @@ export async function tryHostWorkerMlLoginOpen(): Promise<MlLoginOpenDelegateRes
   }
 
   if (!res.ok || !json.ok) {
+    const rawErr =
+      typeof json.error === "string" ? json.error : `Worker ML (login) falhou (HTTP ${res.status}).`;
+    if (res.status === 400 && rawErr.includes("url ou mode")) {
+      return {
+        ok: false,
+        error:
+          "Worker ML no host está desatualizado: faça `git pull` na raiz do repositório e reinicie `npm run ml-host:worker` (o login envia POST /internal/ml-import com o campo mlLoginOpen: true).",
+        details: rawErr,
+      };
+    }
     return {
       ok: false,
-      error:
-        typeof json.error === "string" ? json.error : `Worker ML (login) falhou (HTTP ${res.status}).`,
+      error: rawErr,
       details: typeof json.details === "string" ? json.details : undefined,
     };
   }

@@ -36,6 +36,39 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   });
 }
 
+function requestPathname(req: http.IncomingMessage): string {
+  const raw = req.url ?? "/";
+  try {
+    const u = new URL(raw, "http://127.0.0.1");
+    return (u.pathname || "/").replace(/\/+$/, "") || "/";
+  } catch {
+    return (raw.split("?")[0] ?? "/").replace(/\/+$/, "") || "/";
+  }
+}
+
+async function respondMlLoginOpen(res: http.ServerResponse): Promise<void> {
+  const result = await openMercadoLivreLoginWindow();
+  if (!result.ok) {
+    json(res, 422, { ok: false, error: result.error, details: result.details ?? undefined });
+    return;
+  }
+  const abs = path.resolve(process.cwd(), result.storageStatePath);
+  let storageState: unknown;
+  try {
+    storageState = JSON.parse(readFileSync(abs, "utf8")) as unknown;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "falha ao ler storage state";
+    json(res, 422, { ok: false, error: `Após login: ${message}` });
+    return;
+  }
+  json(res, 200, {
+    ok: true,
+    storageState,
+    userDataDir: result.userDataDir,
+    storageStatePath: result.storageStatePath,
+  });
+}
+
 export async function createMlHostWorkerServer(): Promise<http.Server> {
   const secret = String(process.env.ML_HOST_IMPORT_SECRET ?? "").trim();
   const listenHost = String(process.env.ML_HOST_IMPORT_LISTEN_HOST ?? "127.0.0.1").trim() || "127.0.0.1";
@@ -49,12 +82,12 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
 
   const server = http.createServer(async (req, res) => {
     try {
-      if (req.method === "GET" && req.url?.split("?")[0] === "/health") {
+      if (req.method === "GET" && requestPathname(req) === "/health") {
         json(res, 200, { ok: true, service: "zunistore-ml-host" });
         return;
       }
 
-      const pathname = req.url?.split("?")[0] ?? "";
+      const pathname = requestPathname(req);
 
       if (req.method === "POST" && pathname === "/internal/ml-login-open") {
         if (secret) {
@@ -65,26 +98,7 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
             return;
           }
         }
-        const result = await openMercadoLivreLoginWindow();
-        if (!result.ok) {
-          json(res, 422, { ok: false, error: result.error, details: result.details ?? undefined });
-          return;
-        }
-        const abs = path.resolve(process.cwd(), result.storageStatePath);
-        let storageState: unknown;
-        try {
-          storageState = JSON.parse(readFileSync(abs, "utf8")) as unknown;
-        } catch (e) {
-          const message = e instanceof Error ? e.message : "falha ao ler storage state";
-          json(res, 422, { ok: false, error: `Após login: ${message}` });
-          return;
-        }
-        json(res, 200, {
-          ok: true,
-          storageState,
-          userDataDir: result.userDataDir,
-          storageStatePath: result.storageStatePath,
-        });
+        await respondMlLoginOpen(res);
         return;
       }
 
@@ -103,11 +117,16 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
       }
 
       const raw = await readBody(req);
-      let body: { url?: string; mode?: string; opts?: RunTestMlImportOptions };
+      let body: { url?: string; mode?: string; opts?: RunTestMlImportOptions; mlLoginOpen?: boolean };
       try {
         body = JSON.parse(raw) as typeof body;
       } catch {
         json(res, 400, { ok: false, error: "JSON inválido." });
+        return;
+      }
+
+      if (body.mlLoginOpen === true) {
+        await respondMlLoginOpen(res);
         return;
       }
 

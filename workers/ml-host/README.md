@@ -39,9 +39,9 @@ No Linux, o Docker pode precisar de `extra_hosts: - "host.docker.internal:host-g
 ## Endpoints
 
 - `GET /health` — estado.
-- `POST /internal/ml-import` — corpo JSON `{ "url", "mode", "opts" }`. Se `ML_HOST_IMPORT_SECRET` estiver definido no worker, envia `Authorization: Bearer <segredo>`.
-- `POST /internal/ml-login-open` — corpo `{}`; abre o Chromium para login ML no host (mesmo fluxo que `openMercadoLivreLoginWindow`), devolve `storageState` para o contentor gravar. Mesmo `Authorization` que o import.
+- `POST /internal/ml-import` — corpo JSON `{ "url", "mode", "opts" }` para import; ou `{ "mlLoginOpen": true }` para abrir o login ML no host e devolver `storageState` (o Next no Docker usa isto). Se `ML_HOST_IMPORT_SECRET` estiver definido no worker, envia `Authorization: Bearer <segredo>`.
+- `POST /internal/ml-login-open` — legado/alternativa ao login; mesmo efeito que `mlLoginOpen` em `/internal/ml-import`.
 
 No **Next** (Docker), com `ML_HOST_IMPORT_URL` definido, **tudo** o que chama `runTestMlImport` delega ao worker: Teste ML (`/api/admin/test-ml-import`), importação ML admin e extensão (`/api/admin/import/mercadolivre*`), sync de preço e reimport (`mlSyncImportedProduct`, `fetchMlPricesLikeImport`), cron de reimportação ML.
 
-O botão **Admin → Tokens → Abrir navegador para login ML** usa o **mesmo** `ML_HOST_IMPORT_URL`: se o Next não tiver X11, o pedido é encaminhado ao worker (`/internal/ml-login-open`) em vez de falhar no contentor.
+O botão **Admin → Tokens → Abrir navegador para login ML** usa o **mesmo** `ML_HOST_IMPORT_URL`: se o Next não tiver X11, o pedido vai para `POST /internal/ml-import` com `mlLoginOpen: true` (reinicie o worker após `git pull` para ter esta lógica).
