@@ -15,7 +15,7 @@ export async function generateMetadata(props: {
   const category = await getCategoryBySlug(categoriaSlug);
   if (!category) return { title: "Categoria não encontrada" };
 
-  const { total } = await listProducts({ categoryId: category.id, perPage: 10, page: 1 });
+  const { total } = await listProducts({ categoryId: category.id, perPage: 10, page: 1, offersOnly: true });
   return {
     title: `Ofertas — ${category.name}`,
     description: `Ofertas em ${category.name}.`,
@@ -37,6 +37,7 @@ export default async function OfertasCategoriaPage(props: {
 
   const { items, total } = await listProducts({
     categoryId: category.id,
+    offersOnly: true,
     sort: "maior-desconto",
     page,
     perPage,

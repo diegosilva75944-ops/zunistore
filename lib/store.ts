@@ -299,7 +299,6 @@ async function fetchDistinctCategoryIdsWithCatalogProducts(): Promise<Set<string
     const base: Record<string, string> = {
       select: "category_id",
       is_active: "eq.true",
-      is_offer: "eq.true",
       limit: String(pageSize),
       offset: String(offset),
     };
@@ -384,8 +383,9 @@ export async function listProducts(opts: {
   sort?: ProductSort;
   page?: number;
   perPage?: 10 | 12 | 15 | 20 | 24 | 36 | 50;
+  offersOnly?: boolean;
 }) {
-  const { categoryId, q, min, max, sort = "recentes", page = 1, perPage = 20 } = opts;
+  const { categoryId, q, min, max, sort = "recentes", page = 1, perPage = 20, offersOnly = false } = opts;
   try {
     const from = (page - 1) * perPage;
     const params: Record<string, string> = {
@@ -394,9 +394,9 @@ export async function listProducts(opts: {
       offset: String(from),
       limit: String(perPage),
     };
-    // Só exibir itens ativos no site; vitrine só com preço promocional ativo (is_offer).
+    // Só exibir itens ativos no site.
     params.is_active = "eq.true";
-    params.is_offer = "eq.true";
+    if (offersOnly) params.is_offer = "eq.true";
     if (categoryId) await applyCategorySubtreeToParams(params, categoryId);
     if (typeof min === "number" && typeof max === "number") {
       params.and = `(effective_price.gte.${min},effective_price.lte.${max})`;
@@ -465,7 +465,6 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
           "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
         id: inVal(uniq),
         is_active: "eq.true",
-        is_offer: "eq.true",
         limit: String(uniq.length),
       };
       applyAffiliateVisibleToProductParams(p);
@@ -476,7 +475,6 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
         select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
         id: inVal(uniq),
         is_active: "eq.true",
-        is_offer: "eq.true",
         limit: String(uniq.length),
       });
     }
@@ -498,7 +496,6 @@ export async function getProductByCode6(code6: string): Promise<Product | null> 
           "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
         code6: `eq.${encodeURIComponent(code6)}`,
         is_active: "eq.true",
-        is_offer: "eq.true",
         limit: "1",
       };
       applyAffiliateVisibleToProductParams(p);
@@ -509,7 +506,6 @@ export async function getProductByCode6(code6: string): Promise<Product | null> 
         select: "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at",
         code6: `eq.${encodeURIComponent(code6)}`,
         is_active: "eq.true",
-        is_offer: "eq.true",
         limit: "1",
       });
     }

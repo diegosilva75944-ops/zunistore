@@ -34,7 +34,7 @@ export default async function Home(props: {
   const [carousel, categoriesRaw, offers, siteSettings] = await Promise.all([
     listCarouselProducts(),
     getSiteCategoriesFlatForNavigationCached(),
-    listProducts({ perPage: 15, page: 1, sort: "maior-desconto" }),
+    listProducts({ perPage: 15, page: 1, sort: "maior-desconto", offersOnly: true }),
     getSiteSettings(),
   ]);
   const offersBeforeHero = siteSettings?.offers_section_position === "before_hero";

@@ -56,7 +56,6 @@ export async function GET(req: Request) {
     getRows<{ code6: string; slug: string; title: string }>("products", {
       select: "code6,slug,title",
       is_active: "eq.true",
-      is_offer: "eq.true",
       or: `(title.ilike.${pat},description.ilike.${pat},description_detail.ilike.${pat})`,
       order: "created_at.desc",
       limit: "12",
@@ -85,7 +84,6 @@ export async function GET(req: Request) {
       byCategory = await getRows("products", {
         select: "code6,slug,title",
         is_active: "eq.true",
-        is_offer: "eq.true",
         category_id: inVal(allIds),
         order: "created_at.desc",
         limit: "12",

@@ -8,7 +8,6 @@ export async function GET(req: Request) {
   const data = await postgrestGet<any[]>("products", {
     select: "code6,slug,updated_at",
     is_active: "eq.true",
-    is_offer: "eq.true",
     order: "created_at.desc",
     limit: "5000",
   }, "anon");

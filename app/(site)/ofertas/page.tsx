@@ -7,7 +7,7 @@ import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 export const revalidate = 300;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { total } = await listProducts({ perPage: 10, page: 1 });
+  const { total } = await listProducts({ perPage: 10, page: 1, offersOnly: true });
   return {
     title: "Ofertas",
     description: "Confira as melhores ofertas no ZuniStore.",
@@ -23,6 +23,7 @@ export default async function OfertasPage(props: {
   const perPage = (asNumber(searchParams.pp) ?? 20) as 10 | 20 | 50;
 
   const { items, total } = await listProducts({
+    offersOnly: true,
     sort: "maior-desconto",
     page,
     perPage,

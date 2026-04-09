@@ -69,7 +69,7 @@ export function HeaderCategoryStrip({ items }: { items: HeaderCategoryStripItem[
 
   return (
     <nav
-      className="header-category-strip-nav relative z-30 w-full border-b border-[var(--zuni-primary)]/[0.12] bg-[color-mix(in_srgb,var(--zuni-purple-light)_42%,var(--zuni-page-bg))]"
+      className="header-category-strip-nav relative z-[60] isolate w-full border-b border-[var(--zuni-primary)]/[0.12] bg-[color-mix(in_srgb,var(--zuni-purple-light)_42%,var(--zuni-page-bg))]"
       aria-label="Categorias em destaque"
     >
       <div className="zuni-site-container overflow-visible">
@@ -175,7 +175,7 @@ export function HeaderCategoryStrip({ items }: { items: HeaderCategoryStripItem[
                 {hasSubs ? (
                   <div
                     className={cn(
-                      "absolute left-0 top-[calc(100%+0.25rem)] z-50 w-max min-w-[12.5rem] max-w-[min(22rem,calc(100vw-1.75rem))]",
+                      "absolute left-0 top-[calc(100%+0.25rem)] z-[70] w-max min-w-[12.5rem] max-w-[min(22rem,calc(100vw-1.75rem))]",
                       "rounded-xl border border-[var(--zuni-primary)]/12 bg-[color-mix(in_srgb,white_94%,var(--zuni-purple-light))] py-1.5",
                       "shadow-[0_6px_24px_-8px_rgba(76,29,149,0.15)]",
                       "transition-opacity duration-200 ease-out",
