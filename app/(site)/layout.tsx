@@ -1,3 +1,4 @@
+import type { Viewport } from "next";
 import Script from "next/script";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
@@ -7,6 +8,15 @@ const GA_MEASUREMENT_ID = "G-CCG95MP9NH";
 
 /** Alinha revalidação do rodapé (contato) com a página /contato. */
 export const revalidate = 300;
+
+/** Só no site público: impede zoom por pinça/ajuste (admin mantém zoom padrão do browser). */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+};
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,7 +33,10 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
           gtag('config', '${GA_MEASUREMENT_ID}');
         `}
       </Script>
-      <div className="min-h-dvh text-zinc-900" style={{ backgroundColor: "var(--zuni-page-bg)" }}>
+      <div
+        className="min-h-dvh touch-manipulation text-zinc-900"
+        style={{ backgroundColor: "var(--zuni-page-bg)" }}
+      >
         <Header />
         <main className="zuni-site-container py-6">{children}</main>
         <Footer />

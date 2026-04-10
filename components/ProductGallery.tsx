@@ -9,16 +9,19 @@ type ProductGalleryProps = {
 };
 
 const lightboxControlBtn =
-  "flex items-center justify-center rounded-full bg-white/55 backdrop-blur-md text-zinc-800 shadow-lg ring-1 ring-white/45 hover:bg-white/70 transition-colors";
+  "inline-flex items-center justify-center rounded-full bg-white/55 backdrop-blur-md text-zinc-800 shadow-lg ring-1 ring-white/45 hover:bg-white/70 transition-colors min-h-11 min-w-11 shrink-0";
 
 export function ProductGallery({ images, title }: ProductGalleryProps) {
   const [selected, setSelected] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lens, setLens] = useState({ show: false, x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const imgs = images?.length ? images : [null];
   const mainSrc = imgs[selected] ?? imgs[0];
+  const validCount = imgs.filter(Boolean).length;
+  const hasMultiple = validCount > 1;
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -28,7 +31,7 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
       const y = ((e.clientY - rect.top) / rect.height) * 100;
       setLens({ show: true, x, y });
     },
-    [mainSrc]
+    [mainSrc],
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -96,6 +99,37 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [lightboxOpen, goPrev, goNext]);
 
+  const onLightboxTouchStart = useCallback((e: React.TouchEvent) => {
+    if (!hasMultiple) return;
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  }, [hasMultiple]);
+
+  const onLightboxTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      if (!hasMultiple || !touchStartRef.current) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStartRef.current.x;
+      const dy = t.clientY - touchStartRef.current.y;
+      touchStartRef.current = null;
+      const minSwipe = 48;
+      if (Math.abs(dx) < minSwipe) return;
+      if (Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      e.preventDefault();
+      if (dx > 0) goPrev();
+      else goNext();
+    },
+    [hasMultiple, goPrev, goNext],
+  );
+
+  const validIndex = (() => {
+    let n = 0;
+    for (let i = 0; i <= selected; i++) {
+      if (imgs[i]) n += 1;
+    }
+    return n;
+  })();
+
   return (
     <div className="space-y-3">
       {/* Foto principal com lupa ao passar o mouse */}
@@ -116,7 +150,6 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
               sizes="(max-width: 768px) 100vw, 50vw"
               priority
             />
-            {/* Lupa: círculo que segue o cursor com zoom 2x */}
             {lens.show && (
               <div
                 className="absolute w-32 h-32 pointer-events-none hidden md:block rounded-full border-2 border-white shadow-xl"
@@ -138,7 +171,6 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
         )}
       </div>
 
-      {/* Miniaturas da galeria */}
       {imgs.length > 1 && (
         <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
           {imgs.slice(0, 6).map((src, i) => (
@@ -172,62 +204,109 @@ export function ProductGallery({ images, title }: ProductGalleryProps) {
 
       {lightboxOpen && mainSrc ? (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 md:p-8"
+          className="fixed inset-0 z-[100] flex flex-col bg-black/90"
+          style={{
+            paddingTop: "max(0.75rem, env(safe-area-inset-top, 0px))",
+            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))",
+            paddingLeft: "max(0.75rem, env(safe-area-inset-left, 0px))",
+            paddingRight: "max(0.75rem, env(safe-area-inset-right, 0px))",
+          }}
           role="dialog"
           aria-modal="true"
           aria-label={`${title} — imagem em tamanho grande`}
-          onClick={() => setLightboxOpen(false)}
         >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setLightboxOpen(false);
-            }}
-            className={`absolute right-3 top-3 z-[110] h-11 w-11 ${lightboxControlBtn} text-2xl font-light leading-none`}
-            aria-label="Fechar"
+          <div className="flex shrink-0 justify-end pb-2">
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(false)}
+              className={`h-11 w-11 ${lightboxControlBtn} text-2xl font-light leading-none`}
+              aria-label="Fechar"
+            >
+              ×
+            </button>
+          </div>
+
+          <div
+            className="relative min-h-0 flex-1 w-full"
+            style={{ touchAction: hasMultiple ? "none" : "auto" }}
+            onTouchStart={onLightboxTouchStart}
+            onTouchEnd={onLightboxTouchEnd}
+            onClick={() => setLightboxOpen(false)}
           >
-            ×
-          </button>
-          {imgs.filter(Boolean).length > 1 ? (
-            <>
+            <div
+              className="relative mx-auto h-full w-full max-h-full max-w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Image
+                src={mainSrc}
+                alt={title}
+                fill
+                className="object-contain select-none"
+                sizes="100vw"
+                priority
+                draggable={false}
+              />
+            </div>
+
+            {hasMultiple ? (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    goPrev();
+                  }}
+                  className={`hidden sm:inline-flex absolute top-1/2 -translate-y-1/2 z-[110] h-12 w-12 md:h-14 md:w-14 text-xl md:text-2xl ${lightboxControlBtn}`}
+                  style={{ left: "max(0.25rem, env(safe-area-inset-left, 0px))" }}
+                  aria-label="Imagem anterior"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    goNext();
+                  }}
+                  className={`hidden sm:inline-flex absolute top-1/2 -translate-y-1/2 z-[110] h-12 w-12 md:h-14 md:w-14 text-xl md:text-2xl ${lightboxControlBtn}`}
+                  style={{ right: "max(0.25rem, env(safe-area-inset-right, 0px))" }}
+                  aria-label="Próxima imagem"
+                >
+                  ›
+                </button>
+              </>
+            ) : null}
+          </div>
+
+          {hasMultiple ? (
+            <div className="flex sm:hidden shrink-0 items-center justify-between gap-3 pt-3">
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   goPrev();
                 }}
-                className={`absolute left-2 md:left-4 top-1/2 z-[110] -translate-y-1/2 h-12 w-12 md:h-14 md:w-14 text-xl md:text-2xl ${lightboxControlBtn}`}
+                className={`h-12 w-12 text-2xl ${lightboxControlBtn}`}
                 aria-label="Imagem anterior"
               >
                 ‹
               </button>
+              <span className="text-sm font-medium text-white/85 tabular-nums">
+                {validIndex} / {validCount}
+              </span>
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   goNext();
                 }}
-                className={`absolute right-2 md:right-4 top-1/2 z-[110] -translate-y-1/2 h-12 w-12 md:h-14 md:w-14 text-xl md:text-2xl ${lightboxControlBtn}`}
+                className={`h-12 w-12 text-2xl ${lightboxControlBtn}`}
                 aria-label="Próxima imagem"
               >
                 ›
               </button>
-            </>
+            </div>
           ) : null}
-          <div
-            className="relative max-h-[min(100vh-2rem,100dvh-2rem)] max-w-[min(100vw-2rem,100dvw-2rem)] h-[min(90vh,90dvh)] w-full sm:w-[min(96vw,1400px)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Image
-              src={mainSrc}
-              alt={title}
-              fill
-              className="object-contain"
-              sizes="100vw"
-              priority
-            />
-          </div>
         </div>
       ) : null}
     </div>
