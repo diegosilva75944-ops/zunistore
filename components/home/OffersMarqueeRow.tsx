@@ -39,7 +39,8 @@ export function OffersMarqueeRow({ products, className }: Props) {
   const oneStripPx = list.length * CARD_EST_PX;
   const useInfiniteLoop = containerWidth <= 0 || oneStripPx >= containerWidth * 1.5;
 
-  const outerClass = `offers-marquee-outer relative overflow-hidden rounded-2xl py-1 -mx-1 ${className ?? ""}`.trim();
+  /** Sem margem negativa: evita “bleed” horizontal fora do contentor e barra de rolagem na página. */
+  const outerClass = `offers-marquee-outer relative overflow-hidden rounded-2xl py-1 ${className ?? ""}`.trim();
 
   if (!useInfiniteLoop) {
     return (

@@ -34,7 +34,7 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
         `}
       </Script>
       <div
-        className="min-h-dvh touch-manipulation text-zinc-900"
+        className="min-h-dvh min-w-0 max-w-full overflow-x-hidden touch-manipulation text-zinc-900"
         style={{ backgroundColor: "var(--zuni-page-bg)" }}
       >
         <Header />
