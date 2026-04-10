@@ -59,13 +59,6 @@ export async function Header() {
                 Contato
               </Link>
             </nav>
-
-            <Link
-              href="/admin"
-              className="shrink-0 inline-flex items-center justify-center rounded-full bg-zuni-orange px-3 py-1.5 sm:px-4 sm:py-2 text-xs font-semibold text-zuni-black hover:opacity-95 transition"
-            >
-              Admin
-            </Link>
           </div>
         </div>
       </header>

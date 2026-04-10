@@ -75,12 +75,9 @@ export function HeaderCategoryStrip({ items }: { items: HeaderCategoryStripItem[
       <div className="zuni-site-container overflow-visible">
         <ul
           className={cn(
-            "flex md:grid gap-2 md:gap-2.5 py-2 md:py-2.5",
-            "overflow-x-auto md:overflow-visible overflow-y-visible",
-            "snap-x snap-mandatory md:snap-none",
-            "header-category-scroll",
-            "md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7",
-            "[scrollbar-width:thin]",
+            "grid grid-cols-2 gap-2 py-2",
+            "md:grid-cols-4 md:gap-2.5 md:py-2.5 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7",
+            "overflow-visible",
           )}
         >
           {items.map((item, index) => {
@@ -93,8 +90,8 @@ export function HeaderCategoryStrip({ items }: { items: HeaderCategoryStripItem[
               <li
                 key={item.id}
                 className={cn(
-                  "header-category-strip-item relative min-w-0 snap-start shrink-0",
-                  "w-[min(78vw,13.5rem)] sm:w-[min(52vw,14rem)] md:w-auto md:shrink",
+                  "header-category-strip-item relative min-w-0 w-full",
+                  "md:w-auto md:shrink",
                   open ? "z-50" : "z-0",
                 )}
                 style={
