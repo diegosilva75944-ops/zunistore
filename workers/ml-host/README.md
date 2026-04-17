@@ -8,10 +8,9 @@ Na raiz do projeto (onde está `package.json` e o `.env` com credenciais ML/Supa
 
 ```bash
 npm install
-# Opcional: escutar só localhost (defeito)
-export ML_HOST_IMPORT_LISTEN_HOST=127.0.0.1
+# Porta (defeito 3847)
 export ML_HOST_IMPORT_PORT=3847
-# Opcional: ML_HOST_IMPORT_SECRET=…  (se omitir, não há verificação Bearer)
+# Obrigatório em rede: ML_HOST_IMPORT_SECRET=…  (o bind é sempre 0.0.0.0 — todas as interfaces IPv4)
 npm run ml-host:worker
 ```
 
@@ -32,9 +31,8 @@ No Linux, o Docker pode precisar de `extra_hosts: - "host.docker.internal:host-g
 
 ## Segurança
 
-- O worker deve ouvir em **`127.0.0.1`** (defeito) quando não usas segredo — assim só processos na mesma máquina (ou Docker com `host.docker.internal`) alcançam o serviço.
-- Se definires **`ML_HOST_IMPORT_SECRET`**, o cliente e o worker devem usar o mesmo valor (`Authorization: Bearer`).
-- Evita **`0.0.0.0`** sem segredo: qualquer um na rede pode disparar importações.
+- O worker escuta sempre em **`0.0.0.0`** (porta por defeito **3847**), para contentores e LAN alcançarem o serviço.
+- **Sem `ML_HOST_IMPORT_SECRET`**, qualquer cliente na rede pode chamar o import — defina `ML_HOST_IMPORT_SECRET` no worker e no Next (mesmo valor, `Authorization: Bearer`).
 
 ## Endpoints
 

@@ -39,7 +39,7 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 function requestPathname(req: http.IncomingMessage): string {
   const raw = req.url ?? "/";
   try {
-    const u = new URL(raw, "http://127.0.0.1");
+    const u = new URL(raw, "http://internal.ml-host.invalid");
     return (u.pathname || "/").replace(/\/+$/, "") || "/";
   } catch {
     return (raw.split("?")[0] ?? "/").replace(/\/+$/, "") || "/";
@@ -71,12 +71,13 @@ async function respondMlLoginOpen(res: http.ServerResponse): Promise<void> {
 
 export async function createMlHostWorkerServer(): Promise<http.Server> {
   const secret = String(process.env.ML_HOST_IMPORT_SECRET ?? "").trim();
-  const listenHost = String(process.env.ML_HOST_IMPORT_LISTEN_HOST ?? "0.0.0.0").trim() || "0.0.0.0";
   const port = Number(process.env.ML_HOST_IMPORT_PORT ?? "3847") || 3847;
+  /** Sempre todas as interfaces IPv4 (evita ML_HOST_IMPORT_LISTEN_HOST=127.0.0.1 no .env bloquear Docker/LAN). */
+  const host = "0.0.0.0";
 
-  if (!secret && listenHost === "0.0.0.0") {
+  if (!secret) {
     console.warn(
-      "[ml-host-worker] AVISO: ML_HOST_IMPORT_SECRET vazio e escuta em 0.0.0.0 — qualquer cliente na rede pode chamar o import. Use 127.0.0.1 ou defina um segredo.",
+      "[ml-host-worker] AVISO: ML_HOST_IMPORT_SECRET vazio — qualquer cliente na rede pode chamar o import. Defina um segredo.",
     );
   }
 
@@ -145,10 +146,11 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
     }
   });
 
-  server.listen(port, listenHost, () => {
+  server.listen(port, host, () => {
     const authHint = secret ? "auth=Bearer" : "auth=desligado";
+    console.info(`[ml-host-worker] listening on http://${host}:${port}`);
     console.info(
-      `[ml-host-worker] http://${listenHost}:${port}  health=GET /health  import=POST /internal/ml-import  login=POST /internal/ml-login-open  (${authHint})`,
+      `[ml-host-worker] health=GET /health  import=POST /internal/ml-import  login=POST /internal/ml-login-open  (${authHint})`,
     );
   });
 
