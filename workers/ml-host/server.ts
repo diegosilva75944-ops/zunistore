@@ -71,7 +71,7 @@ async function respondMlLoginOpen(res: http.ServerResponse): Promise<void> {
 
 export async function createMlHostWorkerServer(): Promise<http.Server> {
   const secret = String(process.env.ML_HOST_IMPORT_SECRET ?? "").trim();
-  const listenHost = String(process.env.ML_HOST_IMPORT_LISTEN_HOST ?? "127.0.0.1").trim() || "127.0.0.1";
+  const listenHost = String(process.env.ML_HOST_IMPORT_LISTEN_HOST ?? "0.0.0.0").trim() || "0.0.0.0";
   const port = Number(process.env.ML_HOST_IMPORT_PORT ?? "3847") || 3847;
 
   if (!secret && listenHost === "0.0.0.0") {
