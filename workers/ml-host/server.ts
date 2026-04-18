@@ -7,6 +7,7 @@
  * Ver workers/ml-host/README.md
  */
 import "dotenv/config";
+import crypto from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -46,6 +47,44 @@ function requestPathname(req: http.IncomingMessage): string {
   }
 }
 
+/**
+ * Autenticação Bearer para rotas `/internal/*`.
+ * - `ML_HOST_IMPORT_SECRET` vazio: acesso permitido (modo dev; ver log de arranque).
+ * - Com segredo: exige `Authorization: Bearer <token>` igual ao segredo.
+ */
+export function validateInternalAuth(
+  req: http.IncomingMessage,
+  secret: string,
+): { ok: true } | { ok: false; reason: "missing_header" | "invalid_token" } {
+  const trimmed = secret.trim();
+  if (!trimmed) {
+    return { ok: true };
+  }
+
+  const auth = String(req.headers.authorization ?? "").trim();
+  const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+
+  if (!token) {
+    return { ok: false, reason: "missing_header" };
+  }
+
+  const a = Buffer.from(token, "utf8");
+  const b = Buffer.from(trimmed, "utf8");
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return { ok: false, reason: "invalid_token" };
+  }
+
+  return { ok: true };
+}
+
+function logAuthFailure(reason: "missing_header" | "invalid_token"): void {
+  const hint =
+    reason === "missing_header" ?
+      "header Authorization Bearer ausente ou formato inválido"
+    : "token não coincide com ML_HOST_IMPORT_SECRET";
+  console.warn(`[ml-host-worker] Auth falhou (${hint}).`);
+}
+
 async function respondMlLoginOpen(res: http.ServerResponse): Promise<void> {
   const result = await openMercadoLivreLoginWindow();
   if (!result.ok) {
@@ -72,74 +111,76 @@ async function respondMlLoginOpen(res: http.ServerResponse): Promise<void> {
 export async function createMlHostWorkerServer(): Promise<http.Server> {
   const secret = String(process.env.ML_HOST_IMPORT_SECRET ?? "").trim();
   const port = Number(process.env.ML_HOST_IMPORT_PORT ?? "3847") || 3847;
-  /** Sempre todas as interfaces IPv4 (evita ML_HOST_IMPORT_LISTEN_HOST=127.0.0.1 no .env bloquear Docker/LAN). */
-  const host = "0.0.0.0";
+  const host = String(process.env.ML_HOST_IMPORT_LISTEN_HOST ?? "0.0.0.0").trim() || "0.0.0.0";
 
   if (!secret) {
     console.warn(
-      "[ml-host-worker] AVISO: ML_HOST_IMPORT_SECRET vazio — qualquer cliente na rede pode chamar o import. Defina um segredo.",
+      "[ml-host-worker] AVISO: ML_HOST_IMPORT_SECRET vazio — autenticação DESATIVADA em /internal/* (modo dev). Defina um segredo em produção.",
+    );
+  } else {
+    console.info("[ml-host-worker] Autenticação Bearer obrigatória para POST /internal/ml-import e POST /internal/ml-login-open.");
+  }
+
+  if (!secret && host !== "127.0.0.1" && host !== "::1") {
+    console.warn(
+      "[ml-host-worker] AVISO: segredo vazio e escuta em rede — qualquer cliente pode chamar o worker.",
     );
   }
 
   const server = http.createServer(async (req, res) => {
     try {
-      if (req.method === "GET" && requestPathname(req) === "/health") {
+      const pathname = requestPathname(req);
+
+      if (req.method === "GET" && pathname === "/health") {
         json(res, 200, { ok: true, service: "zunistore-ml-host" });
         return;
       }
 
-      const pathname = requestPathname(req);
+      if (pathname.startsWith("/internal/")) {
+        const authResult = validateInternalAuth(req, secret);
+        if (!authResult.ok) {
+          logAuthFailure(authResult.reason);
+          json(res, 401, { ok: false, error: "Não autorizado." });
+          return;
+        }
 
-      if (req.method === "POST" && pathname === "/internal/ml-login-open") {
-        if (secret) {
-          const auth = String(req.headers.authorization ?? "").trim();
-          const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-          if (token !== secret) {
-            json(res, 401, { ok: false, error: "Não autorizado." });
+        if (req.method === "POST" && pathname === "/internal/ml-login-open") {
+          await respondMlLoginOpen(res);
+          return;
+        }
+
+        if (req.method === "POST" && pathname === "/internal/ml-import") {
+          const raw = await readBody(req);
+          let body: { url?: string; mode?: string; opts?: RunTestMlImportOptions; mlLoginOpen?: boolean };
+          try {
+            body = JSON.parse(raw) as typeof body;
+          } catch {
+            json(res, 400, { ok: false, error: "JSON inválido." });
             return;
           }
-        }
-        await respondMlLoginOpen(res);
-        return;
-      }
 
-      if (req.method !== "POST" || pathname !== "/internal/ml-import") {
+          if (body.mlLoginOpen === true) {
+            await respondMlLoginOpen(res);
+            return;
+          }
+
+          const url = String(body.url ?? "").trim();
+          const mode = String(body.mode ?? "auto").trim();
+          if (!url || !MODES.has(mode)) {
+            json(res, 400, { ok: false, error: "url ou mode inválido." });
+            return;
+          }
+
+          const result = await runTestMlImportCore(url, mode as ImportMode, body.opts);
+          json(res, 200, { ok: true, result });
+          return;
+        }
+
         json(res, 404, { ok: false, error: "Não encontrado." });
         return;
       }
 
-      if (secret) {
-        const auth = String(req.headers.authorization ?? "").trim();
-        const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-        if (token !== secret) {
-          json(res, 401, { ok: false, error: "Não autorizado." });
-          return;
-        }
-      }
-
-      const raw = await readBody(req);
-      let body: { url?: string; mode?: string; opts?: RunTestMlImportOptions; mlLoginOpen?: boolean };
-      try {
-        body = JSON.parse(raw) as typeof body;
-      } catch {
-        json(res, 400, { ok: false, error: "JSON inválido." });
-        return;
-      }
-
-      if (body.mlLoginOpen === true) {
-        await respondMlLoginOpen(res);
-        return;
-      }
-
-      const url = String(body.url ?? "").trim();
-      const mode = String(body.mode ?? "auto").trim();
-      if (!url || !MODES.has(mode)) {
-        json(res, 400, { ok: false, error: "url ou mode inválido." });
-        return;
-      }
-
-      const result = await runTestMlImportCore(url, mode as ImportMode, body.opts);
-      json(res, 200, { ok: true, result });
+      json(res, 404, { ok: false, error: "Não encontrado." });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Erro interno.";
       json(res, 422, { ok: false, error: message });
@@ -147,10 +188,10 @@ export async function createMlHostWorkerServer(): Promise<http.Server> {
   });
 
   server.listen(port, host, () => {
-    const authHint = secret ? "auth=Bearer" : "auth=desligado";
+    const authHint = secret ? "auth=Bearer obrigatório em /internal/*" : "auth=desligado (modo dev)";
     console.info(`[ml-host-worker] listening on http://${host}:${port}`);
     console.info(
-      `[ml-host-worker] health=GET /health  import=POST /internal/ml-import  login=POST /internal/ml-login-open  (${authHint})`,
+      `[ml-host-worker] health=GET /health (sem auth)  import=POST /internal/ml-import  login=POST /internal/ml-login-open  (${authHint})`,
     );
   });
 

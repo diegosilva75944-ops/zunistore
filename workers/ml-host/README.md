@@ -8,9 +8,10 @@ Na raiz do projeto (onde está `package.json` e o `.env` com credenciais ML/Supa
 
 ```bash
 npm install
-# Porta (defeito 3847)
+# Porta (defeito 3847); bind (defeito 0.0.0.0 — todas as interfaces IPv4)
 export ML_HOST_IMPORT_PORT=3847
-# Obrigatório em rede: ML_HOST_IMPORT_SECRET=…  (o bind é sempre 0.0.0.0 — todas as interfaces IPv4)
+# export ML_HOST_IMPORT_LISTEN_HOST=0.0.0.0
+# Em produção: ML_HOST_IMPORT_SECRET=…  (Bearer obrigatório em POST /internal/*)
 npm run ml-host:worker
 ```
 
@@ -31,14 +32,16 @@ No Linux, o Docker pode precisar de `extra_hosts: - "host.docker.internal:host-g
 
 ## Segurança
 
-- O worker escuta sempre em **`0.0.0.0`** (porta por defeito **3847**), para contentores e LAN alcançarem o serviço.
-- **Sem `ML_HOST_IMPORT_SECRET`**, qualquer cliente na rede pode chamar o import — defina `ML_HOST_IMPORT_SECRET` no worker e no Next (mesmo valor, `Authorization: Bearer`).
+- **Bind:** `ML_HOST_IMPORT_LISTEN_HOST` (defeito **`0.0.0.0`**) e **`ML_HOST_IMPORT_PORT`** (defeito **3847**).
+- **`GET /health`** — sem autenticação.
+- **`POST /internal/*`** — com `ML_HOST_IMPORT_SECRET` definido, é obrigatório o header `Authorization: Bearer <segredo>`. Sem segredo, o worker aceita pedidos (modo dev; ver aviso no arranque).
+- O **Next** deve usar o **mesmo** `ML_HOST_IMPORT_SECRET` que o worker (`lib/ml-test/hostProxy.ts`).
 
 ## Endpoints
 
-- `GET /health` — estado.
-- `POST /internal/ml-import` — corpo JSON `{ "url", "mode", "opts" }` para import; ou `{ "mlLoginOpen": true }` para abrir o login ML no host e devolver `storageState` (o Next no Docker usa isto). Se `ML_HOST_IMPORT_SECRET` estiver definido no worker, envia `Authorization: Bearer <segredo>`.
-- `POST /internal/ml-login-open` — legado/alternativa ao login; mesmo efeito que `mlLoginOpen` em `/internal/ml-import`.
+- `GET /health` — estado (sem Bearer).
+- `POST /internal/ml-import` — corpo JSON `{ "url", "mode", "opts" }` para import; ou `{ "mlLoginOpen": true }` para abrir o login ML no host e devolver `storageState` (o Next no Docker usa isto). Com segredo no worker, enviar `Authorization: Bearer <segredo>`.
+- `POST /internal/ml-login-open` — alternativa ao login; mesmo efeito que `mlLoginOpen` em `/internal/ml-import`. Com segredo no worker, enviar o mesmo Bearer.
 
 No **Next** (Docker), com `ML_HOST_IMPORT_URL` definido, **tudo** o que chama `runTestMlImport` delega ao worker: Teste ML (`/api/admin/test-ml-import`), importação ML admin e extensão (`/api/admin/import/mercadolivre*`), sync de preço e reimport (`mlSyncImportedProduct`, `fetchMlPricesLikeImport`), cron de reimportação ML.
 
