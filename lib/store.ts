@@ -7,6 +7,7 @@ import {
   collectDescendantCategoryIds,
   filterFlatToCategoriesWithCatalogBranches,
 } from "@/lib/categories-tree";
+import { shuffleDailyOrder } from "@/lib/dailyShuffle";
 
 export type Category = {
   id: string;
@@ -548,6 +549,51 @@ export async function listCarouselProducts() {
   } catch {
     return [];
   }
+}
+
+const HOME_HERO_CAROUSEL_DAILY_COUNT = 6;
+const HOME_HERO_CAROUSEL_OFFER_POOL = 50;
+
+export type HomeHeroSlide = Awaited<ReturnType<typeof listCarouselProducts>>[number];
+
+/**
+ * Carrossel da home: se existir configuração manual em `carousel_items`, usa-a.
+ * Se estiver vazio, mostra 6 produtos em oferta escolhidos de forma pseudoaleatória
+ * com seed diário (America/Sao_Paulo), trocando ~a cada 24h.
+ */
+export async function getHomeHeroCarouselSlides(): Promise<HomeHeroSlide[]> {
+  const manual = await listCarouselProducts();
+  if (manual.length > 0) return manual;
+
+  const { items } = await listProducts({
+    offersOnly: true,
+    perPage: HOME_HERO_CAROUSEL_OFFER_POOL,
+    page: 1,
+    sort: "maior-desconto",
+  });
+  if (!items.length) return [];
+
+  const shuffled = shuffleDailyOrder(items);
+  const picked = shuffled.slice(0, HOME_HERO_CAROUSEL_DAILY_COUNT);
+
+  return picked.map((p, i) => ({
+    id: `carousel-daily-${p.id}`,
+    sort_order: i,
+    size: "M" as const,
+    product: {
+      code6: p.code6,
+      slug: p.slug,
+      title: p.title,
+      images: p.images,
+      price: p.price,
+      promo_price: p.promo_price,
+      is_offer: p.is_offer,
+      off_percent: p.off_percent,
+      affiliate_url: p.affiliate_url,
+      rating: p.rating,
+      reviews_count: p.reviews_count,
+    },
+  }));
 }
 
 export async function listRelatedProducts(opts: {

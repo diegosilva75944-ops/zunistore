@@ -2,9 +2,9 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { siteCategorySelectOptionsWithPath } from "@/lib/categoriesSelect";
 import {
+  getHomeHeroCarouselSlides,
   getSiteCategoriesFlatForNavigationCached,
   getSiteSettings,
-  listCarouselProducts,
   listProducts,
 } from "@/lib/store";
 import { HomeAllProductsScroll } from "@/components/home/HomeAllProductsScroll";
@@ -31,8 +31,8 @@ export default async function Home(props: {
   const perPage = parseHomePerPage(searchParams.pp);
   const page = asNumber(searchParams.p) ?? 1;
 
-  const [carousel, categoriesRaw, offers, siteSettings] = await Promise.all([
-    listCarouselProducts(),
+  const [heroSlides, categoriesRaw, offers, siteSettings] = await Promise.all([
+    getHomeHeroCarouselSlides(),
     getSiteCategoriesFlatForNavigationCached(),
     listProducts({ perPage: 15, page: 1, sort: "maior-desconto", offersOnly: true }),
     getSiteSettings(),
@@ -62,7 +62,7 @@ export default async function Home(props: {
         </Link>
       </div>
 
-      <HeroSlider items={carousel} />
+      <HeroSlider items={heroSlides} />
     </section>
   );
 
@@ -87,14 +87,9 @@ export default async function Home(props: {
         tabIndex={-1}
         aria-labelledby="todos-produtos-heading"
       >
-        <div className="flex items-end justify-between gap-4 flex-wrap">
-          <h2 id="todos-produtos-heading" className="text-xl font-semibold">
-            Todos os Produtos
-          </h2>
-          <div className="text-sm text-zinc-600">
-            Total: <span className="font-semibold text-zinc-900">{all.total}</span>
-          </div>
-        </div>
+        <h2 id="todos-produtos-heading" className="text-xl font-semibold">
+          Todos os Produtos
+        </h2>
 
         <HomeTodosProdutosFilterForm className="zuni-nested-panel grid gap-3 md:grid-cols-5 rounded-2xl p-4">
           <div className="md:col-span-2">
@@ -218,10 +213,6 @@ function asNumber(v: unknown) {
   if (!s) return undefined;
   const n = Number(String(s).replace(",", "."));
   return Number.isFinite(n) ? n : undefined;
-}
-
-function formatBRL(value: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
 function withParam(

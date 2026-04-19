@@ -14,11 +14,34 @@ type Props = {
   className?: string;
 };
 
+function MobileOffersScroll({
+  list,
+  outerClass,
+}: {
+  list: Product[];
+  outerClass: string;
+}) {
+  return (
+    <div
+      className={`${outerClass} md:hidden overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth snap-x snap-mandatory [scrollbar-width:thin] touch-pan-x [-webkit-overflow-scrolling:touch]`}
+      aria-label="Lista de produtos em oferta — deslize horizontalmente"
+    >
+      <div className="flex w-max gap-0 pb-1 pt-0.5">
+        {list.map((p) => (
+          <div
+            key={`m-${p.id}`}
+            className="snap-start shrink-0 w-[78vw] max-w-[220px] px-2 sm:w-72 sm:max-w-[260px]"
+          >
+            <TrackedProductCard product={p} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
- * Faixa de ofertas com rolagem horizontal contínua.
- * Se uma única “volta” da lista for mais estreita que o container, o loop infinito
- * (`[...list, ...list]` + translate -50%) mostra o mesmo produto duas vezes ao mesmo tempo;
- * nesse caso usamos só scroll horizontal, sem duplicar itens.
+ * Faixa de ofertas: no mobile, rolagem horizontal com dedo; em md+, rolagem contínua animada ou scroll conforme largura.
  */
 export function OffersMarqueeRow({ products, className }: Props) {
   const list = products.slice(0, MAX_OFFERS);
@@ -42,47 +65,46 @@ export function OffersMarqueeRow({ products, className }: Props) {
   /** Sem margem negativa: evita “bleed” horizontal fora do contentor e barra de rolagem na página. */
   const outerClass = `offers-marquee-outer relative overflow-hidden rounded-2xl py-1 ${className ?? ""}`.trim();
 
-  if (!useInfiniteLoop) {
-    return (
-      <div
-        ref={outerRef}
-        className={`${outerClass} overflow-x-auto scroll-smooth [scrollbar-width:thin]`}
-        aria-label="Lista de produtos em oferta"
-      >
-        <div className="flex w-max gap-0 pb-0.5">
-          {list.map((p) => (
-            <div
-              key={p.id}
-              className="w-[42vw] max-w-[200px] shrink-0 px-2 sm:w-48 sm:max-w-none md:w-52"
-            >
-              <TrackedProductCard product={p} />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  const loop = [...list, ...list];
-  const seconds = Math.max(28, list.length * 5);
-
   return (
-    <div ref={outerRef} className={outerClass} aria-label="Carrossel de produtos em oferta">
-      <div
-        className="offers-marquee-track flex w-max"
-        style={{
-          animation: `offers-marquee-x ${seconds}s linear infinite`,
-        }}
-      >
-        {loop.map((p, i) => (
-          <div
-            key={`${p.id}-${i}`}
-            className="w-[42vw] max-w-[200px] shrink-0 px-2 sm:w-48 sm:max-w-none md:w-52"
-          >
-            <TrackedProductCard product={p} />
+    <>
+      <MobileOffersScroll list={list} outerClass={outerClass} />
+
+      {!useInfiniteLoop ? (
+        <div
+          ref={outerRef}
+          className={`${outerClass} hidden md:block overflow-x-auto scroll-smooth [scrollbar-width:thin]`}
+          aria-label="Lista de produtos em oferta"
+        >
+          <div className="flex w-max gap-0 pb-0.5">
+            {list.map((p) => (
+              <div
+                key={p.id}
+                className="w-[42vw] max-w-[200px] shrink-0 px-2 sm:w-48 sm:max-w-none md:w-52"
+              >
+                <TrackedProductCard product={p} />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      ) : (
+        <div ref={outerRef} className={`${outerClass} hidden md:block`} aria-label="Carrossel de produtos em oferta">
+          <div
+            className="offers-marquee-track flex w-max"
+            style={{
+              animation: `offers-marquee-x ${Math.max(28, list.length * 5)}s linear infinite`,
+            }}
+          >
+            {[...list, ...list].map((p, i) => (
+              <div
+                key={`${p.id}-${i}`}
+                className="w-[42vw] max-w-[200px] shrink-0 px-2 sm:w-48 sm:max-w-none md:w-52"
+              >
+                <TrackedProductCard product={p} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

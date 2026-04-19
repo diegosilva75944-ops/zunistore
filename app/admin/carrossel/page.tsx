@@ -20,7 +20,9 @@ export default async function AdminCarrosselPage() {
       <div>
         <h1 className="text-xl font-semibold">Carrossel</h1>
         <p className="text-sm text-zinc-600">
-          Selecione produtos e ordene por drag & drop. O carrossel será exibido como slider na home.
+          Selecione produtos e ordene por drag & drop. O carrossel será exibido como slider na home. Se
+          nenhum produto estiver configurado, a home usa automaticamente 6 ofertas aleatórias que renovam a
+          cada dia (ordem fixa durante 24h no fuso America/Sao_Paulo).
         </p>
       </div>
 
