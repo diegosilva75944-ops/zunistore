@@ -1,4 +1,4 @@
-import type { CheerioAPI } from "cheerio";
+import type { Cheerio, CheerioAPI } from "cheerio";
 
 function normalizeBlock(s: string): string {
   return String(s || "")
@@ -37,6 +37,55 @@ function pickDescriptionRoot($: CheerioAPI) {
   return parent.length ? parent : $("");
 }
 
+/**
+ * Clona o nó da descrição e devolve HTML seguro (texto + imagens) para gravar em `description_detail`.
+ * Remove scripts/iframes e normaliza `img` para HTTPS.
+ */
+function buildDescriptionHtmlFragment($: CheerioAPI, root: Cheerio<import("domhandler").AnyNode>): string {
+  const node = root.clone();
+  node.find("script,style,noscript,iframe,object,embed,form").remove();
+  node.find("*").each((_, el) => {
+    const $e = $(el);
+    const attribs = ($e[0] as { attribs?: Record<string, string> } | undefined)?.attribs;
+    if (!attribs) return;
+    for (const attr of Object.keys(attribs)) {
+      if (/^on/i.test(attr)) $e.removeAttr(attr);
+    }
+  });
+  node.find("h2, h3").each((_, el) => {
+    const $h = $(el);
+    const t = $h.text().trim();
+    if (/^descri[çc][aã]o$/i.test(t)) $h.remove();
+  });
+  node.find("img").each((_, img) => {
+    const $img = $(img);
+    let src = ($img.attr("src") || $img.attr("data-src") || "").trim();
+    if (src.startsWith("//")) src = `https:${src}`;
+    if (!/^https:\/\//i.test(src)) {
+      $img.remove();
+      return;
+    }
+    $img.attr("src", src);
+    $img.removeAttr("data-src");
+    $img.removeAttr("srcset");
+    $img.removeAttr("sizes");
+    $img.attr("loading", "lazy");
+    $img.attr("decoding", "async");
+    if (!$img.attr("alt")) $img.attr("alt", "");
+  });
+  node.find("a").each((_, a) => {
+    const $a = $(a);
+    const href = ($a.attr("href") || "").trim();
+    if (!/^https:\/\//i.test(href)) {
+      $a.replaceWith($a.contents());
+    } else {
+      $a.attr("rel", "nofollow noopener noreferrer");
+      $a.attr("target", "_blank");
+    }
+  });
+  return node.html()?.trim() ?? "";
+}
+
 export function extractFullDescription($: CheerioAPI): string {
   const root = pickDescriptionRoot($);
 
@@ -46,6 +95,18 @@ export function extractFullDescription($: CheerioAPI): string {
     const any = $('[data-testid="content"].ui-pdp-description__content').first();
     if (any.length) return normalizeBlock(any.text());
     return "";
+  }
+
+  /** Se a descrição tiver imagens no DOM, preservar HTML (texto + img) em vez de só `.text()`. */
+  if (root.find("img").length > 0) {
+    const inner =
+      root.find(".ui-pdp-description__content").first().length ?
+        root.find(".ui-pdp-description__content").first()
+      : root.find('[data-testid="content"]').first().length ?
+        root.find('[data-testid="content"]').first()
+      : root;
+    const html = buildDescriptionHtmlFragment($, inner);
+    if (html.length >= 10) return html;
   }
 
   const parts: string[] = [];
@@ -86,8 +147,20 @@ export function extractShortDescriptionFromHighlightedSpecs($: CheerioAPI): stri
   return normalizeBlock(el.text());
 }
 
+function stripTagsForShortDescription(htmlOrText: string): string {
+  const s = String(htmlOrText ?? "");
+  if (!s.includes("<")) return s;
+  return s
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function makeShortDescription(full: string, title: string | null, maxLen = 320): string {
-  const base = full.trim() || (title || "").trim();
+  const plain = stripTagsForShortDescription(full);
+  const base = plain || (title || "").trim();
   if (!base) return "";
   if (base.length <= maxLen) return base;
   const cut = base.slice(0, maxLen);

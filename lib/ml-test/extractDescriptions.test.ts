@@ -14,6 +14,26 @@ describe("extractDescriptions", () => {
     expect(preferLongerText("x", "")).toBe("x");
   });
 
+  it("extractFullDescription preserva HTML com imagens no bloco de descrição", () => {
+    const html = `
+<!DOCTYPE html><html><body>
+<div class="ui-pdp-collapsable__container">
+  <div id="description" class="ui-pdp-description">
+    <div class="ui-pdp-description__content">
+      <p>Texto antes.</p>
+      <img src="https://http2.mlstatic.com/desc.jpg" alt="Infográfico" />
+      <p>Texto depois.</p>
+    </div>
+  </div>
+</div>
+</body></html>`;
+    const $ = load(html);
+    const out = extractFullDescription($);
+    expect(out).toContain("<img");
+    expect(out).toContain("https://http2.mlstatic.com/desc.jpg");
+    expect(out).toContain("Texto antes");
+  });
+
   it("extractFullDescription junta parágrafos do bloco #description", () => {
     const html = `
 <!DOCTYPE html><html><body>

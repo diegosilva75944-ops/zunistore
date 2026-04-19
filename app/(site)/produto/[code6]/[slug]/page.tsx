@@ -9,6 +9,11 @@ import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { ProductPageTracker } from "@/components/tracking/ProductPageTracker";
 import { ProductGallery } from "@/components/ProductGallery";
 import { RatingStars } from "@/components/RatingStars";
+import {
+  productDescriptionLooksLikeHtml,
+  sanitizeProductDescriptionHtml,
+  stripHtmlToPlainText,
+} from "@/lib/sanitize-product-description-html";
 
 export const revalidate = 300;
 
@@ -242,9 +247,18 @@ export default async function ProdutoPage(props: {
         <section className="zuni-site-section space-y-4">
           <div>
             <h2 className="text-lg md:text-xl font-semibold text-zinc-900 mb-3">Descrição completa</h2>
-            <div className="text-base md:text-lg text-zinc-800 whitespace-pre-wrap leading-relaxed">
-              {product.description_detail}
-            </div>
+            {productDescriptionLooksLikeHtml(product.description_detail) ? (
+              <div
+                className="product-description-html text-base md:text-lg text-zinc-800 leading-relaxed max-w-none [&_img]:mx-auto [&_img]:block [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_a]:text-zuni-primary [&_a]:underline"
+                dangerouslySetInnerHTML={{
+                  __html: sanitizeProductDescriptionHtml(product.description_detail),
+                }}
+              />
+            ) : (
+              <div className="text-base md:text-lg text-zinc-800 whitespace-pre-wrap leading-relaxed">
+                {product.description_detail}
+              </div>
+            )}
           </div>
         </section>
       ) : null}
@@ -303,16 +317,17 @@ function buildProductJsonLd(product: any, pageUrl: string) {
   const list = Number(product.price);
   const sale = product.promo_price == null ? null : Number(product.promo_price);
   const price = sale != null && Number.isFinite(list) && sale < list ? sale : list;
-  const descFull = [product.description, product.description_detail]
+  const descRaw = [product.description, product.description_detail]
     .filter((s: string) => typeof s === "string" && s.trim())
     .join("\n\n")
     .trim();
+  const descFull = stripHtmlToPlainText(descRaw) || descRaw;
   const base: any = {
     "@context": "https://schema.org",
     "@type": "Product",
     name: product.title,
     image: Array.isArray(product.images) ? product.images : [],
-    description: descFull || product.description,
+    description: descFull || stripHtmlToPlainText(String(product.description ?? "")),
     sku: product.code6,
     offers: {
       "@type": "Offer",

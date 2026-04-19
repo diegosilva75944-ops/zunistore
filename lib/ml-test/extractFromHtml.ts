@@ -259,8 +259,10 @@ export function extractFromHtml(html: string, label: string): ExtractFromHtmlOut
     null;
 
   const fullDescDom = extractFullDescription($);
-  /** JSON-LD costuma trazer só o resumo; o bloco #description no DOM tem o texto completo. */
-  const fullDesc = preferLongerText(fullDescDom, jsonLd?.description?.trim() ?? "");
+  const jsonLdDesc = jsonLd?.description?.trim() ?? "";
+  /** JSON-LD costuma trazer só o resumo; o bloco #description no DOM tem o texto completo. Com `<img>` no DOM, manter o HTML. */
+  const fullDesc =
+    /<img\s/i.test(fullDescDom) ? fullDescDom : preferLongerText(fullDescDom, jsonLdDesc);
   const shortFromSpecs = extractShortDescriptionFromHighlightedSpecs($);
   const shortDescription = shortFromSpecs.trim() || makeShortDescription(fullDesc, title);
   const galleryImages = extractGalleryImages($);
