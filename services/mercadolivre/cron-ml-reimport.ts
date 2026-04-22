@@ -2,7 +2,7 @@ import "server-only";
 
 import {
   adminValidateProductAffiliateLink,
-  moveProductToDeletedHistoryAndDelete,
+  markProductSoftInactive,
   recordProductPriceChange,
 } from "@/lib/admin/db";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
@@ -22,7 +22,7 @@ function sleep(ms: number) {
 
 export type CronMlBatchFailure = { product_id: string; code6: string; error: string };
 
-export type CronMlProgressOutcome = "reimported" | "deleted" | "failed" | "skipped_no_url";
+export type CronMlProgressOutcome = "reimported" | "inactive" | "failed" | "skipped_no_url";
 
 export type CronMlProgressEvent =
   | { phase: "start"; total: number }
@@ -76,7 +76,7 @@ export type CronMlFullReimportBatchResult =
       reason: "no_ml_products";
       total: number;
       reimported: number;
-      deleted: number;
+      inactive_marked: number;
       failed: number;
       skipped_no_url: number;
       failures: CronMlBatchFailure[];
@@ -89,7 +89,7 @@ export type CronMlFullReimportBatchResult =
       skipped: false;
       total: number;
       reimported: number;
-      deleted: number;
+      inactive_marked: number;
       failed: number;
       skipped_no_url: number;
       failures: CronMlBatchFailure[];
@@ -102,7 +102,7 @@ export type CronMlFullReimportBatchResult =
       error: string;
       total?: number;
       reimported?: number;
-      deleted?: number;
+      inactive_marked?: number;
       failed?: number;
       failures?: CronMlBatchFailure[];
     };
@@ -133,7 +133,7 @@ async function processOneMlProduct(
   code6: string,
 ): Promise<
   | { kind: "reimported" }
-  | { kind: "deleted" }
+  | { kind: "inactive" }
   | { kind: "failed"; error: string }
   | { kind: "skip_no_urls" }
 > {
@@ -166,11 +166,14 @@ async function processOneMlProduct(
   const quick = await fetchPricesFromUrl(priceUrl);
   if (quick.kind === "listing_gone") {
     try {
-      await moveProductToDeletedHistoryAndDelete(productId, "sync_not_found");
+      await markProductSoftInactive(productId);
     } catch (e) {
-      return { kind: "failed", error: e instanceof Error ? e.message : "Falha ao arquivar produto removido." };
+      return {
+        kind: "failed",
+        error: e instanceof Error ? e.message : "Falha ao marcar produto como inativo.",
+      };
     }
-    return { kind: "deleted" };
+    return { kind: "inactive" };
   }
 
   try {
@@ -225,7 +228,7 @@ export async function runCronMlFullReimportAll(options?: {
       reason: "no_ml_products",
       total: 0,
       reimported: 0,
-      deleted: 0,
+      inactive_marked: 0,
       failed: 0,
       skipped_no_url: 0,
       failures: [],
@@ -243,7 +246,7 @@ export async function runCronMlFullReimportAll(options?: {
   }
 
   let reimported = 0;
-  let deleted = 0;
+  let inactive_marked = 0;
   let failed = 0;
   let skipped_no_url = 0;
   const failures: CronMlBatchFailure[] = [];
@@ -300,9 +303,9 @@ export async function runCronMlFullReimportAll(options?: {
           errors: affErrors,
           transient: affTransient,
         });
-      } else if (result.kind === "deleted") {
-        deleted += 1;
-        outcome = "deleted";
+      } else if (result.kind === "inactive") {
+        inactive_marked += 1;
+        outcome = "inactive";
       } else if (result.kind === "failed") {
         failed += 1;
         failures.push({ product_id: id, code6, error: result.error });
@@ -354,7 +357,7 @@ export async function runCronMlFullReimportAll(options?: {
     skipped: false,
     total: all.length,
     reimported,
-    deleted,
+    inactive_marked,
     failed,
     skipped_no_url,
     failures,

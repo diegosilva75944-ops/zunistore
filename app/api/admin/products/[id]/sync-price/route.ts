@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { postgrestGet, postgrestPatch, PostgrestError } from "@/lib/postgrest/server";
 import {
   adminValidateProductAffiliateLink,
-  moveProductToDeletedHistoryAndDelete,
+  markProductSoftInactive,
   recordProductPriceChange,
 } from "@/lib/admin/db";
 import { fetchPricesFromUrl } from "@/lib/ml-price";
@@ -105,14 +105,13 @@ export async function POST(
       const quick = await fetchPricesFromUrl(priceUrl);
       if (quick.kind === "listing_gone") {
         try {
-          await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
+          await markProductSoftInactive(id);
         } catch (e) {
-          console.error("sync-price: moveProductToDeletedHistoryAndDelete", e);
+          console.error("sync-price: markProductSoftInactive", e);
           return NextResponse.json(
             {
               ok: false,
-              error:
-                "O anúncio parece não existir mais, mas não foi possível salvar no histórico de deletados.",
+              error: "O anúncio parece não existir mais, mas não foi possível marcar o produto como inativo.",
               details: e instanceof PostgrestError ? e.details : undefined,
             },
             { status: 500 },
@@ -121,9 +120,9 @@ export async function POST(
         return NextResponse.json({
           ok: true,
           mode: "ml_full_reimport",
-          deleted: true,
+          inactive: true,
           message:
-            "Produto não encontrado na URL. Removido da listagem e do site e salvo no histórico de deletados.",
+            "Anúncio não encontrado na origem. O produto foi marcado como inativo (sai das listagens; a página continua com noindex até reativar ou apagar).",
         });
       }
 
@@ -222,14 +221,13 @@ export async function POST(
 
     if (ml.kind === "listing_gone") {
       try {
-        await moveProductToDeletedHistoryAndDelete(id, "sync_not_found");
+        await markProductSoftInactive(id);
       } catch (e) {
-        console.error("sync-price: moveProductToDeletedHistoryAndDelete", e);
+        console.error("sync-price: markProductSoftInactive", e);
         return NextResponse.json(
           {
             ok: false,
-            error:
-              "O anúncio parece não existir mais, mas não foi possível salvar no histórico de deletados.",
+            error: "O anúncio parece não existir mais, mas não foi possível marcar o produto como inativo.",
             details: e instanceof PostgrestError ? e.details : undefined,
           },
           { status: 500 },
@@ -238,9 +236,9 @@ export async function POST(
       return NextResponse.json({
         ok: true,
         mode: "price_only",
-        deleted: true,
+        inactive: true,
         message:
-          "Produto não encontrado na URL. Removido da listagem e do site e salvo no histórico de deletados.",
+          "Anúncio não encontrado na origem. O produto foi marcado como inativo (sai das listagens; a página continua com noindex até reativar ou apagar).",
       });
     }
 

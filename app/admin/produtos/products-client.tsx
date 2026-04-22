@@ -480,7 +480,7 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         } else {
           const failN = typeof data.failed === "number" ? data.failed : 0;
           const skipUrl = typeof data.skipped_no_url === "number" ? data.skipped_no_url : 0;
-          let msg = `Reimportação ML concluída. Total na fila: ${data.total ?? 0}, atualizados: ${data.reimported ?? 0}, removidos (anúncio inexistente): ${data.deleted ?? 0}`;
+          let msg = `Reimportação ML concluída. Total na fila: ${data.total ?? 0}, atualizados: ${data.reimported ?? 0}, marcados como inativos (anúncio sumiu na origem): ${data.inactive_marked ?? 0}`;
           if (skipUrl > 0) msg += `, ignorados (sem URL de anúncio): ${skipUrl}`;
           if (failN > 0) msg += `, falhas: ${failN}`;
           if (Array.isArray(data.failures) && data.failures.length > 0) {
@@ -504,7 +504,8 @@ export function ProductsClient({ categories }: { categories: Category[] }) {
         );
       }
 
-      const deletedN = typeof data.deleted === "number" && data.deleted > 0 ? data.deleted : 0;
+      const deletedN =
+        data.mode === "ml_full_reimport" ? 0 : typeof data.deleted === "number" && data.deleted > 0 ? data.deleted : 0;
       if (deletedN > 0) setHistoricoTabBadgeCount((c) => c + deletedN);
 
       await fetchProducts(true);

@@ -675,6 +675,11 @@ export async function adminBulkDeleteProducts(productIds: string[]) {
   await postgrestDelete("products", { id: inVal(productIds) });
 }
 
+/** Soft delete: mantém URL e dados para SEO (noindex na PDP) até reativar ou apagar definitivamente. */
+export async function markProductSoftInactive(productId: string): Promise<void> {
+  await postgrestPatch("products", { is_active: false }, { id: `eq.${productId}` });
+}
+
 export async function moveProductToDeletedHistoryAndDelete(
   productId: string,
   reason: string = "sync_not_found",

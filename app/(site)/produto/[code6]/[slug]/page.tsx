@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import type { Metadata } from "next";
 import { getBaseUrl } from "@/lib/site-url";
 import { getCategoryBreadcrumbTrail } from "@/lib/categories-tree";
-import { getCategoryById, getProductByCode6, getSiteCategoriesFlatForNavigationCached, listRelatedProducts } from "@/lib/store";
+import { getCategoryById, getSiteCategoriesFlatForNavigationCached, listRelatedProducts } from "@/lib/store";
+import { loadPdpSeoContext } from "@/lib/pdp-seo-cache";
 import { TrackedProductCard } from "@/components/TrackedProductCard";
 import { PRODUCT_CARD_GRID_CLASS } from "@/lib/ui/product-grid";
 import { ProductPageTracker } from "@/components/tracking/ProductPageTracker";
@@ -20,9 +21,14 @@ export const revalidate = 300;
 export async function generateMetadata(props: {
   params: Promise<{ code6: string; slug: string }>;
 }): Promise<Metadata> {
-  const { code6 } = await props.params;
-  const product = await getProductByCode6(code6);
-  if (!product) return { title: "Produto não encontrado" };
+  const { code6, slug } = await props.params;
+  const { product, resolution } = await loadPdpSeoContext(code6, slug);
+  if (resolution.redirectTo) {
+    return { title: "Redirecionando…", robots: { index: false, follow: true } };
+  }
+  if (!product || resolution.status === 404) {
+    return { title: "Produto não encontrado", robots: { index: false, follow: true } };
+  }
 
   const listPriceMeta = Number(product.price);
   const salePriceMeta = product.promo_price == null ? null : Number(product.promo_price);
@@ -42,10 +48,14 @@ export async function generateMetadata(props: {
   const ogImageUrl =
     typeof mainImage === "string" && mainImage.startsWith("http") ? mainImage : undefined;
 
+  const robots =
+    resolution.shouldIndex ? undefined : ({ index: false, follow: true } as const);
+
   return {
     title: `${title} (${product.code6})`,
     description,
     alternates: { canonical: productUrl },
+    robots,
     openGraph: {
       title,
       description,
@@ -67,9 +77,12 @@ export async function generateMetadata(props: {
 export default async function ProdutoPage(props: {
   params: Promise<{ code6: string; slug: string }>;
 }) {
-  const { code6 } = await props.params;
-  const product = await getProductByCode6(code6);
-  if (!product) notFound();
+  const { code6, slug } = await props.params;
+  const { product, resolution } = await loadPdpSeoContext(code6, slug);
+  if (resolution.redirectTo) permanentRedirect(resolution.redirectTo);
+  if (resolution.status === 404 || !product) notFound();
+
+  const unavailable = product.is_active === false;
 
   const category = await getCategoryById(product.category_id);
   const categoriesFlat = await getSiteCategoriesFlatForNavigationCached();
@@ -94,10 +107,22 @@ export default async function ProdutoPage(props: {
   )}`;
   const fb = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`;
 
-  const ldJson = buildProductJsonLd(product, pageUrl);
+  const ldJson = buildProductJsonLd(product, pageUrl, unavailable);
 
   return (
     <div className="space-y-8">
+      {unavailable ? (
+        <div
+          className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          role="status"
+        >
+          <p className="font-semibold">Produto indisponível no momento</p>
+          <p className="mt-1 text-amber-900/90">
+            O anúncio na loja de origem não está mais disponível. Confira abaixo opções similares ainda
+            ativas no site.
+          </p>
+        </div>
+      ) : null}
       <ProductPageTracker
         product={{
           id: product.id,
@@ -186,14 +211,21 @@ export default async function ProdutoPage(props: {
             </p>
 
             <div className="pt-1 flex flex-col gap-3">
-              <a
-                href={product.affiliate_url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center justify-center rounded-full bg-zuni-primary px-5 py-3 text-sm font-semibold text-white hover:opacity-95 transition"
-              >
-                Comprar (nova aba)
-              </a>
+              {unavailable ? (
+                <p className="text-sm text-zinc-600 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  Link de compra oculto enquanto o produto estiver marcado como indisponível. Atualize o
+                  link de afiliado no admin para reativar.
+                </p>
+              ) : (
+                <a
+                  href={product.affiliate_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center rounded-full bg-zuni-primary px-5 py-3 text-sm font-semibold text-white hover:opacity-95 transition"
+                >
+                  Comprar (nova aba)
+                </a>
+              )}
               <div className="flex items-center gap-2 flex-wrap">
                 <a
                   href={wa}
@@ -268,12 +300,16 @@ export default async function ProdutoPage(props: {
           <div className="flex flex-wrap items-end justify-between gap-3 border-b border-zinc-100 pb-4">
             <div>
               <h2 id="related-products-heading" className="text-xl font-semibold text-zinc-900">
-                Produtos Relacionados
+                {unavailable ? "Produtos similares" : "Produtos Relacionados"}
               </h2>
               <p className="text-sm text-zinc-600 mt-1">
-                {category
-                  ? `Outras opções em ${category.name}`
-                  : "Outras opções que podem te interessar"}
+                {unavailable ?
+                  category ?
+                    `Sugestões ainda disponíveis em ${category.name}`
+                  : "Sugestões ainda disponíveis no site"
+                : category ?
+                  `Outras opções em ${category.name}`
+                : "Outras opções que podem te interessar"}
               </p>
             </div>
             {category ? (
@@ -313,7 +349,7 @@ function splitDescriptionIntoLines(text: string): string[] {
   return t.split(/\|/).map((s) => s.trim()).filter(Boolean);
 }
 
-function buildProductJsonLd(product: any, pageUrl: string) {
+function buildProductJsonLd(product: any, pageUrl: string, unavailable?: boolean) {
   const list = Number(product.price);
   const sale = product.promo_price == null ? null : Number(product.promo_price);
   const price = sale != null && Number.isFinite(list) && sale < list ? sale : list;
@@ -334,7 +370,9 @@ function buildProductJsonLd(product: any, pageUrl: string) {
       priceCurrency: "BRL",
       price: String(price),
       url: pageUrl,
-      availability: "https://schema.org/InStock",
+      availability: unavailable
+        ? "https://schema.org/OutOfStock"
+        : "https://schema.org/InStock",
     },
   };
 

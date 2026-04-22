@@ -5,6 +5,8 @@ import {
   visitSessionCookieOpts,
   ZUNI_VISIT_SESSION_COOKIE,
 } from "@/lib/personalization/visit-session";
+import { fetchProductPageStatusRpc } from "@/lib/postgrest/call-product-page-status";
+import { resolvePdpMiddlewareFromRpc } from "@/lib/product-seo";
 
 const cookieName = process.env.ADMIN_JWT_COOKIE_NAME || "zuni_admin";
 const secret = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET || "");
@@ -36,8 +38,41 @@ function ensureVisitorSessionCookie(req: NextRequest, res: NextResponse) {
   );
 }
 
+const PDP_PATH = /^\/produto\/([^/]+)\/([^/]+)\/?$/;
+
+function gone410Html() {
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,follow"/><title>Produto removido</title></head><body style="font-family:system-ui,sans-serif;margin:2rem;max-width:36rem;line-height:1.5;color:#18181b"><h1 style="font-size:1.25rem">Este produto não está mais disponível</h1><p>Foi removido do catálogo. Você pode voltar ao <a href="/">início</a> ou usar a busca do site.</p><p style="color:#71717a;font-size:.875rem">HTTP 410 Gone</p></body></html>`;
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  /** PDP: status HTTP real (410 Gone, 301 canónico/substituto) antes do RSC. */
+  if (req.method === "GET" || req.method === "HEAD") {
+    const m = pathname.match(PDP_PATH);
+    if (m) {
+      const code6 = decodeURIComponent(m[1]);
+      const slug = decodeURIComponent(m[2]);
+      const rpc = await fetchProductPageStatusRpc(code6, slug);
+      const decision = resolvePdpMiddlewareFromRpc(rpc, code6);
+      if (decision.action === "gone") {
+        const res = new NextResponse(gone410Html(), {
+          status: 410,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+        ensureVisitorSessionCookie(req, res);
+        return res;
+      }
+      if (decision.action === "redirect") {
+        const url = req.nextUrl.clone();
+        url.pathname = decision.location.split("?")[0];
+        url.search = "";
+        const res = NextResponse.redirect(url, 301);
+        ensureVisitorSessionCookie(req, res);
+        return res;
+      }
+    }
+  }
 
   /** Evita página que só faz redirect (causava TypeError em Performance.measure no React/Next 16). */
   if (pathname === "/admin" || pathname === "/admin/") {

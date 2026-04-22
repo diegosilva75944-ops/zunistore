@@ -14,20 +14,37 @@ const httpUrl = z.string().trim().refine((s) => {
   }
 }, "Informe uma URL http(s) válida.");
 
-const schema = z.object({
-  title: z.string().min(1),
-  description: z.string().optional().default(""),
-  description_detail: z.string().optional().default(""),
-  /** ML/Supabase às vezes enviam query longa; `z.url()` falha em edge cases. */
-  images: z.array(z.string().trim().min(1)).optional().default([]),
-  category_id: z.string().uuid(),
-  price: z.coerce.number().positive(),
-  promo_price: z.coerce.number().nullable().optional(),
-  affiliate_url: httpUrl,
-  source_url: httpUrl,
-  rating: z.coerce.number().nullable().optional(),
-  reviews_count: z.coerce.number().int().nullable().optional(),
-});
+const schema = z
+  .object({
+    title: z.string().min(1),
+    description: z.string().optional().default(""),
+    description_detail: z.string().optional().default(""),
+    /** ML/Supabase às vezes enviam query longa; `z.url()` falha em edge cases. */
+    images: z.array(z.string().trim().min(1)).optional().default([]),
+    category_id: z.string().uuid(),
+    price: z.coerce.number().positive(),
+    promo_price: z.coerce.number().nullable().optional(),
+    affiliate_url: httpUrl,
+    source_url: httpUrl,
+    rating: z.coerce.number().nullable().optional(),
+    reviews_count: z.coerce.number().int().nullable().optional(),
+    /** Reativar PDP ou manter só inativo conforme fluxo SEO. */
+    is_active: z.boolean().optional(),
+    /** Substituto para 301 na PDP (ambos ou nenhum). */
+    redirect_code6: z.string().trim().nullable().optional(),
+    redirect_slug: z.string().trim().nullable().optional(),
+  })
+  .superRefine((d, ctx) => {
+    const rc = d.redirect_code6 != null && d.redirect_code6 !== "";
+    const rs = d.redirect_slug != null && d.redirect_slug !== "";
+    if (rc !== rs) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Informe redirect_code6 e redirect_slug juntos, ou omita ambos.",
+        path: ["redirect_slug"],
+      });
+    }
+  });
 
 export async function PATCH(
   req: Request,
@@ -56,7 +73,7 @@ export async function PATCH(
   const code6 = Array.isArray(rows) && rows[0] ? rows[0].code6 : undefined;
   const slug = code6 ? `${slugify(parsed.data.title)}-${code6}` : slugify(parsed.data.title);
 
-  await postgrestPatch("products", {
+  const body: Record<string, unknown> = {
     title: parsed.data.title,
     description: parsed.data.description ?? "",
     description_detail: parsed.data.description_detail ?? "",
@@ -71,7 +88,16 @@ export async function PATCH(
     rating: parsed.data.rating ?? null,
     reviews_count: parsed.data.reviews_count ?? null,
     slug,
-  }, { id: `eq.${id}` });
+  };
+  if (parsed.data.is_active !== undefined) {
+    body.is_active = parsed.data.is_active;
+  }
+  if (parsed.data.redirect_code6 !== undefined || parsed.data.redirect_slug !== undefined) {
+    body.redirect_code6 = parsed.data.redirect_code6?.trim() || null;
+    body.redirect_slug = parsed.data.redirect_slug?.trim() || null;
+  }
+
+  await postgrestPatch("products", body, { id: `eq.${id}` });
 
   return NextResponse.json({ ok: true });
 }

@@ -37,6 +37,11 @@ export type Product = {
   source_url: string;
   created_at: string;
   updated_at: string;
+  /** Catálogo: omitido em listagens (só ativos). Na PDP pode vir `false` (soft delete / indisponível). */
+  is_active?: boolean;
+  /** Substituto SEO: redirecionamento permanente para outro produto. */
+  redirect_code6?: string | null;
+  redirect_slug?: string | null;
 };
 
 export type CarouselItem = {
@@ -517,6 +522,37 @@ export async function getProductByCode6(code6: string): Promise<Product | null> 
   }
 }
 
+/**
+ * PDP: produto por `code6` **sem** filtrar `is_active` nem `affiliate_valid`
+ * (mostrar indisponível / link expirado com mensagem, sem esconder a linha).
+ */
+export async function getProductByCode6ForPdpPage(code6: string): Promise<Product | null> {
+  try {
+    const select =
+      "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at,is_active,redirect_code6,redirect_slug";
+    let rows: any[];
+    try {
+      rows = await getWithPublicFallback<any[]>("products", {
+        select,
+        code6: `eq.${encodeURIComponent(code6)}`,
+        limit: "1",
+      });
+    } catch (e) {
+      if (!isStoreAffiliateColumnError(e)) throw e;
+      rows = await getWithPublicFallback<any[]>("products", {
+        select:
+          "id,code6,slug,title,description,description_detail,images,category_id,price,promo_price,is_offer,off_percent,rating,reviews_count,affiliate_code,affiliate_url,source_url,created_at,updated_at,is_active",
+        code6: `eq.${encodeURIComponent(code6)}`,
+        limit: "1",
+      });
+    }
+    const data = Array.isArray(rows) ? rows[0] : null;
+    return data ? normalizeProduct(data) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function listCarouselProducts() {
   try {
     const data = await getWithPublicFallback<any[]>("carousel_items", {
@@ -638,7 +674,7 @@ export async function listRelatedProducts(opts: {
 }
 
 export function normalizeProduct(row: any): Product {
-  return {
+  const p: Product = {
     id: row.id,
     code6: row.code6,
     slug: row.slug,
@@ -659,4 +695,10 @@ export function normalizeProduct(row: any): Product {
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+  if (row.is_active !== undefined && row.is_active !== null) {
+    p.is_active = Boolean(row.is_active);
+  }
+  if (row.redirect_code6 !== undefined) p.redirect_code6 = row.redirect_code6;
+  if (row.redirect_slug !== undefined) p.redirect_slug = row.redirect_slug;
+  return p;
 }
